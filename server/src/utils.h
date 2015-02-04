@@ -3,6 +3,9 @@
  */
 #ifndef _UTILS_1422516244_H_
 #define _UTILS_1422516244_H_
+
+
+#define SADDR_MIN 48
 /*
  * print port and host to str with lenght size
  * output must be have least 48 byte

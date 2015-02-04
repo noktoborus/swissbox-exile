@@ -1,6 +1,9 @@
 /* vim: ft=c ff=unix fenc=utf-8
  * file: utils.c
  */
+#include <arpa/inet.h>
+#include <stdlib.h>
+#include <stdio.h>
 #include "utils.h"
 
 void
