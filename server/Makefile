@@ -12,6 +12,6 @@ all: ${BIN}
 ${BIN}: ${SRC}/main.c ${SRC}/utils.c ${SRC}/client_iterate.c gen/fet.pb-c.c
 	${CC} -o ${BIN} ${CFLAGS} $^ ${LIBS}
 
-gen/fet.pb-c.c:
+gen/fet.pb-c.c: ../fet.proto
 	protoc-c --c_out=gen/ -I../ ../fet.proto
 
