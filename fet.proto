@@ -1,18 +1,28 @@
 package FETProto;
 
 /*
+ * |a|a|b|b|b|_|
+ *  ^   ^__________ payload size
+ *  |_________ packet type
+ * _ - are reserved
+ * all values in BE bytes order
+ */
+
+
+/*
 * Последовательность авторизации:
 * S: ReqAuth
 * C: Auth
 *
 */
 
-
+/* type: 1 */
 message Pong {
 	required uint64 id = 1;
 	required uint64 timestamp = 2;
 }
 
+/* type: 2 */
 message Ping {
 	required uint64 id = 1;
 	required uint64 timestamp = 2;
@@ -25,10 +35,11 @@ enum ReqAuthType {
 	tKey = 2;
 }
 
+/* type: 3 */
 /* предложение сервера авторизироваться:
  * ожидаемые ответы: Auth */
 message ReqAuth {
-	enum ReqAuthTarget {
+	enum Target {
 		tInternal = 0; /* авторизация внутри коробки */
 		tLDAP = 1; /* авторизация требуется для адаптера LDAP */
 		tSwiss = 2; /* авторизация для адаптера свистка */
@@ -37,11 +48,12 @@ message ReqAuth {
 	required uint64 id = 1;
 	required string domain = 2;
 	required ReqAuthType type = 3;
-	required ReqAuthTarget target = 4;
+	required Target target = 4;
 	/* информационный текст для пользователя */
 	optional string text = 5;
 }
 
+/* type: 4 */
 /* запрос клиента авторизации
  * ожидаемые ответы: Ok, Error,
  * Pending: информационное сообщение, авторизация принята,
