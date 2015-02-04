@@ -1,0 +1,178 @@
+package FETProto;
+
+/*
+* Последовательность авторизации:
+* S: ReqAuth
+* C: Auth
+*
+*/
+
+
+message Pong {
+	required uint64 id = 1;
+	required uint64 timestamp = 2;
+}
+
+message Ping {
+	required uint64 id = 1;
+	required uint64 timestamp = 2;
+}
+
+
+enum ReqAuthType {
+	tHash = 0;
+	tUserPassword = 1;
+	tKey = 2;
+}
+
+/* предложение сервера авторизироваться:
+ * ожидаемые ответы: Auth */
+message ReqAuth {
+	enum ReqAuthTarget {
+		tInternal = 0; /* авторизация внутри коробки */
+		tLDAP = 1; /* авторизация требуется для адаптера LDAP */
+		tSwiss = 2; /* авторизация для адаптера свистка */
+		tOther = 100; /* запрос непонятно для чего, куда-то наружу */
+	};
+	required uint64 id = 1;
+	required string domain = 2;
+	required ReqAuthType type = 3;
+	required ReqAuthTarget target = 4;
+	/* информационный текст для пользователя */
+	optional string text = 5;
+}
+
+/* запрос клиента авторизации
+ * ожидаемые ответы: Ok, Error,
+ * Pending: информационное сообщение, авторизация принята,
+ * 		но проверку выполнить прямо сейчас не получится
+ */
+message Auth {
+	required uint64 id = 1;
+	required string domain = 2;
+	/* поля для авторизации, только хеш, юзер/пароль, ключ */
+	optional string authToken = 4;
+	optional string username = 5;
+	optional string password = 6;
+	required ReqAuthType authType = 7;
+}
+
+/* общие ответы
+	в поле requestType указывается тип сообщения
+	на которое генерируется ответ
+ */
+message Error {
+	required uint64 id = 1 [default = 0];
+	optional string message = 3;
+	/* количество оставшихся попыток до применения санкций
+	   полезно, к примеру, для Auth */
+	optional uint32 remain = 4;
+}
+
+message Ok {
+	required uint64 id = 1;
+}
+
+/* подобный запрос уже выполняется */
+message Pending {
+	required uint64 id = 1 [default = 0];
+	/* стринги отладки */
+	optional string debug = 999;
+}
+
+/* отмена операции */
+message Cancel {
+	required uint64 id = 1 [default = 0];
+	optional string message = 2;
+}
+
+
+/*
+Запись:
+	C >
+	S <
+
+	> WriteAsk (id = 1000)
+	< WriteOk (id = 1000, space = 2344)
+	> Write (space = 2344, )
+	> Write (space = 2344, )
+	> WriteOk (id = 1001, space = 2344)
+	< Ok (id = 1001)
+   */
+
+/*
+ * Запрос разрешения на запись
+ * ответы:
+ *  Error: неудача
+ *  WriteOk: запись разрешена
+*/
+message WriteAsk {
+	required uint64 id = 1 [default = 0];
+	/* требуемое пространство в байтах для сохранения */
+	required uint64 reqspace = 2;
+	/* название рутдиры */
+	required string rootdir_guid = 3;
+	required string file_guid = 5;
+	required string revision_guid = 6;
+}
+
+/* Ответ сервера на запрос записи */
+message WriteOk {
+	required uint64 id = 1 [default = 0];
+	/* важное поле: идентификатор запрошенного пространства
+	   при запросе записи резервируется пространство
+	   и этот идентификатор нужен для последующей записи в это пространство
+	   */
+	required uint32 space = 2;
+}
+
+/* На Write подтверждение бессмысленно слать, потому шлём потоком,
+   после чего отсылается WriteOk  */
+message Write {
+	required uint32 space = 1;
+	/* номер текущего сегмента и общее количество сегментов */
+	required uint32 segment = 4;
+	required uint32 segments = 5;
+	required bytes data = 6;
+}
+
+/* чтение */
+
+
+/*
+ запрос на чтение,
+ возможные ответы:
+ Error: невозможно начать передау
+ Write: передача
+*/
+message ReadAsk {
+	required uint64 id = 1 [default = 0];
+	/* аналогично записи, резервируемая область у клиента */
+	required uint32 space = 2;
+
+	required string rootdir = 3;
+	/* размер сегментов в байтах */
+	required uint32 segment_size = 4;
+
+	required string chunk_guid = 5;
+	required string revision_guid = 6;
+}
+
+/* извещения
+ * Извещения отправляются сервером клиенту
+ * в случае отсутсвия поля id ответ не требуется
+ */
+
+/*
+	Извещение клиенту, что пришёл чанк обновился
+  	ответ не требуется 
+ */
+message ChunkUpdate {
+	
+}
+
+/* TODO: добавить обратку коллизий */
+
+/*
+TODO: добавить сообщение нотификации отдельных файлов
+*/
