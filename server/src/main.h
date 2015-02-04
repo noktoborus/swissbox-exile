@@ -28,6 +28,7 @@ struct sev_ctx
 	/* io */
 	ev_io evio;
 	struct ev_loop *evloop;
+	struct ev_async *alarm;
 	uint8_t action;
 	pthread_mutex_t utex;
 	pthread_cond_t ond;
@@ -66,6 +67,7 @@ struct main
 {
 	ev_signal sigint;
 	ev_timer watcher;
+	ev_async alarm;
 	/* server list */
 	struct sev_main *sev;
 };

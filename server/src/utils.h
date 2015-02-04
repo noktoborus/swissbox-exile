@@ -15,6 +15,32 @@
 void
 saddr_char(char *str, size_t size, sa_family_t family, struct sockaddr *sa);
 
+#include <pthread.h>
+#include "xsyslog.h"
+static inline int _pthread_mutex_lock(pthread_mutex_t *m) {
+	return pthread_mutex_lock(m);
+}
+
+static inline int _pthread_mutex_trylock(pthread_mutex_t *m, const char *file, int line) {
+	int r;
+	xsyslog(LOG_DEBUG, "[%s:%d] mutex trylock %p", file, line, (void*)m);
+	r = pthread_mutex_trylock(m);
+	xsyslog(LOG_DEBUG, "[%s:%d] mutex trylock %p -> %d", file, line, (void*)m, r);
+	return r;
+}
+
+static inline int _pthread_mutex_unlock(pthread_mutex_t *m) {
+	return pthread_mutex_unlock(m);
+}
+
+static inline int _pthread_cond_wait(pthread_cond_t *c, pthread_mutex_t *m) {
+	return pthread_cond_wait(c, m);
+}
+
+#define pthread_mutex_lock(x) {xsyslog(LOG_DEBUG, "mutex lock %p", (void*)x); _pthread_mutex_lock(x); }
+#define pthread_mutex_unlock(x) {xsyslog(LOG_DEBUG, "mutex unlock %p", (void*)x); _pthread_mutex_unlock(x); }
+#define pthread_mutex_trylock(x)  _pthread_mutex_trylock(x, __FILE__, __LINE__)
+#define pthread_cond_wait(x, y) {xsyslog(LOG_DEBUG, "cond unlock %p", (void*)y); _pthread_cond_wait(x, y); }
 
 #endif /* _UTILS_1422516244_H_ */
 

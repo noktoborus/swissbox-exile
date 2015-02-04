@@ -26,7 +26,7 @@ client_cb(struct ev_loop *loop, ev_io *w, int revents)
 {
 	struct sev_ctx *ptx = (struct sev_ctx*)w;
 	if (revents & EV_READ) {
-		if (pthread_mutex_trylock(&ptx->utex)) {
+		if (!pthread_mutex_trylock(&ptx->utex)) {
 			if (ptx->action & SEV_ACTION_READ) {
 				/* unset event */
 				ev_io_stop(loop, &ptx->evio);
@@ -42,7 +42,7 @@ client_cb(struct ev_loop *loop, ev_io *w, int revents)
 	}
 
 	if (revents & EV_WRITE) {
-		if (pthread_mutex_trylock(&ptx->utex)) {
+		if (!pthread_mutex_trylock(&ptx->utex)) {
 			if (ptx->action & SEV_ACTION_WRITE) {
 				ev_io_stop(loop, &ptx->evio);
 				ev_io_set(&ptx->evio, ptx->fd, ptx->evio.events & ~EV_WRITE);
@@ -100,6 +100,7 @@ client_free(struct sev_ctx *cev)
 		xsyslog(LOG_DEBUG, "client free(%p, fd#%d) join thread[%p]",
 				(void*)cev, cev->fd, (void*)cev->thread);
 		pthread_join(cev->thread, &retval);
+		ev_io_stop(cev->evloop, &cev->evio);
 		xsyslog(LOG_INFO, "client free(%p, fd#%d) exit thread[%p]",
 				(void*)cev, cev->fd, (void*)cev->thread);
 	}
@@ -131,7 +132,7 @@ struct sev_ctx *
 client_alloc(struct ev_loop *loop, int fd, struct sev_ctx *next)
 {
 	struct sev_ctx *cev;
-
+	struct main *pain = (struct main*)ev_userdata(loop);
 	cev = calloc(1, sizeof(struct sev_ctx));
 	if (!cev) {
 		xsyslog(LOG_WARNING, "client init(fd#%d) memory fail: %s",
@@ -179,6 +180,7 @@ client_alloc(struct ev_loop *loop, int fd, struct sev_ctx *next)
 		/* инициализация вторичных значений */
 		cev->fd = fd;
 		cev->evloop = loop;
+		cev->alarm = &pain->alarm;
 
 		ev_io_init(&cev->evio, client_cb, fd, EV_NONE);
 		ev_io_start(cev->evloop, &cev->evio);
@@ -202,9 +204,11 @@ sev_send(void *ctx, const unsigned char *buf, size_t len)
 	/* update ev info */
 	if (!(ptx->evio.events & EV_WRITE)) {
 		ev_io_stop(ptx->evloop, &ptx->evio);
-		ev_io_set(&ptx->evio, ptx->fd, ptx->evio.events & ~EV_WRITE);
+		ev_io_set(&ptx->evio, ptx->fd, ptx->evio.events | EV_WRITE);
 		ev_io_start(ptx->evloop, &ptx->evio);
+		ev_async_send(ptx->evloop, ptx->alarm);
 	}
+	/* TODO: replace to pthread_cond_timedwait() */
 	/* wait signal */
 	if (!(ptx->action & SEV_ACTION_WRITE || ptx->action & SEV_ACTION_EXIT))
 		pthread_cond_wait(&ptx->ond, &ptx->utex);
@@ -226,8 +230,9 @@ sev_recv(void *ctx, unsigned char *buf, size_t len)
 	pthread_mutex_lock(&ptx->utex);
 	if (!(ptx->evio.events & EV_READ)) {
 		ev_io_stop(ptx->evloop, &ptx->evio);
-		ev_io_set(&ptx->evio, ptx->fd, ptx->evio.events & ~EV_READ);
+		ev_io_set(&ptx->evio, ptx->fd, ptx->evio.events | EV_READ);
 		ev_io_start(ptx->evloop, &ptx->evio);
+		ev_async_send(ptx->evloop, ptx->alarm);
 	}
 	if (!(ptx->action & SEV_ACTION_READ || ptx->action & SEV_ACTION_EXIT))
 		pthread_cond_wait(&ptx->ond, &ptx->utex);
@@ -357,7 +362,7 @@ server_alloc(struct main *pain, char *address)
 				sev->port = ++port;
 			}
 		}
-}
+	}
 
 	/* внесение в общий список */
 	if (pain->sev)
@@ -420,6 +425,12 @@ signal_cb(struct ev_loop *loop, ev_signal *w, int revents)
 }
 
 void
+alarm_cb(struct ev_loop *loop, ev_async *w, int revents)
+{
+
+}
+
+void
 timeout_cb(struct ev_loop *loop, ev_timer *w, int revents)
 {
 	struct main *pain = (struct main*)ev_userdata(loop);
@@ -471,6 +482,9 @@ main(int argc, char *argv[])
 		/* таймер на чистку всяких устаревших структур и прочего */
 		ev_timer_init(&pain.watcher, timeout_cb, 30., 30.);
 		ev_timer_start(loop, &pain.watcher);
+		/* хреновинка для прерывания лупа */
+		ev_async_init(&pain.alarm, alarm_cb);
+		ev_async_start(loop, &pain.alarm);
 		/* TODO: мультисокет */
 		server_bind(loop, server_alloc(&pain, "127.0.0.1:5151"));
 
@@ -483,6 +497,7 @@ main(int argc, char *argv[])
 		/* чистка клиентских сокетов */
 		ev_signal_stop(loop, &pain.sigint);
 		ev_timer_stop(loop, &pain.watcher);
+		ev_async_stop(loop, &pain.alarm);
 		ev_loop_destroy(loop);
 		closelog();
 	}
