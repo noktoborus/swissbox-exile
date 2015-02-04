@@ -474,6 +474,7 @@ main(int argc, char *argv[])
 		/* TODO: мультисокет */
 		server_bind(loop, server_alloc(&pain, "127.0.0.1:5151"));
 
+		ev_set_userdata(loop, (void*)&pain);
 		/* выход происходит при остановке всех evio в лупе */
 		ev_run(loop, 0);
 		/* чистка серверных сокетов */
