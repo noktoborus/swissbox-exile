@@ -2,16 +2,16 @@
 # file: Makefile
 LIBS=`pkg-config --libs --cflags libev pthread-stubs libprotobuf-c`
 LIBS+=-pthread
-CFLAGS=-ggdb2 -D_POSIX_C_SOURCE -D_BSD_SOURCE -Wall -pedantic -std=c99
+CFLAGS=-ggdb2 -D_POSIX_C_SOURCE -D_BSD_SOURCE -Wall -pedantic -std=c99 -I.
 BIN=bin/server
 SRC=src/
 
 
 all: ${BIN}
 
-${BIN}: ${SRC}/main.c ${SRC}/utils.c ${SRC}/client_iterate.c gen/fet.pb-c.c
+${BIN}: ${SRC}/main.c ${SRC}/utils.c ${SRC}/client_iterate.c proto/fet.pb-c.c
 	${CC} -o ${BIN} ${CFLAGS} $^ ${LIBS}
 
-gen/fet.pb-c.c: ../fet.proto
-	protoc-c --c_out=gen/ -I../ ../fet.proto
+proto/fet.pb-c.c: ../fet.proto
+	protoc-c --c_out=proto/ -I../ ../fet.proto
 
