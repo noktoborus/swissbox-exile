@@ -16,6 +16,16 @@ package FETProto;
 *
 */
 
+enum Type {
+	tPing = 1;
+	tPong = 2;
+	tError = 3;
+	tOk = 4;
+	tPending = 5;
+	tReqAuth = 6;
+	tAuth = 7;
+}
+
 /* type: 1 */
 message Pong {
 	required uint64 id = 1;
