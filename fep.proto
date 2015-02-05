@@ -1,4 +1,4 @@
-package FETProto;
+package fep;
 
 /*
  * |a|a|b|b|b|_|
@@ -26,16 +26,16 @@ enum Type {
 	tAuth = 7;
 }
 
-/* type: 1 */
 message Pong {
 	required uint64 id = 1;
 	required uint64 timestamp = 2;
+	required uint32 usecs = 3;
 }
 
-/* type: 2 */
 message Ping {
 	required uint64 id = 1;
 	required uint64 timestamp = 2;
+	required uint32 usecs = 3;
 }
 
 

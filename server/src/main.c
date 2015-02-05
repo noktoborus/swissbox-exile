@@ -55,7 +55,7 @@ client_cb(struct ev_loop *loop, ev_io *w, int revents)
 	}
 }
 
-bool client_iterate(struct sev_ctx *);
+bool client_iterate(struct sev_ctx *, bool);
 
 void *
 client_thread(void *ctx)
@@ -63,7 +63,7 @@ client_thread(void *ctx)
 	struct sev_ctx *cev = (struct sev_ctx*)ctx;
 	struct timespec tv;
 	while (true) {
-		if (!client_iterate(cev)) {
+		if (!client_iterate(cev, false)) {
 			xsyslog(LOG_DEBUG, "client %p thread[%p] leave thread",
 					(void*)cev, (void*)cev->thread);
 			break;
@@ -79,6 +79,7 @@ client_thread(void *ctx)
 		}
 		pthread_mutex_unlock(&cev->utex);
 	}
+	client_iterate(cev, true);
 	cev->isfree = true;
 	return NULL;
 }
@@ -109,6 +110,7 @@ client_free(struct sev_ctx *cev)
 	pthread_mutex_destroy(&cev->utex);
 
 	if (cev->fd != -1) {
+		shutdown(cev->fd, SHUT_RDWR);
 		close(cev->fd);
 		cev->fd = -1;
 	}

@@ -9,9 +9,9 @@ SRC=src/
 
 all: ${BIN}
 
-${BIN}: ${SRC}/main.c ${SRC}/utils.c ${SRC}/client_iterate.c proto/fet.pb-c.c
+${BIN}: ${SRC}/main.c ${SRC}/utils.c ${SRC}/client_iterate.c proto/fep.pb-c.c
 	${CC} -o ${BIN} ${CFLAGS} $^ ${LIBS}
 
-proto/fet.pb-c.c: ../fet.proto
-	protoc-c --c_out=proto/ -I../ ../fet.proto
+proto/fep.pb-c.c: ../fep.proto
+	protoc-c --c_out=proto/ -I../ ../fep.proto
 
