@@ -42,7 +42,10 @@ struct sev_ctx
 
 	struct sev_ctx *prev;
 	struct sev_ctx *next;
-	/* */
+	/* header type and length */
+	unsigned short h_type;
+	unsigned int h_len;
+
 	enum cev_state state;
 };
 
