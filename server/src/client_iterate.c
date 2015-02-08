@@ -11,21 +11,39 @@
 #include "client_iterate.h"
 
 void
-_handle_ping(struct sev_ctx *cev, unsigned type, Fep__Ping *msg, size_t size)
+_handle_ping(struct sev_ctx *cev, unsigned type, Fep__Ping *ping)
 {
-	/* TODO */
 }
 
+void
+_handle_pong(struct sev_ctx *cev, unsigned type, Fep__Pong *pong)
+{
+}
+
+void
+_handle_auth(struct sev_ctx *cev, unsigned type, Fep__Auth *msg)
+{
+
+}
 
 static struct handle handle[] =
 {
-	{FEP__TYPE__tPing, (handle_t)_handle_ping},
-	{FEP__TYPE__tPong, (handle_t)_handle_ping},
-	{FEP__TYPE__tError, NULL},
-	{FEP__TYPE__tOk, NULL},
-	{FEP__TYPE__tPending, NULL},
-	{FEP__TYPE__tReqAuth, NULL},
-	{FEP__TYPE__tAuth, NULL}
+	{FEP__TYPE__tPing,
+		(handle_t)_handle_ping,
+		(handle_unpack_t)fep__ping__unpack,
+		(handle_free_t)fep__ping__free_unpacked},
+	{FEP__TYPE__tPong,
+		(handle_t)_handle_pong,
+		(handle_unpack_t)fep__pong__unpack,
+		(handle_free_t)fep__pong__free_unpacked},
+	{FEP__TYPE__tError, NULL, NULL, NULL},
+	{FEP__TYPE__tOk, NULL, NULL, NULL},
+	{FEP__TYPE__tPending, NULL, NULL, NULL},
+	{FEP__TYPE__tReqAuth, NULL, NULL, NULL},
+	{FEP__TYPE__tAuth,
+		(handle_t)_handle_auth,
+		(handle_unpack_t)fep__auth__unpack,
+		(handle_free_t)fep__auth__free_unpacked}
 };
 
 /* return offset */
@@ -94,13 +112,31 @@ handle_header(unsigned char *buf, size_t size, struct sev_ctx *cev)
 		return HEADER_MORE;
 	/* извлечение пакета */
 	{
-		void *msg = &buf[HEADER_OFFSET];
+		void *rawmsg = &buf[HEADER_OFFSET];
+		void *msg;
 		if (!handle[cev->h_type].f) {
 			xsyslog(LOG_INFO, "client[%p] header[type: %u, len: %u]: "
 					"message has no handle",
 					(void*)cev, cev->h_type, cev->h_len);
 		} else {
-			handle[cev->h_type].f(cev, cev->h_type, msg, cev->h_len);
+			/* не должно случаться такого, что бы небыло анпакера,
+			 * но как-то вот
+			 */
+			if (!handle[cev->h_type].p) {
+				handle[cev->h_type].f(cev, cev->h_type, rawmsg);
+			} else {
+				msg = handle[cev->h_type].p(NULL, cev->h_len, (uint8_t*)rawmsg);
+				handle[cev->h_type].f(cev, cev->h_type, msg);
+				/* проверять заполненность структуры нужно в компилтайме,
+				 * но раз такой возможности нет, то делаем это в рантайме
+				 */
+				if (!handle[cev->h_type].e) {
+					xsyslog(LOG_WARNING, "memory leak for message type %u\n",
+							cev->h_type);
+				} else {
+					handle[cev->h_type].e(msg, NULL);
+				}
+			}
 		}
 		return (int)(cev->h_len + HEADER_OFFSET);
 	}

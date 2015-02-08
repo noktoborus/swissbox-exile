@@ -13,12 +13,16 @@ struct client {
 	size_t bsz;
 };
 
-typedef void(*handle_t)(struct sev_ctx *, unsigned, void *, size_t);
+typedef void(*handle_t)(struct sev_ctx *, unsigned, void *);
+typedef void*(*handle_unpack_t)(ProtobufCAllocator *, size_t, const uint8_t *);
+typedef void(*handle_free_t)(void *, ProtobufCAllocator *);
 
 struct handle
 {
 	unsigned short type;
 	handle_t f;
+	handle_unpack_t p;
+	handle_free_t e;
 };
 
 #define HEADER_OFFSET 6
