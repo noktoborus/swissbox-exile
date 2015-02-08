@@ -153,8 +153,6 @@ message WriteAsk {
 	required string rootdir_guid = 3;
 	required string file_guid = 5;
 	required string revision_guid = 6;
-	/* контрольная сумма */
-	required string crc;
 }
 
 /* Ответ сервера на запрос записи */
@@ -168,6 +166,8 @@ message End {
 	   и этот идентификатор нужен для последующей записи в это пространство
 	   */
 	required uint32 space = 2;
+	/* в конце передачи сообщаем контрольную сумму, или не сообщаем */
+	optional string crc = 10;
 }
 
 /* На Write подтверждение бессмысленно слать, потому шлём потоком,
