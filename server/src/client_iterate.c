@@ -10,6 +10,13 @@
 
 #include "client_iterate.h"
 
+void
+_handle_ping(struct sev_ctx *cev, unsigned type, Fep__Ping *msg, size_t size)
+{
+	/* TODO */
+}
+
+
 static struct handle handle[] =
 {
 	{FEP__TYPE__tPing, (handle_t)_handle_ping},
@@ -20,12 +27,6 @@ static struct handle handle[] =
 	{FEP__TYPE__tReqAuth, NULL},
 	{FEP__TYPE__tAuth, NULL}
 };
-
-void
-_handle_ping(struct sev_ctx *cev, unsigned type, Fep__Ping *msg, size_t size)
-{
-	/* TODO */
-}
 
 /* return offset */
 unsigned char *
