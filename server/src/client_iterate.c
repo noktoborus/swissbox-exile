@@ -8,28 +8,9 @@
 #include "main.h"
 #include "proto/fep.pb-c.h"
 
-#define BUFFER_ALLOC 1024
-#define BUFFER_MAX 65536
+#include "client_iterate.h"
 
-struct client {
-	unsigned char *buffer;
-	size_t blen;
-	size_t bsz;
-};
-
-void
-_handle_ping(struct sev_ctx *cev, unsigned type, Fep__Ping *msg, size_t size)
-{
-	/* TODO */
-}
-
-typedef void(*handle_t)(struct sev_ctx *, unsigned, void *, size_t);
-
-static struct handle
-{
-	unsigned short type;
-	handle_t f;
-} handle[] =
+static struct handle handle[] =
 {
 	{FEP__TYPE__tPing, (handle_t)_handle_ping},
 	{FEP__TYPE__tPong, (handle_t)_handle_ping},
@@ -40,14 +21,11 @@ static struct handle
 	{FEP__TYPE__tAuth, NULL}
 };
 
-#define HEADER_OFFSET 6
-/* header:
- * |a|a|b|b|b|_|
- *  ^   ^__________ payload size
- *  |_________ packet type
- * _ - are reserved
- * all values in BE bytes order
- */
+void
+_handle_ping(struct sev_ctx *cev, unsigned type, Fep__Ping *msg, size_t size)
+{
+	/* TODO */
+}
 
 /* return offset */
 unsigned char *
@@ -68,8 +46,6 @@ pack_header(unsigned type, size_t *len)
 	return buf;
 }
 
-#define HEADER_MORE 0
-#define HEADER_INVALID -1
 /*-1 invalid message
  * 0 ok
  * 1 need more
