@@ -10,10 +10,40 @@ package fep;
 
 
 /*
-* Последовательность авторизации:
-* S: ReqAuth
-* C: Auth
-*
+ Последовательность авторизации:
+ S: ReqAuth
+ C: Auth
+ S: [Ok|Error|Pending]
+*/
+
+/*
+ Последовательность инициализации:
+ C: ReqInit
+ S: ...
+*/
+
+/*
+ Для записи и чтения еденица передачи: чанк
+
+ Последовательность записи:
+ C: WriteAsk (id = 1000)
+ S: WriteOk (id = 1000, space = 2344)
+ C: xfer (space = 2344)
+ C: xfer (space = 2344)
+ ...
+ C: End (id = 1001, space = 2344)
+ S: Ok (id = 1001)
+
+ Последовательность чтения:
+ C: ReadAsk (id = 1000, space = 222)
+ S: xfer (space = 222)
+ S: xfer (space = 222)
+ ...
+ S: End(id = 0, space = 222)
+
+ Серверу не имеет значения, был ли доставлен файл до клиента,
+ Потому завершающее сообщение отправляется с Id == 0 и не требует ответа 
+
 */
 
 enum Type {
@@ -110,19 +140,6 @@ message Cancel {
 
 
 /*
-Запись:
-	C >
-	S <
-
-	> WriteAsk (id = 1000)
-	< WriteOk (id = 1000, space = 2344)
-	> Write (space = 2344, )
-	> Write (space = 2344, )
-	> WriteOk (id = 1001, space = 2344)
-	< Ok (id = 1001)
-   */
-
-/*
  * Запрос разрешения на запись
  * ответы:
  *  Error: неудача
@@ -136,11 +153,16 @@ message WriteAsk {
 	required string rootdir_guid = 3;
 	required string file_guid = 5;
 	required string revision_guid = 6;
+	/* контрольная сумма */
+	required string crc;
 }
 
 /* Ответ сервера на запрос записи */
-message WriteOk {
-	required uint64 id = 1 [default = 0];
+message End {
+	/* для отправки файл сервер -> клиент подтверждение
+	   получения не обязательно, клиент должен сам решать,
+	   получил ли он всё или чего-то не хватает */
+	optional uint64 id = 1 [default = 0];
 	/* важное поле: идентификатор запрошенного пространства
 	   при запросе записи резервируется пространство
 	   и этот идентификатор нужен для последующей записи в это пространство
@@ -150,7 +172,7 @@ message WriteOk {
 
 /* На Write подтверждение бессмысленно слать, потому шлём потоком,
    после чего отсылается WriteOk  */
-message Write {
+message xfer {
 	required uint32 space = 1;
 	/* номер текущего сегмента и общее количество сегментов */
 	required uint32 segment = 4;
@@ -159,7 +181,6 @@ message Write {
 }
 
 /* чтение */
-
 
 /*
  запрос на чтение,
