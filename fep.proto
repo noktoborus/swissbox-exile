@@ -69,14 +69,13 @@ message Ping {
 	required uint32 usecs = 3;
 }
 
-
 enum ReqAuthType {
 	tHash = 0;
 	tUserPassword = 1;
-	tKey = 2;
+	tUserToken = 2;
+	tKey = 3;
 }
 
-/* type: 3 */
 /* предложение сервера авторизироваться:
  * ожидаемые ответы: Auth */
 message ReqAuth {
@@ -94,7 +93,6 @@ message ReqAuth {
 	optional string text = 5;
 }
 
-/* type: 4 */
 /* запрос клиента авторизации
  * ожидаемые ответы: Ok, Error,
  * Pending: информационное сообщение, авторизация принята,
@@ -107,7 +105,8 @@ message Auth {
 	optional string authToken = 4;
 	optional string username = 5;
 	optional string password = 6;
-	required ReqAuthType authType = 7;
+	optional bytes key = 7;
+	required ReqAuthType authType = 8;
 }
 
 /* общие ответы
