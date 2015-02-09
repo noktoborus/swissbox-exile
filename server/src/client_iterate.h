@@ -7,16 +7,37 @@
 #define BUFFER_ALLOC 1024
 #define BUFFER_MAX 65536
 
+enum cev_state
+{
+	CEV_FIRST = 0,
+	CEV_AUTH,
+	CEV_MORE
+
+};
+
 struct client {
 	unsigned char *buffer;
 	size_t blen;
 	size_t bsz;
+
+	/* счётчик ошибок
+	 * TODO: добавить в конфигурашку
+	 */
+	int count_error;
+
+	struct sev_ctx *cev;
+
+	/* header type and length */
+	unsigned short h_type;
+	unsigned int h_len;
+
+	enum cev_state state;
 };
 
 /* обработчик возвращает булёвое значение,
  * позитивное для продолжения работы и негативное для прерывания
  */
-typedef bool(*handle_t)(struct sev_ctx *, unsigned, void *);
+typedef bool(*handle_t)(struct client *, unsigned, void *);
 typedef void*(*handle_unpack_t)(ProtobufCAllocator *, size_t, const uint8_t *);
 typedef void(*handle_free_t)(void *, ProtobufCAllocator *);
 

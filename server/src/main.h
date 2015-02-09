@@ -9,17 +9,6 @@
 #include <ev.h>
 #include "xsyslog.h"
 
-#define SEV_NAME_LEN_C 128
-#define SEV_NAME_LEN_S 64
-/* client socket */
-enum cev_state
-{
-	CEV_FIRST = 0,
-	CEV_AUTH,
-	CEV_MORE
-
-};
-
 #define SEV_ACTION_READ 1
 #define SEV_ACTION_WRITE 2
 #define SEV_ACTION_EXIT 4
@@ -42,11 +31,6 @@ struct sev_ctx
 
 	struct sev_ctx *prev;
 	struct sev_ctx *next;
-	/* header type and length */
-	unsigned short h_type;
-	unsigned int h_len;
-
-	enum cev_state state;
 };
 
 /* server socket */
