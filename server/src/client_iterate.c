@@ -100,8 +100,11 @@ _handle_auth(struct client *c, unsigned type, Fep__Auth *msg)
 	if (errmsg) {
 		bool lval;
 		lval = send_error(c, msg->id, errmsg, --c->count_error);
-		if (c->count_error <= 0)
+		if (c->count_error <= 0) {
+			xsyslog(LOG_INFO, "client[%p] to many login attempts",
+					(void*)c->cev);
 			return false;
+		}
 		return lval;
 	}
 	return send_ok(c, msg->id);
