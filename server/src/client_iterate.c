@@ -10,20 +10,57 @@
 
 #include "client_iterate.h"
 
-void
+bool
 _handle_ping(struct sev_ctx *cev, unsigned type, Fep__Ping *ping)
 {
+	return false;
 }
 
-void
+bool
 _handle_pong(struct sev_ctx *cev, unsigned type, Fep__Pong *pong)
 {
+	return false;
 }
 
-void
+bool
 _handle_auth(struct sev_ctx *cev, unsigned type, Fep__Auth *msg)
 {
+	/* ответы: Ok, Error, Pending */
+	/* TODO: заглушка */
+	char *errmsg = NULL;
+	if (strcmp(msg->domain, "it-grad.ru")) {
+		errmsg = "Domain not served";
+	}
+	if (msg->authtype != FEP__REQ_AUTH_TYPE__tUserToken) {
+		errmsg = "Unknown auth scheme";
+	}
+	if (!msg->username || !msg->authtoken) {
+		errmsg = "Username or Token not passed";
+	}
+	if (errmsg) {
+		unsigned char *buf;
+		size_t errlen;
+		Fep__Error err = FEP__ERROR__INIT;
 
+		err.message = errmsg;
+		errlen = fep__error__get_packed_size(&err);
+		buf = pack_header(FEP__TYPE__tError, &errlen);
+		CEV_ASSERT_MEM(cev, buf == NULL, return false);
+		fep__error__pack(&err, &buf[HEADER_OFFSET]);
+		CEV_ASSERT_SEND(cev, sev_send(cev, buf, errlen) == -1, return false);
+		free(buf);
+	} else {
+		unsigned char *buf;
+		size_t oklen;
+		Fep__Ok ok = FEP__OK__INIT;
+
+		oklen = fep__ok__get_packed_size(&ok);
+		buf = pack_header(FEP__TYPE__tOk, &oklen);
+		CEV_ASSERT_MEM(cev, buf == NULL, return false);
+		fep__ok__pack(&ok, &buf[HEADER_OFFSET]);
+		CEV_ASSERT_SEND(cev, sev_send(cev, buf, oklen) == -1, return false);
+	}
+	return true;
 }
 
 static struct handle handle[] =
@@ -54,14 +91,16 @@ pack_header(unsigned type, size_t *len)
 	uint16_t typeBE = htons(type);
 	uint32_t lenBE = htonl(*len);
 	/* FIXME: ??? */
-	lenBE = lenBE >> 8;
-	memcpy(buf, &typeBE, 2);
-	memcpy(&buf[2], &lenBE, 3);
+	if (buf) {
+		lenBE = lenBE >> 8;
+		memcpy(buf, &typeBE, 2);
+		memcpy(&buf[2], &lenBE, 3);
 #if 0
-	xsyslog(LOG_DEBUG, "header[type: %u, len: %lu]: %02x %02x %02x %02x %02x %02x",
-			type, *len, buf[0], buf[1], buf[2], buf[3], buf[4], buf[5]);
+		xsyslog(LOG_DEBUG, "header[type: %u, len: %lu]: %02x %02x %02x %02x %02x %02x",
+				type, *len, buf[0], buf[1], buf[2], buf[3], buf[4], buf[5]);
 #endif
-	*len += HEADER_OFFSET;
+		*len += HEADER_OFFSET;
+	}
 	return buf;
 }
 
@@ -114,6 +153,7 @@ handle_header(unsigned char *buf, size_t size, struct sev_ctx *cev)
 	{
 		void *rawmsg = &buf[HEADER_OFFSET];
 		void *msg;
+		bool exit = false;
 		if (!handle[cev->h_type].f) {
 			xsyslog(LOG_INFO, "client[%p] header[type: %u, len: %u]: "
 					"message has no handle",
@@ -123,10 +163,12 @@ handle_header(unsigned char *buf, size_t size, struct sev_ctx *cev)
 			 * но как-то вот
 			 */
 			if (!handle[cev->h_type].p) {
-				handle[cev->h_type].f(cev, cev->h_type, rawmsg);
+				if (!handle[cev->h_type].f(cev, cev->h_type, rawmsg))
+					exit = true;
 			} else {
 				msg = handle[cev->h_type].p(NULL, cev->h_len, (uint8_t*)rawmsg);
-				handle[cev->h_type].f(cev, cev->h_type, msg);
+				if (!handle[cev->h_type].f(cev, cev->h_type, msg))
+					exit = true;
 				/* проверять заполненность структуры нужно в компилтайме,
 				 * но раз такой возможности нет, то делаем это в рантайме
 				 */
@@ -138,11 +180,15 @@ handle_header(unsigned char *buf, size_t size, struct sev_ctx *cev)
 				}
 			}
 		}
-		return (int)(cev->h_len + HEADER_OFFSET);
+		if (!exit)
+			return (int)(cev->h_len + HEADER_OFFSET);
+		else
+			return HEADER_STOP;
 	}
 	return HEADER_INVALID;
 }
 
+/* вовзращает положительный результат, если требуется прервать io */
 bool
 client_iterate(struct sev_ctx *cev, bool last, void **p)
 {
@@ -179,11 +225,16 @@ client_iterate(struct sev_ctx *cev, bool last, void **p)
 		reqAuth_len = fep__req_auth__get_packed_size(&reqAuth);
 
 		buf = pack_header(FEP__TYPE__tReqAuth, &reqAuth_len);
-		fep__req_auth__pack(&reqAuth, &buf[HEADER_OFFSET]);
+		if (buf) {
+			fep__req_auth__pack(&reqAuth, &buf[HEADER_OFFSET]);
 
-		sev_send(cev, buf, reqAuth_len);
-		free(buf);
-		cev->state += 1;
+			sev_send(cev, buf, reqAuth_len);
+			free(buf);
+			cev->state += 1;
+		} else {
+			xsyslog(LOG_WARNING, "client[%p] no hello with memory fail: %s",
+					(void*)cev, strerror(errno));
+		}
 	}
 	while (lval != -1) {
 		/* need realloc */
@@ -224,6 +275,16 @@ client_iterate(struct sev_ctx *cev, bool last, void **p)
 			} else {
 				c->blen = 0u;
 			}
+		} else if (lval == HEADER_INVALID) {
+			xsyslog(LOG_WARNING, "client[%p] mismatch protocol:"
+					"%x %x %x %x %x %x", (void*)cev,
+					c->buffer[0], c->buffer[1], c->buffer[2],
+					c->buffer[3], c->buffer[4], c->buffer[5]);
+			return true;
+		} else if (lval == HEADER_STOP) {
+			xsyslog(LOG_WARNING, "client[%p] stop chat with "
+					"header[type: %u, len: %u]",
+					(void*)cev, cev->h_type, cev->h_len);
 		}
 	}
 	return false;
