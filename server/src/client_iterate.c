@@ -308,7 +308,7 @@ client_iterate(struct sev_ctx *cev, bool last, void **p)
 					(void*)cev, strerror(errno));
 		}
 	}
-	while (lval != -1) {
+	while (lval >= 0) {
 		/* need realloc */
 		if (c->blen + BUFFER_ALLOC > c->bsz) {
 			void *tmp;
@@ -357,6 +357,10 @@ client_iterate(struct sev_ctx *cev, bool last, void **p)
 			xsyslog(LOG_WARNING, "client[%p] stop chat with "
 					"header[type: %u, len: %u]",
 					(void*)cev, c->h_type, c->h_len);
+		}
+		if (c->count_error <= 0) {
+			xsyslog(LOG_INFO, "client[%p] to many errors", (void*)cev);
+			return true;
 		}
 	}
 	return false;
