@@ -88,6 +88,9 @@ _handle_auth(struct client *c, unsigned type, Fep__Auth *msg)
 	/* ответы: Ok, Error, Pending */
 	/* TODO: заглушка */
 	char *errmsg = NULL;
+	if (c->state != CEV_FIRST) {
+		errmsg = "Already authorized";
+	}
 	if (strcmp(msg->domain, "it-grad.ru")) {
 		errmsg = "Domain not served";
 	}
@@ -107,6 +110,7 @@ _handle_auth(struct client *c, unsigned type, Fep__Auth *msg)
 		}
 		return lval;
 	}
+	c->state++;
 	return send_ok(c, msg->id);
 }
 
@@ -298,7 +302,7 @@ client_iterate(struct sev_ctx *cev, bool last, void **p)
 
 			sev_send(cev, buf, reqAuth_len);
 			free(buf);
-			c->state += 1;
+			c->state++;
 		} else {
 			xsyslog(LOG_WARNING, "client[%p] no hello with memory fail: %s",
 					(void*)cev, strerror(errno));
