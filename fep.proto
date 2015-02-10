@@ -67,7 +67,9 @@ enum Type {
 */
 message Pong {
 	required uint64 id = 1;
+	/* UTC+0 в секундах */
 	required uint64 timestamp = 2;
+	/* дополнительные микросекунды */
 	required uint32 usecs = 3;
 }
 
