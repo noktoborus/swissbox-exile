@@ -5,6 +5,7 @@
 #include <stdint.h>
 #include <string.h>
 #include <arpa/inet.h>
+#include <sys/time.h>
 #include "main.h"
 #include "proto/fep.pb-c.h"
 
@@ -73,13 +74,34 @@ _send_pending(struct client *c, int id)
 bool
 _handle_ping(struct client *c, unsigned type, Fep__Ping *ping)
 {
-	/* шлём понг */
-	return true;
+	bool lval = true;
+	unsigned char *buf;
+	size_t ponglen;
+	Fep__Pong pong = FEP__PONG__INIT;
+	struct timeval tv;
+
+	if (gettimeofday(&tv, NULL) == -1) {
+		xsyslog(LOG_WARNING, "client[%p] gettimeofday() fail: %s",
+				(void*)c->cev, strerror(errno));
+	}
+	pong.id = ping->id;
+	pong.timestamp = tv.tv_sec;
+	pong.usecs = tv.tv_usec;
+
+	ponglen = fep__pong__get_packed_size(&pong);
+	buf = pack_header(FEP__TYPE__tPong, &ponglen);
+	CEV_ASSERT_MEM(c->cev, !buf, return false);
+	fep__pong__pack(&pong, &buf[HEADER_OFFSET]);
+	CEV_ASSERT_SEND(c->cev, sev_send(c->cev, buf, ponglen) == -1,
+			lval = false);
+	free(buf);
+	return lval;
 }
 
 bool
 _handle_pong(struct client *c, unsigned type, Fep__Pong *pong)
 {
+	/* TODO: добавить очередь на ожидание ответа */
 	return true;
 }
 
