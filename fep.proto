@@ -57,6 +57,14 @@ enum Type {
 	tAuth = 7;
 }
 
+/*
+ В ответе на Ping, в сообщении понг указывается время когда сообщение
+ было принято, те при
+ C: Ping
+ S: Pong
+ клиент указывает в Ping время генерации сообщения,
+ а сервер время обработки
+*/
 message Pong {
 	required uint64 id = 1;
 	required uint64 timestamp = 2;
