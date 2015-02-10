@@ -73,7 +73,8 @@ _send_pending(struct client *c, int id)
 bool
 _handle_ping(struct client *c, unsigned type, Fep__Ping *ping)
 {
-	return false;
+	/* шлём понг */
+	return true;
 }
 
 bool
@@ -291,9 +292,8 @@ client_iterate(struct sev_ctx *cev, bool last, void **p)
 		size_t reqAuth_len;
 		unsigned char *buf;
 		Fep__ReqAuth reqAuth = FEP__REQ_AUTH__INIT;
-		reqAuth.target = FEP__REQ_AUTH__TARGET__tInternal;
-		reqAuth.type = FEP__REQ_AUTH_TYPE__tUserPassword;
-		reqAuth.domain = "example.com";
+		reqAuth.id = 1;
+		reqAuth.text = "hello kitty";
 		reqAuth_len = fep__req_auth__get_packed_size(&reqAuth);
 
 		buf = pack_header(FEP__TYPE__tReqAuth, &reqAuth_len);

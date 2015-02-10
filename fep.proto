@@ -79,16 +79,7 @@ enum ReqAuthType {
 /* предложение сервера авторизироваться:
  * ожидаемые ответы: Auth */
 message ReqAuth {
-	enum Target {
-		tInternal = 0; /* авторизация внутри коробки */
-		tLDAP = 1; /* авторизация требуется для адаптера LDAP */
-		tSwiss = 2; /* авторизация для адаптера свистка */
-		tOther = 100; /* запрос непонятно для чего, куда-то наружу */
-	};
 	required uint64 id = 1;
-	required string domain = 2;
-	required ReqAuthType type = 3;
-	required Target target = 4;
 	/* информационный текст для пользователя */
 	optional string text = 5;
 }
