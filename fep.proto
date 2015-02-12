@@ -160,7 +160,8 @@ message WriteAsk {
 	/* название рутдиры */
 	required string rootdir_guid = 3;
 	required string file_guid = 5;
-	required string revision_guid = 6;
+	required string chunk_guid = 6;
+	required string revision_guid = 7;
 }
 
 /* Ответ сервера на запрос записи */
