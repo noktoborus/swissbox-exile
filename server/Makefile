@@ -9,9 +9,15 @@ SRC=src/
 
 all: ${BIN}
 
+runtest: ${BIN} proto/fep_pb2.py
+	python2 test/proto.py ${BIN} auth
+
 ${BIN}: ${SRC}/main.c ${SRC}/utils.c ${SRC}/client_iterate.c proto/fep.pb-c.c
 	${CC} -o ${BIN} ${CFLAGS} $^ ${LIBS}
 
 proto/fep.pb-c.c: ../fep.proto
 	protoc-c --c_out=proto/ -I../ ../fep.proto
+
+proto/fep_pb2.py: ../fep.proto
+	protoc --python_out=proto/ -I../ ../fep.proto
 
