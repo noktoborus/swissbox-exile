@@ -55,6 +55,10 @@ enum Type {
 	tPending = 5;
 	tReqAuth = 6;
 	tAuth = 7;
+	txfer = 8;
+	tReadAsk = 9;
+	tWriteAsk = 10;
+	tEnd = 11;
 }
 
 /*
