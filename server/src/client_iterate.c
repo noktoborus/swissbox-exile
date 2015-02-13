@@ -111,7 +111,7 @@ _handle_auth(struct client *c, unsigned type, Fep__Auth *msg)
 	/* ответы: Ok, Error, Pending */
 	/* TODO: заглушка */
 	char *errmsg = NULL;
-	if (c->state != CEV_FIRST) {
+	if (c->state != CEV_AUTH) {
 		errmsg = "Already authorized";
 	}
 	if (strcmp(msg->domain, "it-grad.ru")) {
