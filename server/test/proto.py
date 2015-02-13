@@ -53,7 +53,7 @@ def recv_message(s):
         write_std("# unknown packet type " + str(ptypen) + "\n")
         return None
     ptype = FEP.Type.keys()[ptypen - 1]
-    write_std("# header: %s[%s]:%s\n" %(ptype, ptypen, plen) + "\n")
+    write_std("# header: %s[%s]:%s\n" %(ptype, ptypen, plen))
     rawmsg = s.recv(plen)
     if rawmsg:
         try:
