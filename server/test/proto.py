@@ -12,6 +12,7 @@ import subprocess
 import threading
 import socket
 import select
+import struct
 import Queue as queue
 import os
 import re
@@ -38,10 +39,79 @@ def write_std(string, color = None):
         write_std_lock.release()
     return len(string)
 
+def recv_message(s):
+    b = s.recv(6)
+    if not b:
+        write_std("# zero result\n")
+        return None
+    if b[5] != '\0':
+        write_std("# unknown packet: " + b.encode("hex") + "\n")
+        return None
+    ptypen = struct.unpack("!H", b[:2])[0]
+    plen = struct.unpack("!I", "\0" + b[2:5])[0]
+    if not ptypen in FEP.Type.values():
+        write_std("# unknown packet type " + str(ptypen) + "\n")
+        return None
+    ptype = FEP.Type.keys()[ptypen - 1]
+    write_std("# header: %s[%s]:%s\n" %(ptype, ptypen, plen) + "\n")
+    rawmsg = s.recv(plen)
+    if rawmsg:
+        try:
+            msg = eval("FEP." + ptype[1:]).FromString(rawmsg)
+            if hasattr(msg, "id"):
+                write_std("# header id: %s\n" %(msg.id))
+            else:
+                write_std("# header has no id\n")
+            return (ptypen, ptype, msg)
+        except:
+            write_std("# header parse fail: %s\n" %(rawmsg.encode("hex")))
+    return None
+
+def send_message(s, msg):
+    ptype = FEP.Type.keys().index("t" + msg.__class__.__name__) + 1
+    sl = msg.SerializeToString()
+    ph = struct.pack("!H", ptype) + struct.pack("!I", len(sl))[1:] + '\0'
+    ph += sl
+    s.send(ph)
+
+def proto_bootstrap(s):
+    while True:
+        msgt = recv_message(s)
+        if msgt:
+            if msgt[1] == "tReqAuth":
+                msg = FEP.Auth()
+                msg.id = msgt[2].id
+                msg.authType = FEP.tUserToken
+                msg.domain = "it-grad.ru"
+                msg.username = "1"
+                msg.authToken = "1"
+                send_message(s, msg)
+            elif msgt[1] == "tOk":
+                write_std("# auth ok\n")
+                return True
+            elif msgt[1] == "tError":
+                write_std("# auth error: '%s', remain: %s\n"\
+                        %(msgt[2].message, msgt[2].remain))
+                return False
+            elif msgt[1] == "tPendgin":
+                write_std("# auth pending\n")
+            else:
+                write_std("# not an auth message\n")
+        else:
+            break
+    return False
+
 def proto(s, c):
     write_std("# orpot\n")
-    # TODO
-    pass
+    if not proto_bootstrap(s):
+        return
+    if c == "ping":
+        msg = FEP.Ping()
+        ping.id = 100
+        ping.timestamp = 0
+        ping.usecs = 0
+        send_message(s, ping)
+    # TODO:
 
 def connect(host, command):
     write_std("# connect to %s\n" %host)
