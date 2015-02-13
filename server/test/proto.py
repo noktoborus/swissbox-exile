@@ -157,8 +157,10 @@ def thread_entry(): # сервер вотчер ололо
                 li += p.stderr.readline()
                 write_std(li, "red")
         if not li:
-            write_std("# process exit\n")
-            break
+            p.poll()
+            if p.returncode:
+                write_std("# process exit with code %s\n" %(p.returncode))
+                break
         if not consend:
             # get connect string
             li = re.findall("entry in ([0-9:\.]*),", li)
@@ -166,7 +168,9 @@ def thread_entry(): # сервер вотчер ололо
                 consend = True
                 server_q.put(li[0])
     server_q.put(None)
-    p.terminate()
+    # что бы наверняка
+    try: p.terminate()
+    except: pass
 
 def run(addr, command):
     thx = threading.Thread(None, thread_entry, "ServerWatch")
