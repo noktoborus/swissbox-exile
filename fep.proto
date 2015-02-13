@@ -1,5 +1,5 @@
 package fep;
-
+option optimize_for = SPEED;
 /*
  * |a|a|b|b|b|_|
  *  ^   ^__________ payload size
