@@ -448,6 +448,9 @@ timeout_cb(struct ev_loop *loop, ev_timer *w, int revents)
 			xsyslog(LOG_ERR, "watcher: empty server list");
 			ev_break(loop, EVBREAK_ALL);
 			return;
+		} else if (sev_it->fd == -1) {
+			/* и, немножко, серверных сокетов */
+			server_bind(loop, sev_it);
 		}
 		if (sev_it->prev) {
 			xsyslog(LOG_WARNING, "watcher: server %p has left node %p ",
@@ -483,17 +486,17 @@ main(int argc, char *argv[])
 		ev_signal_init(&pain.sigint, signal_cb, SIGINT);
 		ev_signal_start(loop, &pain.sigint);
 		/* таймер на чистку всяких устаревших структур и прочего */
-		ev_timer_init(&pain.watcher, timeout_cb, 30., 30.);
+		ev_timer_init(&pain.watcher, timeout_cb, 1., 15.);
 		ev_timer_start(loop, &pain.watcher);
 		/* хреновинка для прерывания лупа */
 		ev_async_init(&pain.alarm, alarm_cb);
 		ev_async_start(loop, &pain.alarm);
 		/* TODO: мультисокет */
-		server_bind(loop, server_alloc(&pain, "127.0.0.1:5151"));
-
-		ev_set_userdata(loop, (void*)&pain);
-		/* выход происходит при остановке всех evio в лупе */
-		ev_run(loop, 0);
+		if (server_alloc(&pain, "127.0.0.1:5151")) {
+			ev_set_userdata(loop, (void*)&pain);
+			/* выход происходит при остановке всех evio в лупе */
+			ev_run(loop, 0);
+		}
 		/* чистка серверных сокетов */
 		while (pain.sev)
 			pain.sev = server_free(loop, pain.sev);
