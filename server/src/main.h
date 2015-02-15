@@ -3,6 +3,7 @@
  */
 #ifndef _MAIN_1422961154_H_
 #define _MAIN_1422961154_H_
+#include <sys/time.h>
 #include <stdlib.h>
 #include <stdbool.h>
 #include <pthread.h>
@@ -59,6 +60,24 @@ struct main
 	struct sev_main *sev;
 };
 
+struct idlist
+{
+	uint64_t id;
+
+	struct timeval born;
+
+	struct idlist *left;
+	struct idlist *right;
+};
+
+/* добавляет новую структу слева от *left */
+struct idlist *idlist_alloc(uint64_t id, struct idlist *left);
+/* ищет структуру с указанным id, начиная от left в обе стороны */
+struct idlist *idlist_find(uint64_t id, struct idlist *left);
+/* освобождает память по указателю и возвращает левую или правую структуру */
+struct idlist *idlist_free(struct idlist *idw);
+/* поиск устарелых структур */
+struct idlist *idlist_find_obs(struct idlist *left, time_t seconds);
 
 /*
  * void *ctx == struct sev_ctx

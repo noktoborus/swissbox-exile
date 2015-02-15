@@ -21,6 +21,101 @@
 
 static unsigned int sev_ctx_seq = 0u;
 
+struct idlist *
+idlist_alloc(uint64_t id, struct idlist *left)
+{
+	struct idlist *idw;
+	idw = calloc(1, sizeof(struct idlist));
+	if (!idw) {
+		xsyslog(LOG_WARNING, "idlist: memory fail for id %lu: %s",
+				id, strerror(errno));
+		return NULL;
+	}
+	idw->id = id;
+	gettimeofday(&idw->born, NULL);
+
+	if (left) {
+		idw->right = left;
+		if (left->left)
+			left->left->right = idw;
+		left->left = idw;
+	}
+	return idw;
+}
+
+struct idlist *
+idlist_find_obs(struct idlist *left, time_t seconds)
+{
+	struct idlist *idw;
+	time_t diff;
+	struct timeval tv;
+	gettimeofday(&tv, NULL);
+
+	/* отрицательного значения быть не может,
+	 * а искать с diff == 0 глупо
+	 */
+	if (seconds > tv.tv_sec)
+		return NULL;
+
+	diff = tv.tv_sec - seconds;
+
+	if (left->born.tv_sec <= diff)
+		return left;
+
+	for (idw = left->right; idw; idw = idw->right) {
+		if (idw->born.tv_sec <= diff)
+			return idw;
+	}
+
+	for (idw = left->left; idw; idw = idw->left) {
+		if (idw->born.tv_sec <= diff)
+			return idw;
+	}
+
+	return NULL;
+}
+
+struct idlist *
+idlist_find(uint64_t id, struct idlist *left)
+{
+	struct idlist *idw;
+
+	if (left->id == id)
+		return left;
+
+	/* сначала в правую сторону */
+	for (idw = left->right; idw; idw = idw->right) {
+		if (idw->id == id)
+			return idw;
+	}
+	/* потом в левую */
+	for (idw = left->left; idw; idw = idw->left) {
+		if (idw->id == id)
+			return idw;
+	}
+	/* пустовато */
+	return NULL;
+}
+
+struct idlist *
+idlist_free(struct idlist *idw)
+{
+	struct idlist *lidw;
+
+	if (idw->left) {
+		lidw = idw->left;
+		if ((lidw->right = idw->right) != NULL)
+			lidw->right->left = lidw;
+	} else if (idw->right) {
+		lidw = idw->right;
+		if ((lidw->left = idw->left) != NULL)
+			lidw->left->right = lidw;
+	}
+
+	free(idw);
+	return lidw;
+}
+
 void
 client_cb(struct ev_loop *loop, ev_io *w, int revents)
 {
