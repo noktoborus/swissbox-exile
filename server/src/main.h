@@ -24,6 +24,9 @@ struct sev_ctx
 	pthread_cond_t ond;
 	pthread_t thread;
 
+	time_t recv_timeout;
+	time_t send_timeout;
+
 	int fd;
 
 	bool isfree;
@@ -70,14 +73,24 @@ struct idlist
 	struct idlist *right;
 };
 
+typedef enum direction
+{
+	/* в любую сторону, нужно осторожно использовать в циклах */
+	DANY = 0,
+	/* только в правую сторону */
+	DRIGHT,
+	/* только в левую сторону */
+	DLEFT
+} direction_t;
+
 /* добавляет новую структу слева от *left */
 struct idlist *idlist_alloc(uint64_t id, struct idlist *left);
 /* ищет структуру с указанным id, начиная от left в обе стороны */
-struct idlist *idlist_find(uint64_t id, struct idlist *left);
+struct idlist *idlist_find(uint64_t id, struct idlist *left, direction_t dir);
 /* освобождает память по указателю и возвращает левую или правую структуру */
 struct idlist *idlist_free(struct idlist *idw);
 /* поиск устарелых структур, на более чем seconds */
-struct idlist *idlist_find_obs(struct idlist *left, time_t seconds);
+struct idlist *idlist_find_obs(struct idlist *left, time_t seconds, direction_t dir);
 
 /*
  * void *ctx == struct sev_ctx

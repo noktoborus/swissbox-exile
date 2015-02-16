@@ -44,7 +44,7 @@ idlist_alloc(uint64_t id, struct idlist *left)
 }
 
 struct idlist *
-idlist_find_obs(struct idlist *left, time_t seconds)
+idlist_find_obs(struct idlist *left, time_t seconds, direction_t dir)
 {
 	struct idlist *idw;
 	time_t diff;
@@ -62,36 +62,47 @@ idlist_find_obs(struct idlist *left, time_t seconds)
 	if (left->born.tv_sec <= diff)
 		return left;
 
-	for (idw = left->right; idw; idw = idw->right) {
-		if (idw->born.tv_sec <= diff)
-			return idw;
+	if (dir == DANY || dir == DRIGHT) {
+		for (idw = left->right; idw; idw = idw->right) {
+			if (idw->born.tv_sec <= diff)
+				return idw;
+		}
 	}
-
-	for (idw = left->left; idw; idw = idw->left) {
-		if (idw->born.tv_sec <= diff)
-			return idw;
+	/* если ничего не найдено в предыдущем случае, то двигаемся в обратную
+	 * сторону
+	 */
+	if (dir == DANY || dir == DLEFT) {
+		for (idw = left->left; idw; idw = idw->left) {
+			if (idw->born.tv_sec <= diff)
+				return idw;
+		}
 	}
 
 	return NULL;
 }
 
 struct idlist *
-idlist_find(uint64_t id, struct idlist *left)
+idlist_find(uint64_t id, struct idlist *left, direction_t dir)
 {
 	struct idlist *idw;
 
 	if (left->id == id)
 		return left;
 
-	/* сначала в правую сторону */
-	for (idw = left->right; idw; idw = idw->right) {
-		if (idw->id == id)
-			return idw;
+	if (dir == DANY || dir == DRIGHT) {
+		/* сначала в правую сторону */
+		for (idw = left->right; idw; idw = idw->right) {
+			if (idw->id == id)
+				return idw;
+		}
 	}
-	/* потом в левую */
-	for (idw = left->left; idw; idw = idw->left) {
-		if (idw->id == id)
-			return idw;
+
+	if (dir == DANY || dir == DLEFT) {
+		/* потом в левую */
+		for (idw = left->left; idw; idw = idw->left) {
+			if (idw->id == id)
+				return idw;
+		}
 	}
 	/* пустовато */
 	return NULL;
