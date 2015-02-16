@@ -76,7 +76,7 @@ struct idlist *idlist_alloc(uint64_t id, struct idlist *left);
 struct idlist *idlist_find(uint64_t id, struct idlist *left);
 /* освобождает память по указателю и возвращает левую или правую структуру */
 struct idlist *idlist_free(struct idlist *idw);
-/* поиск устарелых структур */
+/* поиск устарелых структур, на более чем seconds */
 struct idlist *idlist_find_obs(struct idlist *left, time_t seconds);
 
 /*
