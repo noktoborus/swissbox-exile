@@ -94,6 +94,8 @@ struct idlist *idlist_find_obs(struct idlist *left, time_t seconds, direction_t 
 
 /*
  * void *ctx == struct sev_ctx
+ * вовзращает 0, если время ожидания ответа было достигнуто
+ * и -1 если произошла ошибка при чтении
  */
 int sev_send(void *ctx, const unsigned char *buf, size_t len);
 int sev_recv(void *ctx, unsigned char *buf, size_t len);

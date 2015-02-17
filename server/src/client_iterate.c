@@ -365,8 +365,11 @@ client_iterate(struct sev_ctx *cev, bool last, void **p)
 		}
 		/* wait data */
 		lval = sev_recv(cev, &c->buffer[c->blen], c->bsz - c->blen);
-		if (lval <= 0) {
+		if (lval < 0) {
 			xsyslog(LOG_WARNING, "client[%p] recv %d\n", (void*)cev, lval);
+			break;
+		} else if (lval == 0) {
+			/* pass to cycle sanitize (check timeouts, etc) */
 			break;
 		}
 		c->blen += lval;

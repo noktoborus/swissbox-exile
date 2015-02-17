@@ -308,7 +308,7 @@ sev_send(void *ctx, const unsigned char *buf, size_t len)
 	 * 3. send
 	 * */
 	struct sev_ctx *ptx = (struct sev_ctx*)ctx;
-	ssize_t re = -1;
+	ssize_t re = 0;
 	pthread_mutex_lock(&ptx->utex);
 	/* update ev info */
 	if (!(ptx->evio.events & EV_WRITE)) {
@@ -317,13 +317,22 @@ sev_send(void *ctx, const unsigned char *buf, size_t len)
 		ev_io_start(ptx->evloop, &ptx->evio);
 		ev_async_send(ptx->evloop, ptx->alarm);
 	}
-	/* TODO: replace to pthread_cond_timedwait() */
-	/* wait signal */
-	if (!(ptx->action & SEV_ACTION_WRITE || ptx->action & SEV_ACTION_EXIT))
-		pthread_cond_wait(&ptx->ond, &ptx->utex);
+	/* wait signal, if flag not setted */
+	if (!(ptx->action & SEV_ACTION_WRITE || ptx->action & SEV_ACTION_EXIT)) {
+		/* if timeout exists, use timedwait */
+		if (ptx->send_timeout) {
+			struct timespec tv;
+			tv.tv_sec = ptx->send_timeout;
+			tv.tv_nsec = 0u;
+			pthread_cond_timedwait(&ptx->ond, &ptx->utex, &tv);
+		} else
+			pthread_cond_wait(&ptx->ond, &ptx->utex);
+	}
 	/* read data */
 	if (ptx->action & SEV_ACTION_WRITE) {
-		re = write(ptx->fd, (void*)buf, len);
+		/* zero value indicate as exception (broken pipe in non-bloking) */
+		if (!(re = write(ptx->fd, (void*)buf, len)))
+			re = -1;
 		ptx->action &= ~SEV_ACTION_WRITE;
 	}
 	/* unset ev */
@@ -331,11 +340,12 @@ sev_send(void *ctx, const unsigned char *buf, size_t len)
 	return (int)re;
 }
 
+/* analog to sev_send */
 int
 sev_recv(void *ctx, unsigned char *buf, size_t len)
 {
 	struct sev_ctx *ptx = (struct sev_ctx*)ctx;
-	ssize_t re = -1;
+	ssize_t re = 0;
 	pthread_mutex_lock(&ptx->utex);
 	if (!(ptx->evio.events & EV_READ)) {
 		ev_io_stop(ptx->evloop, &ptx->evio);
@@ -344,9 +354,18 @@ sev_recv(void *ctx, unsigned char *buf, size_t len)
 		ev_async_send(ptx->evloop, ptx->alarm);
 	}
 	if (!(ptx->action & SEV_ACTION_READ || ptx->action & SEV_ACTION_EXIT))
-		pthread_cond_wait(&ptx->ond, &ptx->utex);
+	{
+		if (ptx->recv_timeout) {
+			struct timespec tv;
+			tv.tv_sec = ptx->recv_timeout;
+			tv.tv_nsec = 0u;
+			pthread_cond_timedwait(&ptx->ond, &ptx->utex, &tv);
+		} else
+			pthread_cond_wait(&ptx->ond, &ptx->utex);
+	}
 	if (ptx->action & SEV_ACTION_READ) {
-		re = read(ptx->fd, (void*)buf, len);
+		if (!(re = read(ptx->fd, (void*)buf, len)))
+			re = -1;
 		ptx->action &= ~SEV_ACTION_READ;
 	}
 	pthread_mutex_unlock(&ptx->utex);
