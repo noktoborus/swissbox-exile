@@ -289,19 +289,18 @@ client_destroy(struct client *c)
 }
 
 static inline struct client*
-client_alloc(struct sev_ctv *cev)
+client_alloc(struct sev_ctx *cev)
 {
 	/* выделение памяти под структуру и инициализация
 	 * TODO: вставить подтягивание конфига
 	 */
 	struct client *c;
 	c = (struct client*)calloc(1, sizeof(struct client));
-	if (!*p) {
+	if (!c) {
 		xsyslog(LOG_WARNING, "client[%p] memory fail: %s",
 				(void*)cev, strerror(errno));
 		return NULL;
 	}
-	c = (struct client*)*p;
 	c->count_error = 3;
 	c->cev = cev;
 	return c;
@@ -315,11 +314,11 @@ client_iterate(struct sev_ctx *cev, bool last, void **p)
 	int lval = 0;
 	/* подчищаем, если вдруг последний раз запускаемся */
 	if (last) {
-		client_destroy(c):
+		client_destroy(c);
 		*p = NULL;
 		return true;
 	} else if (p && !c) {
-		c = client_alloc();
+		c = client_alloc(cev);
 		if (!(*p = (void*)c))
 			return true;
 	} else if (!p) {
