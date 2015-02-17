@@ -278,6 +278,35 @@ handle_header(unsigned char *buf, size_t size, struct client *c)
 	return HEADER_INVALID;
 }
 
+static inline void
+client_destroy(struct client *c)
+{
+	if (!c)
+		return;
+	if (c->buffer)
+		free(c->buffer);
+	free(c);
+}
+
+static inline struct client*
+client_alloc(struct sev_ctv *cev)
+{
+	/* выделение памяти под структуру и инициализация
+	 * TODO: вставить подтягивание конфига
+	 */
+	struct client *c;
+	c = (struct client*)calloc(1, sizeof(struct client));
+	if (!*p) {
+		xsyslog(LOG_WARNING, "client[%p] memory fail: %s",
+				(void*)cev, strerror(errno));
+		return NULL;
+	}
+	c = (struct client*)*p;
+	c->count_error = 3;
+	c->cev = cev;
+	return c;
+}
+
 /* вовзращает положительный результат, если требуется прервать io */
 bool
 client_iterate(struct sev_ctx *cev, bool last, void **p)
@@ -286,25 +315,14 @@ client_iterate(struct sev_ctx *cev, bool last, void **p)
 	int lval = 0;
 	/* подчищаем, если вдруг последний раз запускаемся */
 	if (last) {
-		if (c) {
-			free(c->buffer);
-			free(c);
-			*p = NULL;
-		}
+		client_destroy(c):
+		*p = NULL;
 		return true;
-	} else if (p) {
-		/* выделение памяти под структуру и инициализация
-		 * TODO: вставить подтягивание конфига
-		 */
-		*p = calloc(1, sizeof(struct client));
-		if (!*p) {
-			xsyslog(LOG_WARNING, "client[%p] memory fail: %s",
-					(void*)cev, strerror(errno));
-		}
-		c = (struct client*)*p;
-		c->count_error = 3;
-		c->cev = cev;
-	} else {
+	} else if (p && !c) {
+		c = client_alloc();
+		if (!(*p = (void*)c))
+			return true;
+	} else if (!p) {
 		xsyslog(LOG_WARNING, "client[%p] field for structure not passed",
 				(void*)cev);
 		return true;
