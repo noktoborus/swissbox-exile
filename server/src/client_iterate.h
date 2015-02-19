@@ -98,6 +98,7 @@ unsigned char *pack_header(unsigned type, size_t *len);
 	}\
 }
 
+
 /*
  * Отсылает сообщение об ошибке
  * в качестве reamin указывается количество оставшихся попыток
@@ -108,6 +109,36 @@ bool send_error(struct client *c, uint64_t id, char *message, int remain);
 bool send_ok(struct client *c, uint64_t id);
 /* всё нормально, только ждите */
 bool send_pending(struct client *c, uint64_t id);
+
+
+
+c_cb_t query_id(struct client *c, client_idl_t idl, uint64_t id);
+bool wait_id(struct client *c, client_idl_t idl, uint64_t id, c_cb_t handle);
+
+/* упрощалки кода */
+#define TYPICAL_HANDLE_F(struct_t, name)\
+	static bool \
+	_handle_ ## name (struct client *c, unsigned type, struct_t *msg)\
+	{\
+		c_cb_t f = query_id(c, C_MID, msg->id);\
+		if (!f)\
+			return send_error(c, msg->id, "Unexpected " #name " message", -1);\
+		return f(c, msg->id, type, msg);\
+	}
+
+#define TYPICAL_HANDLE_S(type, name) \
+	{\
+		type, \
+		(handle_t)_handle_ ##name,\
+		(handle_unpack_t)fep__ ##name ##__unpack,\
+		(handle_free_t)fep__ ##name ##__free_unpacked\
+	}
+
+#define RAW_HANDLE_S(type, name) \
+	{type, (handle_t)_handle_ ##name, NULL, NULL}
+
+#define INVALID_HANDLE_S(type) \
+	{type, (handle_t)_handle_invalid, NULL, NULL}
 
 #endif /* _SRC_CLIENT_ITERATE_1423393202_H_ */
 

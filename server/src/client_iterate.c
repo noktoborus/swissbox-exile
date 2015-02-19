@@ -13,6 +13,12 @@
 #include "client_iterate.h"
 #include "client_cb.h"
 
+TYPICAL_HANDLE_F(Fep__Pong, pong)
+TYPICAL_HANDLE_F(Fep__Auth, auth)
+TYPICAL_HANDLE_F(Fep__Ok, ok)
+TYPICAL_HANDLE_F(Fep__Error, error)
+TYPICAL_HANDLE_F(Fep__Pending, pending)
+
 /* простые сообщения */
 
 bool
@@ -171,24 +177,6 @@ _handle_ping(struct client *c, unsigned type, Fep__Ping *ping)
 }
 
 bool
-_handle_pong(struct client *c, unsigned type, Fep__Pong *pong)
-{
-	/* TODO: добавить очередь на ожидание ответа */
-	return true;
-}
-
-bool
-_handle_auth(struct client *c, unsigned type, Fep__Auth *msg)
-{
-	c_cb_t f;
-
-	if (!(f = query_id(c, C_MID, msg->id))) {
-		return send_error(c, msg->id, "Unexpected message", -1);
-	}
-	return f(c, msg->id, type, msg);
-}
-
-bool
 _handle_invalid(struct client *c, unsigned type, void *msg)
 {
 	send_error(c, 0, "Unknown packet", c->count_error);
@@ -201,22 +189,13 @@ _handle_invalid(struct client *c, unsigned type, void *msg)
 static struct handle handle[] =
 {
 	{0u, _handle_invalid, NULL, NULL},
-	{FEP__TYPE__tPing,
-		(handle_t)_handle_ping,
-		(handle_unpack_t)fep__ping__unpack,
-		(handle_free_t)fep__ping__free_unpacked},
-	{FEP__TYPE__tPong,
-		(handle_t)_handle_pong,
-		(handle_unpack_t)fep__pong__unpack,
-		(handle_free_t)fep__pong__free_unpacked},
-	{FEP__TYPE__tError, NULL, NULL, NULL},
-	{FEP__TYPE__tOk, NULL, NULL, NULL},
-	{FEP__TYPE__tPending, NULL, NULL, NULL},
-	{FEP__TYPE__tReqAuth, NULL, NULL, NULL},
-	{FEP__TYPE__tAuth,
-		(handle_t)_handle_auth,
-		(handle_unpack_t)fep__auth__unpack,
-		(handle_free_t)fep__auth__free_unpacked}
+	TYPICAL_HANDLE_S(FEP__TYPE__tPing, ping),
+	TYPICAL_HANDLE_S(FEP__TYPE__tPong, pong),
+	RAW_HANDLE_S(FEP__TYPE__tError, error),
+	RAW_HANDLE_S(FEP__TYPE__tOk, ok),
+	RAW_HANDLE_S(FEP__TYPE__tPending, pending),
+	INVALID_HANDLE_S(FEP__TYPE__tReqAuth),
+	TYPICAL_HANDLE_S(FEP__TYPE__tAuth, auth),
 };
 
 /* return offset */
