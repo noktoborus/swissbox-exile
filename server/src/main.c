@@ -120,6 +120,8 @@ struct idlist *
 idlist_free(struct idlist *idw)
 {
 	struct idlist *lidw;
+	if (!idw)
+		return NULL;
 
 	if (idw->left) {
 		lidw = idw->left;

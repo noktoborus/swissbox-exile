@@ -90,10 +90,11 @@ _struct_drop_or_root(struct idlist **root, struct idlist *target)
 		return NULL;
 	if (target) {
 		if (*root == target)
-			return (*root = idlist_free(target));
+			*root = idlist_free(target);
 		else if (!*root)
 			*root = target;
-		return idlist_free(target);
+		else
+			return idlist_free(target);
 	}
 	return *root;
 }
