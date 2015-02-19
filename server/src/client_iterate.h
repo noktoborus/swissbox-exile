@@ -15,10 +15,21 @@ enum cev_state
 
 };
 
+typedef enum clien_idl {
+	C_MID = 0,
+	C_SID = 1
+} client_idl_t;
+
 struct client {
 	unsigned char *buffer;
 	size_t blen;
 	size_t bsz;
+
+	/*
+	 * списки для фильтрации id сообщений
+	 */
+	struct idlist *mid; /* обычные сообщения */
+	struct idlist *scope_id; /* сообщения трансфера */
 
 	/* счётчик ошибок
 	 * TODO: добавить в конфигурашку
@@ -34,6 +45,11 @@ struct client {
 	enum cev_state state;
 };
 
+
+/* обработка по id
+ */
+
+typedef bool(*handle_cb_t)(struct client*, void *msg);
 /* обработчик возвращает булёвое значение,
  * позитивное для продолжения работы и негативное для прерывания
  */

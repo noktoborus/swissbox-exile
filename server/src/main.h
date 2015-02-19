@@ -69,6 +69,8 @@ struct idlist
 
 	struct timeval born;
 
+	void *data;
+
 	struct idlist *left;
 	struct idlist *right;
 };

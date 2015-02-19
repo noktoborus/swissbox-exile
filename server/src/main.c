@@ -25,21 +25,29 @@ struct idlist *
 idlist_alloc(uint64_t id, struct idlist *left)
 {
 	struct idlist *idw;
+
+	/* только уникальные значения */
+	if (left && idlist_find(id, left, DANY))
+		return NULL;
+
 	idw = calloc(1, sizeof(struct idlist));
 	if (!idw) {
 		xsyslog(LOG_WARNING, "idlist: memory fail for id %lu: %s",
 				id, strerror(errno));
 		return NULL;
 	}
+	/* датчик возраста */
 	idw->id = id;
 	gettimeofday(&idw->born, NULL);
 
+	/* втыкаем в список */
 	if (left) {
 		idw->right = left;
 		if (left->left)
 			left->left->right = idw;
 		left->left = idw;
 	}
+
 	return idw;
 }
 

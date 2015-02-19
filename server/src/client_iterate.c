@@ -6,6 +6,7 @@
 #include <string.h>
 #include <arpa/inet.h>
 #include <sys/time.h>
+#include <inttypes.h>
 #include "main.h"
 #include "proto/fep.pb-c.h"
 
@@ -68,6 +69,75 @@ _send_pending(struct client *c, int id)
 			lval = false);
 	free(buf);
 	return lval;
+}
+
+static inline struct idlist*
+_struct_drop_or_root(struct idlist **root, struct idlist *target)
+{
+	if (!root)
+		return NULL;
+	if (target) {
+		if (*root == target)
+			return (*root = idlist_free(target));
+		return idlist_free(target);
+	}
+	return *root;
+}
+
+/*
+ * стуктура, переданная в *drop будет извлечена из указанного списка
+ */
+static inline struct idlist*
+_struct_id(struct client *c, client_idl_t idl, struct idlist *drop)
+{
+	switch (idl) {
+		case C_MID:
+			return _struct_drop_or_root(&c->mid, drop);
+		case C_SID:
+			return _struct_drop_or_root(&c->scope_id, drop);
+		default:
+			xsyslog(LOG_WARNING, "client[%p] unknown client_idl no: %d",
+					(void*)c->cev, idl);
+			return NULL;
+	}
+}
+
+/* постановка id в очередь ожидания TODO */
+bool
+wait_id(struct client *c, client_idl_t idl, uint64_t id, handle_cb_t handle)
+{
+	struct idlist *wid;
+	if (!handle)
+		return false;
+
+	if (!(wid = _struct_id(c, idl, NULL)))
+		return false;
+
+	if (!(wid = idlist_alloc(id, wid)))
+		return false;
+
+	wid->data = (void*)((uintptr_t)handle);
+
+	return true;
+}
+
+/* поиск id из очереди TODO */
+handle_cb_t
+query_id(struct client *c, client_idl_t idl, uint64_t id)
+{
+	struct idlist *wid;
+	handle_cb_t data;
+	if (!(wid = _struct_id(c, idl, NULL)))
+		return NULL;
+
+	if (!(wid = idlist_find(id, wid, DANY)))
+		return NULL;
+
+	if (wid->data)
+		data = (handle_cb_t)((uintptr_t)wid->data);
+
+	_struct_id(c, idl, wid);
+	return data;
 }
 
 /* всякая ерунда */
