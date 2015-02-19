@@ -79,6 +79,10 @@ send_pending(struct client *c, uint64_t id)
 	return lval;
 }
 
+/*
+ * Удаляет сообщение из очереди или добавляет сообщение в корень,
+ * если корень пустой
+ */
 static inline struct idlist*
 _struct_drop_or_root(struct idlist **root, struct idlist *target)
 {
@@ -87,6 +91,8 @@ _struct_drop_or_root(struct idlist **root, struct idlist *target)
 	if (target) {
 		if (*root == target)
 			return (*root = idlist_free(target));
+		else if (!*root)
+			*root = target;
 		return idlist_free(target);
 	}
 	return *root;
@@ -118,11 +124,19 @@ wait_id(struct client *c, client_idl_t idl, uint64_t id, c_cb_t handle)
 	if (!handle)
 		return false;
 
-	if (!(wid = _struct_id(c, idl, NULL)))
+	if (!(wid = _struct_id(c, idl, NULL))) {
+		/* корень пустой */
+		if (!(wid = idlist_alloc(id, wid)))
+			return false;
+		/* бесполезная проверка на вкручиваемость узла в корень */
+		if (!(_struct_id(c, idl, wid))) {
+			idlist_free(wid);
+			return false;
+		}
+	} else if (!(wid = idlist_alloc(id, wid))) {
+		/* корень не пустой и добавление нового фильтра не случилось */
 		return false;
-
-	if (!(wid = idlist_alloc(id, wid)))
-		return false;
+	}
 
 	wid->data = (void*)((uintptr_t)handle);
 
