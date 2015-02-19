@@ -9,6 +9,7 @@
 #include <pthread.h>
 #include <ev.h>
 #include "xsyslog.h"
+#include "proto/fep.pb-c.h"
 
 #define SEV_ACTION_READ 1
 #define SEV_ACTION_WRITE 2

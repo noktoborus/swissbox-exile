@@ -49,7 +49,7 @@ struct client {
 /* обработка по id
  */
 
-typedef bool(*handle_cb_t)(struct client*, void *msg);
+typedef bool(*c_cb_t)(struct client*, uint64_t id, unsigned int type, void *msg);
 /* обработчик возвращает булёвое значение,
  * позитивное для продолжения работы и негативное для прерывания
  */
@@ -97,6 +97,17 @@ unsigned char *pack_header(unsigned type, size_t *len);
 		{ code; };\
 	}\
 }
+
+/*
+ * Отсылает сообщение об ошибке
+ * в качестве reamin указывается количество оставшихся попыток
+ * если remain == -1, поле счётчика не формируется в сообщении
+ */
+bool send_error(struct client *c, uint64_t id, char *message, int remain);
+/* всё нормально */
+bool send_ok(struct client *c, uint64_t id);
+/* всё нормально, только ждите */
+bool send_pending(struct client *c, uint64_t id);
 
 #endif /* _SRC_CLIENT_ITERATE_1423393202_H_ */
 

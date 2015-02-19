@@ -7,14 +7,16 @@
 #include <arpa/inet.h>
 #include <sys/time.h>
 #include <inttypes.h>
+
 #include "main.h"
-#include "proto/fep.pb-c.h"
 
 #include "client_iterate.h"
+#include "client_cb.h"
 
 /* простые сообщения */
-static inline bool
-send_error(struct client *c, int id, char *message, int remain)
+
+bool
+send_error(struct client *c, uint64_t id, char *message, int remain)
 {
 	bool lval = true;
 	unsigned char *buf;
@@ -34,8 +36,8 @@ send_error(struct client *c, int id, char *message, int remain)
 	return lval;
 }
 
-static inline bool
-send_ok(struct client *c, int id)
+bool
+send_ok(struct client *c, uint64_t id)
 {
 	bool lval = true;
 	unsigned char *buf;
@@ -52,8 +54,8 @@ send_ok(struct client *c, int id)
 	return lval;
 }
 
-static inline bool
-_send_pending(struct client *c, int id)
+bool
+send_pending(struct client *c, uint64_t id)
 {
 	bool lval = true;
 	unsigned char *buf;
@@ -104,7 +106,7 @@ _struct_id(struct client *c, client_idl_t idl, struct idlist *drop)
 
 /* постановка id в очередь ожидания TODO */
 bool
-wait_id(struct client *c, client_idl_t idl, uint64_t id, handle_cb_t handle)
+wait_id(struct client *c, client_idl_t idl, uint64_t id, c_cb_t handle)
 {
 	struct idlist *wid;
 	if (!handle)
@@ -122,11 +124,11 @@ wait_id(struct client *c, client_idl_t idl, uint64_t id, handle_cb_t handle)
 }
 
 /* поиск id из очереди TODO */
-handle_cb_t
+c_cb_t
 query_id(struct client *c, client_idl_t idl, uint64_t id)
 {
 	struct idlist *wid;
-	handle_cb_t data;
+	c_cb_t data;
 	if (!(wid = _struct_id(c, idl, NULL)))
 		return NULL;
 
@@ -134,7 +136,7 @@ query_id(struct client *c, client_idl_t idl, uint64_t id)
 		return NULL;
 
 	if (wid->data)
-		data = (handle_cb_t)((uintptr_t)wid->data);
+		data = (c_cb_t)((uintptr_t)wid->data);
 
 	_struct_id(c, idl, wid);
 	return data;
@@ -178,33 +180,12 @@ _handle_pong(struct client *c, unsigned type, Fep__Pong *pong)
 bool
 _handle_auth(struct client *c, unsigned type, Fep__Auth *msg)
 {
-	/* ответы: Ok, Error, Pending */
-	/* TODO: заглушка */
-	char *errmsg = NULL;
-	if (c->state != CEV_AUTH) {
-		errmsg = "Already authorized";
+	c_cb_t f;
+
+	if (!(f = query_id(c, C_MID, msg->id))) {
+		return send_error(c, msg->id, "Unexpected message", -1);
 	}
-	if (strcmp(msg->domain, "it-grad.ru")) {
-		errmsg = "Domain not served";
-	}
-	if (msg->authtype != FEP__REQ_AUTH_TYPE__tUserToken) {
-		errmsg = "Unknown auth scheme";
-	}
-	if (!msg->username || !msg->authtoken) {
-		errmsg = "Username or Token not passed";
-	}
-	if (errmsg) {
-		bool lval;
-		lval = send_error(c, msg->id, errmsg, --c->count_error);
-		if (c->count_error <= 0) {
-			xsyslog(LOG_INFO, "client[%p] to many login attempts",
-					(void*)c->cev);
-			return false;
-		}
-		return lval;
-	}
-	c->state++;
-	return send_ok(c, msg->id);
+	return f(c, msg->id, type, msg);
 }
 
 bool
@@ -412,6 +393,7 @@ client_iterate(struct sev_ctx *cev, bool last, void **p)
 			sev_send(cev, buf, reqAuth_len);
 			free(buf);
 			c->state++;
+			wait_id(c, C_MID, reqAuth.id, c_auth_cb);
 		} else {
 			xsyslog(LOG_WARNING, "client[%p] no hello with memory fail: %s",
 					(void*)cev, strerror(errno));
