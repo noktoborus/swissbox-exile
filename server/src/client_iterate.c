@@ -38,7 +38,24 @@ send_ping(struct client *c)
 	ping.timestamp = tv.tv_sec;
 	ping.usecs = tv.tv_usec;
 
-	return send_header(c->cev, FEP__TYPE__tPing, &ping);
+	if (!send_header(c->cev, FEP__TYPE__tPing, &ping)) {
+		return false;
+	}
+	s = calloc(1, sizeof(wait_store_t) + sizeof(struct timespec));
+	if (!s) {
+		xsyslog(LOG_WARNING, "client[%p] memory fail: %s",
+				(void*)c->cev, strerror(errno));
+		return false;
+	}
+	s->data = s + 1;
+	memcpy(s->data, &tv, sizeof(struct timespec));
+	if (!wait_id(c, C_MID, ping.id, s)) {
+		xsyslog(LOG_WARNING, "client[%p] can't set filter for pong id %"PRIu64,
+				(void*)c->cev, ping.id);
+		free(s);
+		return false;
+	}
+	return true;
 }
 
 bool
