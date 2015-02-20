@@ -1,23 +1,23 @@
 /* vim: ft=c ff=unix fenc=utf-8
  * file: main.c
  */
-#include <stdio.h>
-#include <stdbool.h>
-#include <string.h>
-#include <unistd.h>
-
-#include <sys/types.h>
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <arpa/inet.h>
-#include <netdb.h>
-
-#include <errno.h>
-
-#include <signal.h>
-
 #include "main.h"
 #include "utils.h"
+
+#include <arpa/inet.h>
+#include <errno.h>
+#include <inttypes.h>
+#include <netdb.h>
+#include <signal.h>
+#include <stdbool.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/socket.h>
+#include <sys/time.h>
+#include <sys/types.h>
+#include <unistd.h>
 
 static unsigned int sev_ctx_seq = 0u;
 

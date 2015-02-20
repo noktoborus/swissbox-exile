@@ -1,17 +1,15 @@
 /* vim: ft=c ff=unix fenc=utf-8
  * file: src/client_iterate.c
  */
-#include <stdlib.h>
-#include <stdint.h>
-#include <string.h>
-#include <arpa/inet.h>
-#include <sys/time.h>
-#include <inttypes.h>
-
-#include "main.h"
 
 #include "client_iterate.h"
 #include "client_cb.h"
+
+#include <ev.h>
+#include <string.h>
+#include <stdbool.h>
+#include <sys/time.h>
+#include <netinet/in.h>
 
 TYPICAL_HANDLE_F(Fep__Pong, pong)
 TYPICAL_HANDLE_F(Fep__Auth, auth)
@@ -41,14 +39,15 @@ send_ping(struct client *c)
 	if (!send_header(c->cev, FEP__TYPE__tPing, &ping)) {
 		return false;
 	}
-	s = calloc(1, sizeof(wait_store_t) + sizeof(struct timespec));
+	s = calloc(1, sizeof(wait_store_t) + sizeof(struct timeval));
 	if (!s) {
 		xsyslog(LOG_WARNING, "client[%p] memory fail: %s",
 				(void*)c->cev, strerror(errno));
 		return false;
 	}
+	s->cb = (c_cb_t)c_pong_cb;
 	s->data = s + 1;
-	memcpy(s->data, &tv, sizeof(struct timespec));
+	memcpy(s->data, &tv, sizeof(struct timeval));
 	if (!wait_id(c, C_MID, ping.id, s)) {
 		xsyslog(LOG_WARNING, "client[%p] can't set filter for pong id %"PRIu64,
 				(void*)c->cev, ping.id);

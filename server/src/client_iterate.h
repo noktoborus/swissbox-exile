@@ -3,6 +3,7 @@
  */
 #ifndef _SRC_CLIENT_ITERATE_1423393202_H_
 #define _SRC_CLIENT_ITERATE_1423393202_H_
+#include "main.h"
 
 #define BUFFER_ALLOC 1024
 #define BUFFER_MAX 65536

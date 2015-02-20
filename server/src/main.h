@@ -3,13 +3,13 @@
  */
 #ifndef _MAIN_1422961154_H_
 #define _MAIN_1422961154_H_
-#include <sys/time.h>
-#include <stdlib.h>
-#include <stdbool.h>
-#include <pthread.h>
-#include <ev.h>
+
 #include "xsyslog.h"
 #include "proto/fep.pb-c.h"
+
+#include <ev.h>
+#include <stdbool.h>
+#include <pthread.h>
 
 #define SEV_ACTION_READ 1
 #define SEV_ACTION_WRITE 2
