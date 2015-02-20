@@ -42,6 +42,7 @@ struct client {
 	unsigned short h_type;
 	unsigned int h_len;
 
+	uint64_t genid;
 	enum cev_state state;
 };
 
@@ -53,12 +54,17 @@ typedef bool(*handle_t)(struct client *, unsigned, void *);
 typedef void*(*handle_unpack_t)(ProtobufCAllocator *, size_t, const uint8_t *);
 typedef void(*handle_free_t)(void *, ProtobufCAllocator *);
 
+typedef size_t(*fep_get_packed_size_t)(void*);
+typedef size_t(*fep_pack_t)(void*, unsigned char*);
+
 struct handle
 {
 	unsigned short type;
 	handle_t f;
 	handle_unpack_t p;
 	handle_free_t e;
+	fep_get_packed_size_t f_sizeof;
+	fep_pack_t f_pack;
 };
 
 #define HEADER_OFFSET 6
@@ -76,24 +82,11 @@ struct handle
 #define HEADER_STOP 	-2
 
 unsigned char *pack_header(unsigned type, size_t *len);
+bool _send_header(struct sev_ctx *cev, unsigned type, void *msg, char *name);
+#define send_header(cev, type, msg) \
+	_send_header(cev, type, msg, #type)
 
-#define CEV_ASSERT_MEM(cev, expr, code) \
-{\
-	if(expr) {\
-		xsyslog(LOG_WARNING, "client[%p] memory fail: %s",\
-			(void*)cev, strerror(errno));\
-		{ code; };\
-	}\
-}
-
-#define CEV_ASSERT_SEND(cev, expr, code) \
-{\
-	if (expr) {\
-		xsyslog(LOG_DEBUG, "client[%p] send fail", (void*)cev);\
-		{ code; };\
-	}\
-}
-
+uint64_t generate_id(struct client*);
 
 /*
  * Отсылает сообщение об ошибке
@@ -106,6 +99,8 @@ bool send_ok(struct client *c, uint64_t id);
 /* всё нормально, только ждите */
 bool send_pending(struct client *c, uint64_t id);
 
+/* шлёт пинг, ждёт ответа, сообщает в лог о нём... */
+bool send_ping(struct client *c);
 
 /* обработка по id
  */
@@ -125,7 +120,8 @@ typedef struct wait_store
 } wait_store_t;
 
 struct wait_store *query_id(struct client *c, client_idl_t idl, uint64_t id);
-bool wait_id(struct client *c, client_idl_t idl, uint64_t id, wait_store_t *s);
+bool wait_id(struct client *c, client_idl_t idl, uint64_t id,
+		wait_store_t *s, size_t store_len);
 
 /* упрощалки кода */
 #define TYPICAL_HANDLE_F(struct_t, name)\
@@ -148,14 +144,35 @@ bool wait_id(struct client *c, client_idl_t idl, uint64_t id, wait_store_t *s);
 		type, \
 		(handle_t)_handle_ ##name,\
 		(handle_unpack_t)fep__ ##name ##__unpack,\
-		(handle_free_t)fep__ ##name ##__free_unpacked\
+		(handle_free_t)fep__ ##name ##__free_unpacked,\
+		(fep_get_packed_size_t)fep__ ##name## __get_packed_size,\
+		(fep_pack_t)fep__ ##name## __pack\
+	}
+
+#define RAW_P_HANDLE_S(type, name) \
+	{\
+		type, (handle_t)_handle_ ##name, \
+		NULL, \
+		NULL, \
+		(fep_get_packed_size_t)fep__ ##name## __get_packed_size, \
+		(fep_pack_t)fep__ ##name## __pack \
 	}
 
 #define RAW_HANDLE_S(type, name) \
-	{type, (handle_t)_handle_ ##name, NULL, NULL}
+	{type, (handle_t)_handle_ ##name, NULL, NULL, NULL, NULL}
 
-#define INVALID_HANDLE_S(type) \
-	{type, (handle_t)_handle_invalid, NULL, NULL}
+#define INVALID_P_HANDLE_S(type, name) \
+	{\
+		type, (handle_t)_handle_invalid, \
+		NULL, \
+		NULL, \
+		(fep_get_packed_size_t)fep__ ##name## __get_packed_size, \
+		(fep_pack_t)fep__ ##name## __pack \
+	}
+
+
+#define INVALID_HANDLE_S(type, name) \
+	{type, (handle_t)_handle_invalid, NULL, NULL, NULL, NULL}
 
 #endif /* _SRC_CLIENT_ITERATE_1423393202_H_ */
 

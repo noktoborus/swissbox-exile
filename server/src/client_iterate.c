@@ -24,65 +24,51 @@ TYPICAL_HANDLE_F(Fep__Pending, pending)
 bool
 send_ping(struct client *c)
 {
-	return false;
+	Fep__Ping ping = FEP__PING__INIT;
+	struct timeval tv;
+	wait_store_t *s;
+
+	if (gettimeofday(&tv, NULL) == -1) {
+		xsyslog(LOG_WARNING, "client[%p] gettimeofday() fail in ping: %s",
+				(void*)c->cev, strerror(errno));
+		return false;
+	}
+
+	ping.id = generate_id(c);
+	ping.timestamp = tv.tv_sec;
+	ping.usecs = tv.tv_usec;
+
+	return send_header(c->cev, FEP__TYPE__tPing, &ping);
 }
 
 bool
 send_error(struct client *c, uint64_t id, char *message, int remain)
 {
-	bool lval = true;
-	unsigned char *buf;
-	size_t errlen;
 	Fep__Error err = FEP__ERROR__INIT;
 
 	err.id = id;
 	err.message = message;
 	if (remain > 0)
 		err.remain = (unsigned)remain;
-	errlen = fep__error__get_packed_size(&err);
-	buf = pack_header(FEP__TYPE__tError, &errlen);
-	CEV_ASSERT_MEM(c->cev, buf == NULL, return false);
-	fep__error__pack(&err, &buf[HEADER_OFFSET]);
-	CEV_ASSERT_SEND(c->cev, sev_send(c->cev, buf, errlen) == -1, lval = false);
-	free(buf);
-	return lval;
+	return send_header(c->cev, FEP__TYPE__tError, &err);
 }
 
 bool
 send_ok(struct client *c, uint64_t id)
 {
-	bool lval = true;
-	unsigned char *buf;
-	size_t oklen;
 	Fep__Ok ok = FEP__OK__INIT;
 
 	ok.id = id;
-	oklen = fep__ok__get_packed_size(&ok);
-	buf = pack_header(FEP__TYPE__tOk, &oklen);
-	CEV_ASSERT_MEM(c->cev, buf == NULL, return false);
-	fep__ok__pack(&ok, &buf[HEADER_OFFSET]);
-	CEV_ASSERT_SEND(c->cev, sev_send(c->cev, buf, oklen) == -1, lval = false);
-	free(buf);
-	return lval;
+	return send_header(c->cev, FEP__TYPE__tOk, &ok);
 }
 
 bool
 send_pending(struct client *c, uint64_t id)
 {
-	bool lval = true;
-	unsigned char *buf;
-	size_t pendinglen;
 	Fep__Pending pending = FEP__PENDING__INIT;
 
 	pending.id = id;
-	pendinglen = fep__pending__get_packed_size(&pending);
-	buf = pack_header(FEP__TYPE__tOk, &pendinglen);
-	CEV_ASSERT_MEM(c->cev, buf == NULL, return false);
-	fep__pending__pack(&pending, &buf[HEADER_OFFSET]);
-	CEV_ASSERT_SEND(c->cev, sev_send(c->cev, buf, pendinglen) == -1,
-			lval = false);
-	free(buf);
-	return lval;
+	return send_header(c->cev, FEP__TYPE__tPending, &pending);
 }
 
 /*
@@ -125,8 +111,10 @@ _struct_id(struct client *c, client_idl_t idl, struct idlist *drop)
 
 /* постановка id в очередь ожидания TODO */
 bool
-wait_id(struct client *c, client_idl_t idl, uint64_t id, wait_store_t *s)
+wait_id(struct client *c, client_idl_t idl, uint64_t id,
+		wait_store_t *s, size_t store_len)
 {
+	void *data;
 	struct idlist *wid;
 
 	/* ещё одна бесполезная проверка */
@@ -136,23 +124,40 @@ wait_id(struct client *c, client_idl_t idl, uint64_t id, wait_store_t *s)
 		return false;
 	}
 
-	if (!(wid = _struct_id(c, idl, NULL))) {
-		/* корень пустой */
-		if (!(wid = idlist_alloc(id, wid)))
-			return false;
-		/* бесполезная проверка на вкручиваемость узла в корень */
-		if (!(_struct_id(c, idl, wid))) {
-			idlist_free(wid);
-			return false;
-		}
-	} else if (!(wid = idlist_alloc(id, wid))) {
-		/* корень не пустой и добавление нового фильтра не случилось */
+	if (store_len < sizeof(wait_store_t) || !s) {
+		xsyslog(LOG_DEBUG, "client[%p] wait_id() receive null storage data",
+				(void*)c->cev);
 		return false;
 	}
 
-	wid->data = (void*)s;
+	data = calloc(1, store_len);
+	if (!data) {
+		xsyslog(LOG_WARNING, "client[%p] wait_id() memory fail: %s",
+				(void*)c->cev, strerror(errno));
+		return false;
+	}
 
-	return true;
+	if (!(wid = _struct_id(c, idl, NULL))) {
+		/* корень пустой */
+		if ((wid = idlist_alloc(id, wid)) != NULL) {
+			/* бесполезная проверка на вкручиваемость узла в корень */
+			if (!(_struct_id(c, idl, wid))) {
+				idlist_free(wid);
+				wid = NULL;
+			}
+		}
+	} else {
+		/* новый узел без обновления корня */
+		wid = idlist_alloc(id, wid);
+	}
+
+	if (!wid) {
+		free(data);
+		return false;
+	} else {
+		wid->data = (void*)s;
+		return true;
+	}
 }
 
 /* поиск id из очереди
@@ -178,31 +183,29 @@ query_id(struct client *c, client_idl_t idl, uint64_t id)
 }
 
 /* всякая ерунда */
+uint64_t
+generate_id(struct client *c)
+{
+	return ++c->genid;
+}
+
 bool
 _handle_ping(struct client *c, unsigned type, Fep__Ping *ping)
 {
-	bool lval = true;
-	unsigned char *buf;
-	size_t ponglen;
 	Fep__Pong pong = FEP__PONG__INIT;
 	struct timeval tv;
 
 	if (gettimeofday(&tv, NULL) == -1) {
-		xsyslog(LOG_WARNING, "client[%p] gettimeofday() fail: %s",
+		xsyslog(LOG_WARNING, "client[%p] gettimeofday() fail in pong: %s",
 				(void*)c->cev, strerror(errno));
+		return false;
 	}
+
 	pong.id = ping->id;
 	pong.timestamp = tv.tv_sec;
 	pong.usecs = tv.tv_usec;
 
-	ponglen = fep__pong__get_packed_size(&pong);
-	buf = pack_header(FEP__TYPE__tPong, &ponglen);
-	CEV_ASSERT_MEM(c->cev, !buf, return false);
-	fep__pong__pack(&pong, &buf[HEADER_OFFSET]);
-	CEV_ASSERT_SEND(c->cev, sev_send(c->cev, buf, ponglen) == -1,
-			lval = false);
-	free(buf);
-	return lval;
+	return send_header(c->cev, FEP__TYPE__tPong, &pong);
 }
 
 bool
@@ -220,12 +223,51 @@ static struct handle handle[] =
 	{0u, _handle_invalid, NULL, NULL},
 	TYPICAL_HANDLE_S(FEP__TYPE__tPing, ping),
 	TYPICAL_HANDLE_S(FEP__TYPE__tPong, pong),
-	RAW_HANDLE_S(FEP__TYPE__tError, error),
-	RAW_HANDLE_S(FEP__TYPE__tOk, ok),
-	RAW_HANDLE_S(FEP__TYPE__tPending, pending),
-	INVALID_HANDLE_S(FEP__TYPE__tReqAuth),
+	RAW_P_HANDLE_S(FEP__TYPE__tError, error),
+	RAW_P_HANDLE_S(FEP__TYPE__tOk, ok),
+	RAW_P_HANDLE_S(FEP__TYPE__tPending, pending),
+	INVALID_P_HANDLE_S(FEP__TYPE__tReqAuth, req_auth),
 	TYPICAL_HANDLE_S(FEP__TYPE__tAuth, auth),
 };
+
+bool
+_send_header(struct sev_ctx *cev, unsigned type, void *msg, char *name)
+{
+	ssize_t lval;
+	size_t len;
+	unsigned char *buf;
+
+	if (!type || type >= sizeof(handle) / sizeof(struct handle)) {
+		xsyslog(LOG_ERR, "client[%p] invalid type %d in send_header(%s)",
+				(void*)cev, type, name);
+		return false;
+	}
+
+	if (!handle[type].f_sizeof || !handle[type].f_pack) {
+		xsyslog(LOG_ERR, "client[%p] type %d (%s)"
+				"has no sizeof and pack field",
+				(void*)cev, type, name);
+
+	}
+
+	/* подготавливается заголовок */
+	len = handle[type].f_sizeof(msg);
+	buf = pack_header(type, &len);
+	if (!buf) {
+		xsyslog(LOG_WARNING, "client[%p] memory fail in %s: %s",
+				(void*)cev, name, strerror(errno));
+		return false;
+	}
+
+	/* уупаковывается сообщение */
+	handle[type].f_pack(msg, &buf[HEADER_OFFSET]);
+	if ((lval = sev_send(cev, buf, len)) != len) {
+		xsyslog(LOG_WARNING, "client[%p] send fail in %s", (void*)cev, name);
+	}
+	free(buf);
+
+	return (lval == len);
+}
 
 /* return offset */
 unsigned char *
@@ -387,26 +429,18 @@ client_iterate(struct sev_ctx *cev, bool last, void **p)
 	}
 	/* send helolo */
 	if (c->state == CEV_FIRST) {
-		size_t reqAuth_len;
-		unsigned char *buf;
+		wait_store_t *s;
 		Fep__ReqAuth reqAuth = FEP__REQ_AUTH__INIT;
-		reqAuth.id = 1;
+		reqAuth.id = generate_id(c);
 		reqAuth.text = "hello kitty";
-		reqAuth_len = fep__req_auth__get_packed_size(&reqAuth);
 
-		buf = pack_header(FEP__TYPE__tReqAuth, &reqAuth_len);
-		if (buf) {
-			wait_store_t *s;
-			fep__req_auth__pack(&reqAuth, &buf[HEADER_OFFSET]);
-
-			sev_send(cev, buf, reqAuth_len);
-			free(buf);
+		if (send_header(c->cev, FEP__TYPE__tReqAuth, &reqAuth)) {
 			c->state++;
 
 			if ((s = calloc(1, sizeof (wait_store_t))) != NULL)
 				s->cb = (c_cb_t)c_auth_cb;
 
-			if (!s || !wait_id(c, C_MID, reqAuth.id, s)) {
+			if (!s || !wait_id(c, C_MID, reqAuth.id, s, sizeof(wait_store_t))) {
 				if (s) free(s);
 				xsyslog(LOG_WARNING,
 						"client[%p] can't set filter for id %"PRIu64,
