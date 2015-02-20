@@ -111,29 +111,14 @@ _struct_id(struct client *c, client_idl_t idl, struct idlist *drop)
 
 /* постановка id в очередь ожидания TODO */
 bool
-wait_id(struct client *c, client_idl_t idl, uint64_t id,
-		wait_store_t *s, size_t store_len)
+wait_id(struct client *c, client_idl_t idl, uint64_t id, wait_store_t *s)
 {
-	void *data;
 	struct idlist *wid;
 
 	/* ещё одна бесполезная проверка */
 	if (!s || !s->cb) {
 		xsyslog(LOG_DEBUG, "client[%p] wait_id() not receive wait_store or cb",
 				(void*)c->cev);
-		return false;
-	}
-
-	if (store_len < sizeof(wait_store_t) || !s) {
-		xsyslog(LOG_DEBUG, "client[%p] wait_id() receive null storage data",
-				(void*)c->cev);
-		return false;
-	}
-
-	data = calloc(1, store_len);
-	if (!data) {
-		xsyslog(LOG_WARNING, "client[%p] wait_id() memory fail: %s",
-				(void*)c->cev, strerror(errno));
 		return false;
 	}
 
@@ -152,7 +137,6 @@ wait_id(struct client *c, client_idl_t idl, uint64_t id,
 	}
 
 	if (!wid) {
-		free(data);
 		return false;
 	} else {
 		wid->data = (void*)s;
@@ -440,7 +424,7 @@ client_iterate(struct sev_ctx *cev, bool last, void **p)
 			if ((s = calloc(1, sizeof (wait_store_t))) != NULL)
 				s->cb = (c_cb_t)c_auth_cb;
 
-			if (!s || !wait_id(c, C_MID, reqAuth.id, s, sizeof(wait_store_t))) {
+			if (!s || !wait_id(c, C_MID, reqAuth.id, s)) {
 				if (s) free(s);
 				xsyslog(LOG_WARNING,
 						"client[%p] can't set filter for id %"PRIu64,

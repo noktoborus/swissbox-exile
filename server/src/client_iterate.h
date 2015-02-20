@@ -120,8 +120,7 @@ typedef struct wait_store
 } wait_store_t;
 
 struct wait_store *query_id(struct client *c, client_idl_t idl, uint64_t id);
-bool wait_id(struct client *c, client_idl_t idl, uint64_t id,
-		wait_store_t *s, size_t store_len);
+bool wait_id(struct client *c, client_idl_t idl, uint64_t id, wait_store_t *s);
 
 /* упрощалки кода */
 #define TYPICAL_HANDLE_F(struct_t, name)\
