@@ -46,10 +46,6 @@ struct client {
 };
 
 
-/* обработка по id
- */
-
-typedef bool(*c_cb_t)(struct client*, uint64_t id, unsigned int type, void *msg);
 /* обработчик возвращает булёвое значение,
  * позитивное для продолжения работы и негативное для прерывания
  */
@@ -111,19 +107,40 @@ bool send_ok(struct client *c, uint64_t id);
 bool send_pending(struct client *c, uint64_t id);
 
 
+/* обработка по id
+ */
 
-c_cb_t query_id(struct client *c, client_idl_t idl, uint64_t id);
-bool wait_id(struct client *c, client_idl_t idl, uint64_t id, c_cb_t handle);
+/* struct client *client
+ * uint64_t id
+ * unsigned int msg_type
+ * void *msg
+ * void *data
+ */
+typedef bool(*c_cb_t)(struct client*, uint64_t, unsigned int, void*, void*);
+
+typedef struct wait_store
+{
+	void *data;
+	c_cb_t cb;
+} wait_store_t;
+
+struct wait_store *query_id(struct client *c, client_idl_t idl, uint64_t id);
+bool wait_id(struct client *c, client_idl_t idl, uint64_t id, wait_store_t *s);
 
 /* упрощалки кода */
 #define TYPICAL_HANDLE_F(struct_t, name)\
 	static bool \
 	_handle_ ## name (struct client *c, unsigned type, struct_t *msg)\
 	{\
-		c_cb_t f = query_id(c, C_MID, msg->id);\
-		if (!f)\
+		bool lval;\
+		wait_store_t *s = query_id(c, C_MID, msg->id);\
+		if (!s || !s->cb) {\
+			if (s) free(s);\
 			return send_error(c, msg->id, "Unexpected " #name " message", -1);\
-		return f(c, msg->id, type, msg);\
+		}\
+		lval = s->cb(c, msg->id, type, msg, s->data);\
+		free(s);\
+		return lval;\
 	}
 
 #define TYPICAL_HANDLE_S(type, name) \

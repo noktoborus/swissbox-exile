@@ -7,7 +7,7 @@
 #include "client_cb.h"
 #include "client_iterate.h"
 
-bool c_auth_cb(struct client *c, uint64_t id, unsigned int msgtype, void *msg);
+bool c_auth_cb(struct client *c, uint64_t id, unsigned int msgtype, void *msg, void *data);
 
 #endif /* _SRC_CLIENT_CB_1424358244_H_ */
 

@@ -22,6 +22,12 @@ TYPICAL_HANDLE_F(Fep__Pending, pending)
 /* простые сообщения */
 
 bool
+send_ping(struct client *c)
+{
+	return false;
+}
+
+bool
 send_error(struct client *c, uint64_t id, char *message, int remain)
 {
 	bool lval = true;
@@ -119,11 +125,16 @@ _struct_id(struct client *c, client_idl_t idl, struct idlist *drop)
 
 /* постановка id в очередь ожидания TODO */
 bool
-wait_id(struct client *c, client_idl_t idl, uint64_t id, c_cb_t handle)
+wait_id(struct client *c, client_idl_t idl, uint64_t id, wait_store_t *s)
 {
 	struct idlist *wid;
-	if (!handle)
+
+	/* ещё одна бесполезная проверка */
+	if (!s || !s->cb) {
+		xsyslog(LOG_DEBUG, "client[%p] wait_id() not receive wait_store or cb",
+				(void*)c->cev);
 		return false;
+	}
 
 	if (!(wid = _struct_id(c, idl, NULL))) {
 		/* корень пустой */
@@ -139,17 +150,19 @@ wait_id(struct client *c, client_idl_t idl, uint64_t id, c_cb_t handle)
 		return false;
 	}
 
-	wid->data = (void*)((uintptr_t)handle);
+	wid->data = (void*)s;
 
 	return true;
 }
 
-/* поиск id из очереди TODO */
-c_cb_t
+/* поиск id из очереди
+ * при нахождении соотствия в списке, фильтр вынимается из оного
+ */
+wait_store_t*
 query_id(struct client *c, client_idl_t idl, uint64_t id)
 {
 	struct idlist *wid;
-	c_cb_t data;
+	wait_store_t *data;
 	if (!(wid = _struct_id(c, idl, NULL)))
 		return NULL;
 
@@ -157,8 +170,9 @@ query_id(struct client *c, client_idl_t idl, uint64_t id)
 		return NULL;
 
 	if (wid->data)
-		data = (c_cb_t)((uintptr_t)wid->data);
+		data = (wait_store_t*)wid->data;
 
+	/* удаление ненужной структуры */
 	_struct_id(c, idl, wid);
 	return data;
 }
@@ -382,12 +396,22 @@ client_iterate(struct sev_ctx *cev, bool last, void **p)
 
 		buf = pack_header(FEP__TYPE__tReqAuth, &reqAuth_len);
 		if (buf) {
+			wait_store_t *s;
 			fep__req_auth__pack(&reqAuth, &buf[HEADER_OFFSET]);
 
 			sev_send(cev, buf, reqAuth_len);
 			free(buf);
 			c->state++;
-			wait_id(c, C_MID, reqAuth.id, c_auth_cb);
+
+			if ((s = calloc(1, sizeof (wait_store_t))) != NULL)
+				s->cb = (c_cb_t)c_auth_cb;
+
+			if (!s || !wait_id(c, C_MID, reqAuth.id, s)) {
+				if (s) free(s);
+				xsyslog(LOG_WARNING,
+						"client[%p] can't set filter for id %"PRIu64,
+						(void*)cev, reqAuth.id);
+			}
 		} else {
 			xsyslog(LOG_WARNING, "client[%p] no hello with memory fail: %s",
 					(void*)cev, strerror(errno));

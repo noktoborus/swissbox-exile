@@ -11,7 +11,7 @@
 #include "client_cb.h"
 
 bool
-c_auth_cb(struct client *c, uint64_t id, unsigned int msgtype, void *msg)
+c_auth_cb(struct client *c, uint64_t id, unsigned int msgtype, void *msg, void *data)
 {
 	bool lval;
 	char *errmsg = NULL;
