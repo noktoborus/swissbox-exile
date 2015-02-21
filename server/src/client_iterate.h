@@ -13,7 +13,6 @@ enum cev_state
 	CEV_FIRST = 0,
 	CEV_AUTH,
 	CEV_MORE
-
 };
 
 typedef enum clien_idl {
@@ -137,6 +136,14 @@ bool wait_id(struct client *c, client_idl_t idl, uint64_t id, wait_store_t *s);
 		lval = s->cb(c, msg->id, type, msg, s->data);\
 		free(s);\
 		return lval;\
+	}
+
+#define NOTIMP_HANDLE_F(struct_t, name)\
+	static bool \
+	_handle_ ##name(struct client *c, unsigned type, struct_t *msg)\
+	{\
+		xsyslog(LOG_WARNING, "client[%p] require " #name, (void*)c->cev);\
+		return send_error(c, 0, # name " not implement", -1);\
 	}
 
 #define TYPICAL_HANDLE_S(type, name) \

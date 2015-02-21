@@ -16,6 +16,11 @@ TYPICAL_HANDLE_F(Fep__Auth, auth)
 TYPICAL_HANDLE_F(Fep__Ok, ok)
 TYPICAL_HANDLE_F(Fep__Error, error)
 TYPICAL_HANDLE_F(Fep__Pending, pending)
+TYPICAL_HANDLE_F(Fep__End, end)
+
+NOTIMP_HANDLE_F(Fep__Xfer, xfer)
+NOTIMP_HANDLE_F(Fep__ReadAsk, read_ask)
+NOTIMP_HANDLE_F(Fep__WriteAsk, write_ask)
 
 /* простые сообщения */
 
@@ -228,6 +233,10 @@ static struct handle handle[] =
 	RAW_P_HANDLE_S(FEP__TYPE__tPending, pending),
 	INVALID_P_HANDLE_S(FEP__TYPE__tReqAuth, req_auth),
 	TYPICAL_HANDLE_S(FEP__TYPE__tAuth, auth),
+	TYPICAL_HANDLE_S(FEP__TYPE__txfer, xfer),
+	TYPICAL_HANDLE_S(FEP__TYPE__tReadAsk, read_ask),
+	TYPICAL_HANDLE_S(FEP__TYPE__tWriteAsk, write_ask),
+	TYPICAL_HANDLE_S(FEP__TYPE__tEnd, end),
 };
 
 bool
