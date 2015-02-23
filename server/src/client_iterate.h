@@ -20,10 +20,13 @@ typedef enum clien_idl {
 	C_SID = 1
 } client_idl_t;
 
+#define C_NAMELEN 128
 struct client {
 	unsigned char *buffer;
 	size_t blen;
 	size_t bsz;
+
+	char name[C_NAMELEN];
 
 	/*
 	 * списки для фильтрации id сообщений
@@ -44,9 +47,13 @@ struct client {
 
 	uint64_t genid;
 	enum cev_state state;
+
+	struct {
+		char *home;
+	} options;
 };
 
-
+bool client_load(struct client *c);
 /* обработчик возвращает булёвое значение,
  * позитивное для продолжения работы и негативное для прерывания
  */

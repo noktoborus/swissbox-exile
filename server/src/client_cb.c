@@ -66,6 +66,8 @@ c_auth_cb(struct client *c, uint64_t id, unsigned int msgtype, void *msg, void *
 		errmsg = "Unknown auth scheme";
 	} else if (!amsg->username || !amsg->authtoken) {
 		errmsg = "Username or Token not passed";
+	} else if (!amsg->username[0] || !amsg->authtoken[0]) {
+		errmsg = "Username or Token has zero lenght";
 	}
 
 	if (errmsg) {
@@ -79,6 +81,13 @@ c_auth_cb(struct client *c, uint64_t id, unsigned int msgtype, void *msg, void *
 	}
 	c->state++;
 
+	strcpy(c->name, amsg->username);
+	xsyslog(LOG_INFO, "client[%p] authorized as %s", (void*)c->cev, c->name);
+	if (!client_load(c)) {
+		/* отправляем сообщение и выходим */
+		send_error(c, id, "Can't load user info", 0);
+		return false;
+	}
 	return send_ok(c, id);
 }
 

@@ -20,7 +20,13 @@ TYPICAL_HANDLE_F(Fep__End, end)
 
 NOTIMP_HANDLE_F(Fep__Xfer, xfer)
 NOTIMP_HANDLE_F(Fep__ReadAsk, read_ask)
-NOTIMP_HANDLE_F(Fep__WriteAsk, write_ask)
+
+
+bool
+_handle_write_ask(struct client *c, unsigned type, Fep__WriteAsk *msg)
+{
+	return true;
+}
 
 /* простые сообщения */
 
@@ -71,6 +77,7 @@ send_error(struct client *c, uint64_t id, char *message, int remain)
 	err.message = message;
 	if (remain > 0)
 		err.remain = (unsigned)remain;
+	/* дропаем сразу подключение */
 	return send_header(c->cev, FEP__TYPE__tError, &err);
 }
 
@@ -388,6 +395,26 @@ handle_header(unsigned char *buf, size_t size, struct client *c)
 	return HEADER_INVALID;
 }
 
+/*
+ * подгрузка конфигурации пользователя после авторизации
+ * TODO: заглушка
+ */
+bool
+client_load(struct client *c)
+{
+	size_t len = strlen(c->name) + sizeof("user/");
+	c->options.home = calloc(1, len + 1);
+	if (!c->options.home)
+		return false;
+	snprintf(c->options.home, len, "user/%s", c->name);
+	if (mkdir(c->options.home, S_IRWXU) == -1 && errno != EEXIST) {
+		xsyslog(LOG_WARNING, "client[%p] mkdir(%s) in client_load() fail: %s",
+				(void*)c->cev, c->options.home, strerror(errno));
+		return false;
+	}
+	return true;
+}
+
 static inline void
 client_destroy(struct client *c)
 {
@@ -395,6 +422,8 @@ client_destroy(struct client *c)
 		return;
 	if (c->buffer)
 		free(c->buffer);
+	if (c->options.home)
+		free(c->options.home);
 	free(c);
 }
 
