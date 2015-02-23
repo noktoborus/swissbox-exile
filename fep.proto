@@ -159,8 +159,11 @@ message Cancel {
 */
 message WriteAsk {
 	required uint64 id = 1 [default = 0];
-	/* требуемое пространство в байтах для сохранения */
-	required uint64 reqspace = 2;
+	/* требуемое пространство в байтах для сохранения,
+		пространство резервируется и идентификатор резервации указывается
+		в поле space в ответе WriteOk
+	*/
+	required uint64 size = 2;
 	/* название рутдиры */
 	required string rootdir_guid = 3;
 	required string file_guid = 5;
