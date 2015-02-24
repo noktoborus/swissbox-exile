@@ -71,16 +71,19 @@ enum Type {
 */
 message Pong {
 	required uint64 id = 1;
-	/* UTC+0 в секундах */
-	required uint64 timestamp = 2;
-	/* дополнительные микросекунды */
-	required uint32 usecs = 3;
+	/* время из Ping */
+	required uint64 sec = 2;
+	required uint32 usec = 3;
+	/* время на удалённом пире */
+	required uint64 peer_sec = 4;
+	required uint64 peer_usec = 5;
 }
 
 message Ping {
 	required uint64 id = 1;
-	required uint64 timestamp = 2;
-	required uint32 usecs = 3;
+	/* секунды и микросекунды */
+	required uint64 sec = 2;
+	required uint32 usec = 3;
 }
 
 enum ReqAuthType {
