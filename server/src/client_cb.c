@@ -11,9 +11,6 @@ bool
 c_pong_cb(struct client *c, uint64_t id,
 		unsigned int msgtype, Fep__Pong *msg, struct timeval *data)
 {
-	time_t tv_sec;
-	suseconds_t tv_usec;
-	struct timeval now;
 	char *errmsg = NULL;
 	if (msgtype != FEP__TYPE__tPong)
 		errmsg = "Expected Pong only";
@@ -21,30 +18,6 @@ c_pong_cb(struct client *c, uint64_t id,
 	if (errmsg)
 		return send_error(c, id, errmsg, -1);
 
-	if (gettimeofday(&now, NULL)) {
-		/* лаг от клиента к серверу */
-		tv_sec = now.tv_sec;
-		tv_usec = now.tv_usec;
-		if (msg->usecs > tv_usec) {
-			tv_usec += 1000000u;
-			tv_sec -= 1u;
-		}
-		tv_usec -= msg->usecs;
-		tv_sec -= msg->timestamp;
-		xsyslog(LOG_INFO, "client[%p] to server lag: %lld.%06us",
-				(void*)c->cev, (long long int)tv_sec, (unsigned)tv_usec);
-	}
-	/* лаг от сервера к клиенту */
-	tv_sec = msg->timestamp;
-	tv_usec = msg->usecs;
-	if (data->tv_usec > tv_usec) {
-		tv_usec += 1000000u;
-		tv_sec -= 1u;
-	}
-	tv_usec -= data->tv_usec;
-	tv_sec -= data->tv_sec;
-	xsyslog(LOG_INFO, "client[%p] from server lag: %lld.%06us",
-			(void*)c->cev, (long long int)tv_sec, (unsigned)tv_usec);
 	return true;
 }
 

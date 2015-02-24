@@ -96,10 +96,10 @@ send_ping(struct client *c)
 	}
 
 	ping.id = generate_id(c);
-	ping.timestamp = tv.tv_sec;
-	ping.usecs = tv.tv_usec;
+	ping.sec = tv.tv_sec;
+	ping.usec = tv.tv_usec;
 
-	if (!send_header(c->cev, FEP__TYPE__tPing, &ping)) {
+	if (!send_message(c->cev, FEP__TYPE__tPing, &ping)) {
 		return false;
 	}
 	s = calloc(1, sizeof(wait_store_t) + sizeof(struct timeval));
@@ -130,7 +130,7 @@ send_error(struct client *c, uint64_t id, char *message, int remain)
 	if (remain > 0)
 		err.remain = (unsigned)remain;
 	/* дропаем сразу подключение */
-	return send_header(c->cev, FEP__TYPE__tError, &err);
+	return send_message(c->cev, FEP__TYPE__tError, &err);
 }
 
 bool
@@ -146,7 +146,7 @@ send_ok(struct client *c, uint64_t id)
 	Fep__Ok ok = FEP__OK__INIT;
 
 	ok.id = id;
-	return send_header(c->cev, FEP__TYPE__tOk, &ok);
+	return send_message(c->cev, FEP__TYPE__tOk, &ok);
 }
 
 bool
@@ -155,7 +155,7 @@ send_pending(struct client *c, uint64_t id)
 	Fep__Pending pending = FEP__PENDING__INIT;
 
 	pending.id = id;
-	return send_header(c->cev, FEP__TYPE__tPending, &pending);
+	return send_message(c->cev, FEP__TYPE__tPending, &pending);
 }
 
 /*
@@ -273,10 +273,40 @@ _handle_ping(struct client *c, unsigned type, Fep__Ping *ping)
 	}
 
 	pong.id = ping->id;
-	pong.timestamp = tv.tv_sec;
-	pong.usecs = tv.tv_usec;
+	pong.sec = ping->sec;
+	pong.usec = ping->usec;
+	pong.peer_sec = tv.tv_sec;
+	pong.peer_usec = tv.tv_sec;
 
-	return send_header(c->cev, FEP__TYPE__tPong, &pong);
+	if (!c->timed) {
+		if (ping->sec > tv.tv_sec + 300) {
+			if (ping->usec < tv.tv_usec) {
+				ping->sec--;
+				ping->usec += 1000u;
+			}
+			ping->sec = ping->sec - tv.tv_sec;
+			ping->usec = ping->usec - tv.tv_usec;
+			xsyslog(LOG_INFO,
+					"client[%p] client lives in far future: "
+					"%"PRIu64".%06"PRIu32"s offset",
+					(void*)c->cev, ping->sec, ping->usec);
+		} else if (ping->sec < tv.tv_sec - 300) {
+			if (ping->usec > tv.tv_usec) {
+				ping->sec++;
+				ping->usec = ping->usec % 1000u;
+			}
+			ping->sec = tv.tv_sec - ping->sec;
+			ping->usec = tv.tv_usec - ping->sec;
+			xsyslog(LOG_INFO,
+					"client[%p] client living in the past: "
+					"%"PRIu64".%06"PRIu32"s offset",
+					(void*)c->cev, ping->sec, ping->usec);
+		}
+		send_ping(c);
+		c->timed = true;
+	}
+
+	return send_message(c->cev, FEP__TYPE__tPong, &pong);
 }
 
 bool
@@ -306,14 +336,14 @@ static struct handle handle[] =
 };
 
 bool
-_send_header(struct sev_ctx *cev, unsigned type, void *msg, char *name)
+_send_message(struct sev_ctx *cev, unsigned type, void *msg, char *name)
 {
 	ssize_t lval;
 	size_t len;
 	unsigned char *buf;
 
 	if (!type || type >= sizeof(handle) / sizeof(struct handle)) {
-		xsyslog(LOG_ERR, "client[%p] invalid type %d in send_header(%s)",
+		xsyslog(LOG_ERR, "client[%p] invalid type %d in send_message(%s)",
 				(void*)cev, type, name);
 		return false;
 	}
@@ -533,7 +563,7 @@ client_iterate(struct sev_ctx *cev, bool last, void **p)
 		reqAuth.id = generate_id(c);
 		reqAuth.text = "hello kitty";
 
-		if (send_header(c->cev, FEP__TYPE__tReqAuth, &reqAuth)) {
+		if (send_message(c->cev, FEP__TYPE__tReqAuth, &reqAuth)) {
 			c->state++;
 
 			if ((s = calloc(1, sizeof (wait_store_t))) != NULL)

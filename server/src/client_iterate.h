@@ -28,6 +28,8 @@ struct client {
 
 	char name[C_NAMELEN];
 
+	/* всякая хрень */
+	bool timed;
 	/*
 	 * списки для фильтрации id сообщений
 	 */
@@ -89,9 +91,9 @@ struct handle
 #define HEADER_STOP 	-2
 
 unsigned char *pack_header(unsigned type, size_t *len);
-bool _send_header(struct sev_ctx *cev, unsigned type, void *msg, char *name);
-#define send_header(cev, type, msg) \
-	_send_header(cev, type, msg, #type)
+bool _send_message(struct sev_ctx *cev, unsigned type, void *msg, char *name);
+#define send_message(cev, type, msg) \
+	_send_message(cev, type, msg, #type)
 
 uint64_t generate_id(struct client*);
 
