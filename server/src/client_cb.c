@@ -71,7 +71,7 @@ c_auth_cb(struct client *c, uint64_t id, unsigned int msgtype, void *msg, void *
 	}
 
 	if (errmsg) {
-		lval = send_error(c, id, errmsg, --c->count_error);
+		lval = sendlog_error(c, id, errmsg, --c->count_error);
 		if (c->count_error <= 0) {
 			xsyslog(LOG_INFO, "client[%p] to many login attempts",
 					(void*)c->cev);

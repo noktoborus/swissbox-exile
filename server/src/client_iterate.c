@@ -10,6 +10,7 @@
 #include <stdbool.h>
 #include <sys/time.h>
 #include <netinet/in.h>
+#include <linux/limits.h>
 
 TYPICAL_HANDLE_F(Fep__Pong, pong)
 TYPICAL_HANDLE_F(Fep__Auth, auth)
@@ -21,10 +22,61 @@ TYPICAL_HANDLE_F(Fep__End, end)
 NOTIMP_HANDLE_F(Fep__Xfer, xfer)
 NOTIMP_HANDLE_F(Fep__ReadAsk, read_ask)
 
+static inline bool
+is_legal_guid(char *guid)
+{
+	register size_t guid_len;
+	register size_t i;
+
+	for (guid_len = strlen(guid), i = 0u; i < guid_len; i++)
+	{
+		if (!((guid[i] >= 'A' && guid[i] <= 'Z')
+				|| (guid[i] >= 'a' && guid[i] <= 'z')
+				|| (guid[i] >= '0' && guid[i] <= '9')
+				|| guid[i] == '-'
+				|| guid[i] == '{'
+				|| guid[i] == '}'))
+			return false;
+	}
+
+	return true;
+}
 
 bool
 _handle_write_ask(struct client *c, unsigned type, Fep__WriteAsk *msg)
 {
+	char *errmsg = NULL;
+	char path[PATH_MAX];
+	if (msg->size == 0u) {
+		errmsg = "Zero-size chunk? PFF";
+	}
+
+	if (!*msg->rootdir_guid || !*msg->file_guid\
+			|| !*msg->chunk_guid || !*msg->revision_guid) {
+		errmsg = "Chunk without guids? No way";
+	}
+
+	if (!is_legal_guid(msg->rootdir_guid))
+		errmsg = "illegal guid: rootdir_guid";
+	if (!is_legal_guid(msg->file_guid))
+		errmsg = "illegal guid: file_guid";
+	if (!is_legal_guid(msg->chunk_guid))
+		errmsg = "illegal guid: chunk_guid";
+	if (!is_legal_guid(msg->revision_guid))
+		errmsg = "illegal guid: revision_guid";
+
+	if (errmsg)
+		return send_error(c, msg->id, errmsg, -1);
+
+	snprintf(path, PATH_MAX, "%s/%s", c->options.home, msg->rootdir_guid);
+	/* открытие дескриптора файла и создание структуры для ожидания данных */
+	if (mkdir(path, S_IRWXU) == -1 && errno != EEXIST) {
+		errmsg = "Internal error: cache not available";
+		xsyslog(LOG_WARNING, "client[%p] can't create path %s as cachedir: %s",
+				(void*)c->cev, path, strerror(errno));
+		return send_error(c, msg->id, errmsg, -1);
+	}
+
 	return true;
 }
 
@@ -79,6 +131,13 @@ send_error(struct client *c, uint64_t id, char *message, int remain)
 		err.remain = (unsigned)remain;
 	/* дропаем сразу подключение */
 	return send_header(c->cev, FEP__TYPE__tError, &err);
+}
+
+bool
+sendlog_error(struct client *c, uint64_t id, char *message, int remain)
+{
+	xsyslog(LOG_INFO, "client[%p] send_error: %s", (void*)c->cev, message);
+	return send_error(c, id, message, remain);
 }
 
 bool
@@ -324,7 +383,7 @@ handle_header(unsigned char *buf, size_t size, struct client *c)
 			memcpy(&c->h_len, &buf[2], 3);
 			c->h_type = ntohs(c->h_type);
 			c->h_len = ntohl(c->h_len << 8);
-#if 0
+#if DEEPDEBUG
 			xsyslog(LOG_DEBUG, "client[%p] got header[type: %u, len: %u]: "
 					"%02x %02x %02x %02x %02x %02x",
 					(void*)c->cev, c->h_type, c->h_len,
@@ -387,6 +446,8 @@ handle_header(unsigned char *buf, size_t size, struct client *c)
 				}
 			}
 		}
+		/* сброс типа сообщения */
+		c->h_type = 0u;
 		if (!exit)
 			return (int)(c->h_len + HEADER_OFFSET);
 		else

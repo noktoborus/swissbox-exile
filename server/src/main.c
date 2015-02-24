@@ -627,7 +627,7 @@ main(int argc, char *argv[])
 		ev_async_init(&pain.alarm, alarm_cb);
 		ev_async_start(loop, &pain.alarm);
 		/* TODO: мультисокет */
-		if (server_alloc(&pain, "127.0.0.1:5151")) {
+		if (server_alloc(&pain, "0.0.0.0:5151")) {
 			ev_set_userdata(loop, (void*)&pain);
 			/* выход происходит при остановке всех evio в лупе */
 			ev_run(loop, 0);

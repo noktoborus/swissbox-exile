@@ -101,6 +101,8 @@ uint64_t generate_id(struct client*);
  * если remain == -1, поле счётчика не формируется в сообщении
  */
 bool send_error(struct client *c, uint64_t id, char *message, int remain);
+/* то же что и send_error, но с отправкой в лог */
+bool sendlog_error(struct client *c, uint64_t id, char *message, int remain);
 /* всё нормально */
 bool send_ok(struct client *c, uint64_t id);
 /* всё нормально, только ждите */
@@ -138,7 +140,7 @@ bool wait_id(struct client *c, client_idl_t idl, uint64_t id, wait_store_t *s);
 		wait_store_t *s = query_id(c, C_MID, msg->id);\
 		if (!s || !s->cb) {\
 			if (s) free(s);\
-			return send_error(c, msg->id, "Unexpected " #name " message", -1);\
+			return sendlog_error(c, msg->id, "Unexpected " #name " message", -1);\
 		}\
 		lval = s->cb(c, msg->id, type, msg, s->data);\
 		free(s);\
@@ -150,7 +152,7 @@ bool wait_id(struct client *c, client_idl_t idl, uint64_t id, wait_store_t *s);
 	_handle_ ##name(struct client *c, unsigned type, struct_t *msg)\
 	{\
 		xsyslog(LOG_WARNING, "client[%p] require " #name, (void*)c->cev);\
-		return send_error(c, 0, # name " not implement", -1);\
+		return sendlog_error(c, 0, # name " not implement", -1);\
 	}
 
 #define TYPICAL_HANDLE_S(type, name) \
