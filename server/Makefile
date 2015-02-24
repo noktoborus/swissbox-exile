@@ -9,6 +9,12 @@ SRC=src/
 
 all: ${BIN}
 
+clean:
+	rm -f ${BIN}
+
+debug:
+	make clean && make EF=-DEEPDEBUG ${BIN}
+
 runtest: ${BIN} proto/fep_pb2.py
 	python2 test/proto.py ${BIN} auth
 
