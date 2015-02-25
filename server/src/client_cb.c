@@ -11,6 +11,7 @@ bool
 c_pong_cb(struct client *c, uint64_t id,
 		unsigned int msgtype, Fep__Pong *msg, struct timeval *data)
 {
+	struct timeval tv;
 	char *errmsg = NULL;
 	if (msgtype != FEP__TYPE__tPong)
 		errmsg = "Expected Pong only";
@@ -18,6 +19,17 @@ c_pong_cb(struct client *c, uint64_t id,
 	if (errmsg)
 		return send_error(c, id, errmsg, -1);
 
+	gettimeofday(&tv, NULL);
+
+	if (tv.tv_usec < data->tv_usec) {
+		tv.tv_usec += 1000;
+		tv.tv_sec++;
+	}
+
+	xsyslog(LOG_INFO, "client[%p] pong received in %"PRIu64".%06u",
+			(void*)c->cev,
+			(uint64_t)(tv.tv_sec - data->tv_sec),
+			(unsigned)(tv.tv_usec - data->tv_usec));
 	return true;
 }
 
