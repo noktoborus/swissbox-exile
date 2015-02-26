@@ -119,7 +119,7 @@ idlist_find(uint64_t id, struct idlist *left, direction_t dir)
 struct idlist *
 idlist_free(struct idlist *idw)
 {
-	struct idlist *lidw;
+	struct idlist *lidw = NULL;
 	if (!idw)
 		return NULL;
 

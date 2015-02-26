@@ -6,6 +6,7 @@
 #include "client_cb.h"
 
 #include <ev.h>
+#include <stdio.h>
 #include <fcntl.h>
 #include <unistd.h>
 #include <string.h>
