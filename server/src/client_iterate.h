@@ -130,7 +130,7 @@ typedef struct wait_store
 	c_cb_t cb;
 } wait_store_t;
 
-struct wait_write_ask {
+struct wait_xfer {
 	int fd;
 	uint64_t size;
 	size_t segments;

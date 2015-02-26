@@ -56,7 +56,8 @@ _handle_write_ask(struct client *c, unsigned type, Fep__WriteAsk *msg)
 {
 	char *errmsg = NULL;
 	char path[PATH_MAX];
-	struct wait_write_ask wwa;
+	struct wait_store *ws;
+	struct wait_xfer wx;
 
 	if (msg->size == 0u) {
 		errmsg = "Zero-size chunk? PFF";
@@ -114,8 +115,8 @@ _handle_write_ask(struct client *c, unsigned type, Fep__WriteAsk *msg)
 		return send_error(c, msg->id, errmsg, -1);
 
 	/* открытие/создание файла */
-	wwa.fd = open(path, O_CREAT | O_TRUNC, S_IRWXU);
-	if (wwa.fd == -1) {
+	wx.fd = open(path, O_CREAT | O_TRUNC, S_IRWXU);
+	if (wx.fd == -1) {
 		errmsg = "Internal error: cache resource not available";
 		xsyslog(LOG_WARNING, "client[%p] open(%s) failed: %s",
 				(void*)c->cev, path, strerror(errno));
@@ -565,8 +566,32 @@ client_load(struct client *c)
 static inline void
 client_destroy(struct client *c)
 {
+	struct wait_xfer *wx;
+	struct wait_store *ws;
 	if (!c)
 		return;
+	/* чистка очередей */
+	while (c->mid) {
+		if (c->mid->data);
+			free(c->mid->data);
+		c->mid = idlist_free(c->mid);
+	}
+
+	/* при чистке скопов нужно быть деликатнее */
+	while (c->scope_id) {
+		ws = c->scope_id->data;
+		if (ws) {
+			if ((wx = ws->data)) {
+				if (wx->fd != -1)
+					close(wx->fd);
+				xsyslog(LOG_INFO, "client[%p] free xfer fd#%d, id %"PRIu64,
+						(void*)c->cev, wx->fd, c->scope_id->id);
+			}
+			free(ws);
+		}
+		c->scope_id = idlist_free(c->scope_id);
+	}
+	/* буфера */
 	if (c->buffer)
 		free(c->buffer);
 	if (c->options.home)
