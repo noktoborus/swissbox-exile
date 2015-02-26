@@ -26,7 +26,7 @@ c_pong_cb(struct client *c, uint64_t id,
 		tv.tv_sec++;
 	}
 
-	xsyslog(LOG_INFO, "client[%p] pong received in %"PRIu64".%06u",
+	xsyslog(LOG_INFO, "client[%p] pong received in %"PRIu64".%06u seconds",
 			(void*)c->cev,
 			(uint64_t)(tv.tv_sec - data->tv_sec),
 			(unsigned)(tv.tv_usec - data->tv_usec));
