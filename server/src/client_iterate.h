@@ -130,7 +130,17 @@ typedef struct wait_store
 	c_cb_t cb;
 } wait_store_t;
 
-struct wait_store *query_id(struct client *c, client_idl_t idl, uint64_t id);
+struct wait_write_ask {
+	int fd;
+	uint64_t size;
+	size_t segments;
+};
+
+/* получение привязанных к id данных */
+wait_store_t* touch_id(struct client *c, client_idl_t idl, uint64_t id);
+/* аналогично touch_id, но после извлечения id вынимается из списка */
+wait_store_t *query_id(struct client *c, client_idl_t idl, uint64_t id);
+/* добавить новый элемент в список */
 bool wait_id(struct client *c, client_idl_t idl, uint64_t id, wait_store_t *s);
 
 /* упрощалки кода */

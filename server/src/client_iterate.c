@@ -6,11 +6,19 @@
 #include "client_cb.h"
 
 #include <ev.h>
+#include <fcntl.h>
+#include <unistd.h>
 #include <string.h>
 #include <stdbool.h>
+#include <sys/stat.h>
 #include <sys/time.h>
+#include <sys/types.h>
 #include <netinet/in.h>
-#include <linux/limits.h>
+#if __linux__
+# include <linux/limits.h>
+#else
+# include <limits.h>
+#endif
 
 TYPICAL_HANDLE_F(Fep__Pong, pong)
 TYPICAL_HANDLE_F(Fep__Auth, auth)
@@ -47,6 +55,8 @@ _handle_write_ask(struct client *c, unsigned type, Fep__WriteAsk *msg)
 {
 	char *errmsg = NULL;
 	char path[PATH_MAX];
+	struct wait_write_ask wwa;
+
 	if (msg->size == 0u) {
 		errmsg = "Zero-size chunk? PFF";
 	}
@@ -68,11 +78,45 @@ _handle_write_ask(struct client *c, unsigned type, Fep__WriteAsk *msg)
 	if (errmsg)
 		return send_error(c, msg->id, errmsg, -1);
 
+	/* путь: <root_guid>/<file_guid>/<chunk_guid>/<revision_guid> */
 	snprintf(path, PATH_MAX, "%s/%s", c->options.home, msg->rootdir_guid);
 	/* открытие дескриптора файла и создание структуры для ожидания данных */
 	if (mkdir(path, S_IRWXU) == -1 && errno != EEXIST) {
 		errmsg = "Internal error: cache not available";
 		xsyslog(LOG_WARNING, "client[%p] can't create path %s as cachedir: %s",
+				(void*)c->cev, path, strerror(errno));
+	} else {
+		struct stat st;
+		snprintf(path, PATH_MAX, "%s/%s", path, msg->file_guid);
+		mkdir(path, S_IRWXU);
+		snprintf(path, PATH_MAX, "%s/%s", path, msg->chunk_guid);
+		mkdir(path, S_IRWXU);
+		snprintf(path, PATH_MAX, "%s/%s", path, msg->revision_guid);
+		if (stat(path, &st) == -1 || errno != ENOENT) {
+			errmsg = "Internal error: prepare space failed";
+			xsyslog(LOG_WARNING, "client[%p] stat(%s) error: %s",
+					(void*)c->cev, path, strerror(errno));
+		} else if (errno != ENOENT) {
+			if (st.st_size > 0u) {
+				errmsg = "Interval error: overwrite not permited";
+				xsyslog(LOG_WARNING, "client[%p] overwrite to %s not permited",
+						(void*)c->cev, path);
+			}
+			if (unlink(path)) {
+				xsyslog(LOG_WARNING, "client[%p] can't unlink %s: %s",
+						(void*)c->cev, path, strerror(errno));
+			}
+		}
+	}
+
+	if (errmsg)
+		return send_error(c, msg->id, errmsg, -1);
+
+	/* открытие/создание файла */
+	wwa.fd = open(path, O_CREAT | O_TRUNC, S_IRWXU);
+	if (wwa.fd == -1) {
+		errmsg = "Internal error: cache resource not available";
+		xsyslog(LOG_WARNING, "client[%p] open(%s) failed: %s",
 				(void*)c->cev, path, strerror(errno));
 		return send_error(c, msg->id, errmsg, -1);
 	}
@@ -231,26 +275,37 @@ wait_id(struct client *c, client_idl_t idl, uint64_t id, wait_store_t *s)
 	}
 }
 
-/* поиск id из очереди
- * при нахождении соотствия в списке, фильтр вынимается из оного
- */
 wait_store_t*
 query_id(struct client *c, client_idl_t idl, uint64_t id)
 {
 	struct idlist *wid;
 	wait_store_t *data;
+
 	if (!(wid = _struct_id(c, idl, NULL)))
 		return NULL;
 
 	if (!(wid = idlist_find(id, wid, DANY)))
 		return NULL;
 
-	if (wid->data)
-		data = (wait_store_t*)wid->data;
+	data = (wait_store_t*)wid->data;
 
 	/* удаление ненужной структуры */
 	_struct_id(c, idl, wid);
 	return data;
+}
+
+wait_store_t*
+touch_id(struct client *c, client_idl_t idl, uint64_t id)
+{
+	struct idlist *wid;
+
+	if (!(wid = _struct_id(c, idl, NULL)))
+		return NULL;
+
+	if (!(wid = idlist_find(id, wid, DANY)))
+		return NULL;
+
+	return (wait_store_t*)wid->data;
 }
 
 /* всякая ерунда */
