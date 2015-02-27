@@ -172,7 +172,6 @@ message WriteAsk {
 	required string rootdir_guid = 3;
 	required string file_guid = 5;
 	required string chunk_guid = 6;
-	required string revision_guid = 7;
 }
 
 message WriteOk {
@@ -230,7 +229,6 @@ message ReadAsk {
 	required uint32 segment_size = 4;
 
 	required string chunk_guid = 5;
-	required string revision_guid = 6;
 }
 
 /* извещения
