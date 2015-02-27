@@ -26,6 +26,7 @@ option optimize_for = SPEED;
  C: ReqInit
  S: ...
  
+FIXME: ЛОЖ
  Последовательность записи:
  C: WriteAsk (id = 1000)
  S: WriteOk (id = 1000, session_id = 2344)
@@ -217,6 +218,10 @@ message End {
 	required uint32 session_id = 2;
 	/* позиция в файле */
 	required uint32 offset = 3;
+	/* настоящая длина (расшифрованных) данных в чанке
+	 для костылинга
+	 */
+	required uint64 origin_len = 4;
 	/* в конце передачи сообщаем контрольную сумму, или не сообщаем */
 	optional string crc = 10;
 }
