@@ -27,6 +27,9 @@ TYPICAL_HANDLE_F(Fep__Ok, ok)
 TYPICAL_HANDLE_F(Fep__Error, error)
 TYPICAL_HANDLE_F(Fep__Pending, pending)
 TYPICAL_HANDLE_F(Fep__End, end)
+TYPICAL_HANDLE_F(Fep__WriteOk, write_ok)
+TYPICAL_HANDLE_F(Fep__FileUpdate, file_update)
+TYPICAL_HANDLE_F(Fep__RenameChunk, rename_chunk)
 
 NOTIMP_HANDLE_F(Fep__Xfer, xfer)
 NOTIMP_HANDLE_F(Fep__ReadAsk, read_ask)
@@ -64,7 +67,7 @@ _handle_write_ask(struct client *c, unsigned type, Fep__WriteAsk *msg)
 	}
 
 	if (!*msg->rootdir_guid || !*msg->file_guid\
-			|| !*msg->chunk_guid || !*msg->revision_guid) {
+			|| !*msg->chunk_guid) {
 		errmsg = "Chunk without guids? No way";
 	}
 
@@ -74,13 +77,11 @@ _handle_write_ask(struct client *c, unsigned type, Fep__WriteAsk *msg)
 		errmsg = "illegal guid: file_guid";
 	if (!is_legal_guid(msg->chunk_guid))
 		errmsg = "illegal guid: chunk_guid";
-	if (!is_legal_guid(msg->revision_guid))
-		errmsg = "illegal guid: revision_guid";
 
 	if (errmsg)
 		return send_error(c, msg->id, errmsg, -1);
 
-	/* путь: <root_guid>/<file_guid>/<chunk_guid>/<revision_guid> */
+	/* путь: <root_guid>/<file_guid>/<chunk_guid> */
 	snprintf(path, PATH_MAX, "%s/%s", c->options.home, msg->rootdir_guid);
 	/* открытие дескриптора файла и создание структуры для ожидания данных */
 	if (mkdir(path, S_IRWXU) == -1 && errno != EEXIST) {
@@ -92,8 +93,6 @@ _handle_write_ask(struct client *c, unsigned type, Fep__WriteAsk *msg)
 		snprintf(path, PATH_MAX, "%s/%s", path, msg->file_guid);
 		mkdir(path, S_IRWXU);
 		snprintf(path, PATH_MAX, "%s/%s", path, msg->chunk_guid);
-		mkdir(path, S_IRWXU);
-		snprintf(path, PATH_MAX, "%s/%s", path, msg->revision_guid);
 		if (stat(path, &st) == -1 || errno != ENOENT) {
 			errmsg = "Internal error: prepare space failed";
 			xsyslog(LOG_WARNING, "client[%p] stat(%s) error: %s",
@@ -114,14 +113,20 @@ _handle_write_ask(struct client *c, unsigned type, Fep__WriteAsk *msg)
 	if (errmsg)
 		return send_error(c, msg->id, errmsg, -1);
 
+	ws = calloc(1, sizeof(struct wait_store) + sizeof(struct wait_xfer));
 	/* открытие/создание файла */
 	wx.fd = open(path, O_CREAT | O_TRUNC, S_IRWXU);
-	if (wx.fd == -1) {
+	if (wx.fd == -1 || !ws) {
 		errmsg = "Internal error: cache resource not available";
 		xsyslog(LOG_WARNING, "client[%p] open(%s) failed: %s",
 				(void*)c->cev, path, strerror(errno));
+		if (ws)
+			free(ws);
+		if (wx.fd != -1)
+			close(wx.fd);
 		return send_error(c, msg->id, errmsg, -1);
 	}
+	/* нужно дождаться самих данных */
 
 	return true;
 }
@@ -378,18 +383,21 @@ _handle_invalid(struct client *c, unsigned type, void *msg)
 
 static struct handle handle[] =
 {
-	{0u, _handle_invalid, NULL, NULL},
-	TYPICAL_HANDLE_S(FEP__TYPE__tPing, ping),
-	TYPICAL_HANDLE_S(FEP__TYPE__tPong, pong),
-	RAW_P_HANDLE_S(FEP__TYPE__tError, error),
-	RAW_P_HANDLE_S(FEP__TYPE__tOk, ok),
-	RAW_P_HANDLE_S(FEP__TYPE__tPending, pending),
-	INVALID_P_HANDLE_S(FEP__TYPE__tReqAuth, req_auth),
-	TYPICAL_HANDLE_S(FEP__TYPE__tAuth, auth),
-	TYPICAL_HANDLE_S(FEP__TYPE__txfer, xfer),
-	TYPICAL_HANDLE_S(FEP__TYPE__tReadAsk, read_ask),
-	TYPICAL_HANDLE_S(FEP__TYPE__tWriteAsk, write_ask),
-	TYPICAL_HANDLE_S(FEP__TYPE__tEnd, end),
+	{0u, _handle_invalid, NULL, NULL}, /* 0 */
+	TYPICAL_HANDLE_S(FEP__TYPE__tPing, ping), /* 1 */
+	TYPICAL_HANDLE_S(FEP__TYPE__tPong, pong), /* 2 */
+	RAW_P_HANDLE_S(FEP__TYPE__tError, error), /* 3 */
+	RAW_P_HANDLE_S(FEP__TYPE__tOk, ok), /* 4 */
+	RAW_P_HANDLE_S(FEP__TYPE__tPending, pending), /* 5 */
+	INVALID_P_HANDLE_S(FEP__TYPE__tReqAuth, req_auth), /* 6 */
+	TYPICAL_HANDLE_S(FEP__TYPE__tAuth, auth), /* 7 */
+	TYPICAL_HANDLE_S(FEP__TYPE__txfer, xfer), /* 8 */
+	TYPICAL_HANDLE_S(FEP__TYPE__tReadAsk, read_ask), /* 9 */
+	TYPICAL_HANDLE_S(FEP__TYPE__tWriteAsk, write_ask), /* 10 */
+	TYPICAL_HANDLE_S(FEP__TYPE__tEnd, end), /* 11 */
+	TYPICAL_HANDLE_S(FEP__TYPE__tWriteOk, write_ok), /* 12 */
+	TYPICAL_HANDLE_S(FEP__TYPE__tFileUpdate, file_update), /* 13 */
+	TYPICAL_HANDLE_S(FEP__TYPE__tRenameChunk, rename_chunk) /* 14 */
 };
 
 bool
