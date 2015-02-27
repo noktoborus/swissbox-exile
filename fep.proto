@@ -60,6 +60,7 @@ enum Type {
 	tWriteAsk = 10;
 	tEnd = 11;
 	tWriteOk = 12;
+	tFileUpdate = 13;
 }
 
 /*
@@ -156,7 +157,10 @@ message Cancel {
 
 /* обновление файла
  присылается сервером клиенту или клиентом серверу в случае обновления
- ревизии файла 
+ ревизии файла
+ Ответы:
+	Ok: Всё нормально, можно продолжать
+	Error: отмена
  */
 message FileUpdate {
 	required uint64 id = 1 [default = 0];
@@ -185,6 +189,7 @@ message WriteAsk {
 	required string rootdir_guid = 3;
 	required string file_guid = 5;
 	required string chunk_guid = 6;
+	/* позиция в файле */
 }
 
 message WriteOk {
