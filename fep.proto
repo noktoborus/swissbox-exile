@@ -175,6 +175,10 @@ message FileUpdate {
 	/* новое количество чанков в файле
 	   при удалении отсылается значение = 0 */
 	required uint32 chunks = 10;
+	/* дополнительные поля */
+	optional bytes enc_filename = 50;
+	optional string hash_filename = 51;
+	optional bytes key = 52;
 }
 
 /*
