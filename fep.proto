@@ -59,6 +59,7 @@ enum Type {
 	tReadAsk = 9;
 	tWriteAsk = 10;
 	tEnd = 11;
+	tWriteOk = 12;
 }
 
 /*
@@ -172,6 +173,18 @@ message WriteAsk {
 	required string file_guid = 5;
 	required string chunk_guid = 6;
 	required string revision_guid = 7;
+}
+
+message WriteOk {
+	required uint64 id = 1 [default = 0];
+
+	/*
+		Номер сессии, внутри которой передаются куски чанка
+		этот id используется в сообщении xfer, для того, что бы можно
+		было передавать несколько файлов одновременно
+	*/
+	required uint32 session_id = 2;
+
 }
 
 /* Ответ сервера на запрос записи */
