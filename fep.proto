@@ -25,23 +25,22 @@ option optimize_for = SPEED;
  Последовательность инициализации:
  C: ReqInit
  S: ...
- 
-FIXME: ЛОЖ
+
  Последовательность записи:
  C: WriteAsk (id = 1000)
  S: WriteOk (id = 1000, session_id = 2344)
  C: xfer (session_id = 2344)
  C: xfer (session_id = 2344)
  ...
- C: End (id = 1001, session_id = 2344)
+ C: End (session_id = 2344)
  S: Ok (id = 1001)
+ C: WriteAsk...
+ ...
+ C: FileUpdate (id = 1002)
+ S: Ok (id = 1002)
 
  Последовательность чтения:
- C: ReadAsk (id = 1000, session_id = 222)
- S: xfer (session_id = 222)
- S: xfer (session_id = 222)
- ...
- S: End(id = 1000, session_id = 222)
+ TODO: не готово
 
  Серверу не имеет значения, был ли доставлен файл до клиента,
  Потому завершающее сообщение отправляется с Id == 0 и не требует ответа 
