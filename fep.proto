@@ -28,19 +28,19 @@ option optimize_for = SPEED;
  
  Последовательность записи:
  C: WriteAsk (id = 1000)
- S: WriteOk (id = 1000, space = 2344)
- C: xfer (space = 2344)
- C: xfer (space = 2344)
+ S: WriteOk (id = 1000, session_id = 2344)
+ C: xfer (session_id = 2344)
+ C: xfer (session_id = 2344)
  ...
- C: End (id = 1001, space = 2344)
+ C: End (id = 1001, session_id = 2344)
  S: Ok (id = 1001)
 
  Последовательность чтения:
- C: ReadAsk (id = 1000, space = 222)
- S: xfer (space = 222)
- S: xfer (space = 222)
+ C: ReadAsk (id = 1000, session_id = 222)
+ S: xfer (session_id = 222)
+ S: xfer (session_id = 222)
  ...
- S: End(id = 1000, space = 222)
+ S: End(id = 1000, session_id = 222)
 
  Серверу не имеет значения, был ли доставлен файл до клиента,
  Потому завершающее сообщение отправляется с Id == 0 и не требует ответа 
@@ -164,7 +164,7 @@ message WriteAsk {
 	required uint64 id = 1 [default = 0];
 	/* требуемое пространство в байтах для сохранения,
 		пространство резервируется и идентификатор резервации указывается
-		в поле space в ответе WriteOk
+		в поле session_id в ответе WriteOk
 	*/
 	required uint64 size = 2;
 	/* название рутдиры */
@@ -184,7 +184,7 @@ message End {
 	   при запросе записи резервируется пространство
 	   и этот идентификатор нужен для последующей записи в это пространство
 	   */
-	required uint32 space = 2;
+	required uint32 session_id = 2;
 	/* в конце передачи сообщаем контрольную сумму, или не сообщаем */
 	optional string crc = 10;
 }
@@ -192,7 +192,7 @@ message End {
 /* На Write подтверждение бессмысленно слать, потому шлём потоком,
    после чего отсылается WriteOk  */
 message xfer {
-	required uint32 space = 1;
+	required uint32 session_id = 1;
 	/* номер текущего сегмента и общее количество сегментов */
 	required uint32 segment = 4;
 	required uint32 segments = 5;
@@ -210,9 +210,9 @@ message xfer {
 message ReadAsk {
 	required uint64 id = 1 [default = 0];
 	/* аналогично записи, резервируемая область у клиента */
-	required uint32 space = 2;
+	required uint32 session_id = 2;
 
-	required string rootdir = 3;
+	required string rootdir_guid = 3;
 	/* размер сегментов в байтах */
 	required uint32 segment_size = 4;
 
