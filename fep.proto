@@ -154,6 +154,19 @@ message Cancel {
 	optional string message = 2;
 }
 
+/* обновление файла
+ присылается сервером клиенту или клиентом серверу в случае обновления
+ ревизии файла 
+ */
+message FileUpdate {
+	required uint64 id = 1 [default = 0];
+
+	required string rootdir_guid = 3;
+	required string file_guid = 4;
+	/* новое количество чанков в файле
+	   при удалении отсылается значение = 0 */
+	required uint32 chunks = 5;
+}
 
 /*
  * Запрос разрешения на запись
@@ -229,6 +242,17 @@ message ReadAsk {
 	required uint32 segment_size = 4;
 
 	required string chunk_guid = 5;
+}
+
+
+/* */
+message RenameChunk {
+	required uint64 id = 1 [default = 0];
+	required string rootdir_guid = 2;
+	required string file_guid = 3;
+	required string chunk_guid = 4;
+	/* целевой гуид */
+	required string to_chunk_guid = 5; 
 }
 
 /* извещения
