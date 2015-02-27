@@ -61,6 +61,7 @@ enum Type {
 	tEnd = 11;
 	tWriteOk = 12;
 	tFileUpdate = 13;
+	tRenameChunk = 14;
 }
 
 /*
@@ -189,7 +190,6 @@ message WriteAsk {
 	required string rootdir_guid = 3;
 	required string file_guid = 5;
 	required string chunk_guid = 6;
-	/* позиция в файле */
 }
 
 message WriteOk {
@@ -215,6 +215,8 @@ message End {
 	   и этот идентификатор нужен для последующей записи в это пространство
 	   */
 	required uint32 session_id = 2;
+	/* позиция в файле */
+	required uint32 offset = 3;
 	/* в конце передачи сообщаем контрольную сумму, или не сообщаем */
 	optional string crc = 10;
 }
