@@ -169,9 +169,11 @@ message FileUpdate {
 
 	required string rootdir_guid = 3;
 	required string file_guid = 4;
+	required string revision_guid = 5;
+	required string parent_revision_guid = 6;
 	/* новое количество чанков в файле
 	   при удалении отсылается значение = 0 */
-	required uint32 chunks = 5;
+	required uint32 chunks = 10;
 }
 
 /*
