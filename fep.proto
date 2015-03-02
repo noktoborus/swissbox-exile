@@ -235,7 +235,9 @@ message End {
 /* На Write подтверждение бессмысленно слать, потому шлём потоком,
    после чего отсылается WriteOk  */
 message xfer {
-	required uint32 session_id = 1;
+	required uint64 id = 1 [default = 0];
+	/* идентификатор сессии передачи */
+	required uint32 session_id = 2;
 	/* номер текущего сегмента и общее количество сегментов */
 	required uint32 segment = 4;
 	required uint32 segments = 5;
