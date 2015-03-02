@@ -21,17 +21,16 @@
 # include <limits.h>
 #endif
 
-TYPICAL_HANDLE_F(Fep__Pong, pong)
-TYPICAL_HANDLE_F(Fep__Auth, auth)
-TYPICAL_HANDLE_F(Fep__Ok, ok)
-TYPICAL_HANDLE_F(Fep__Error, error)
-TYPICAL_HANDLE_F(Fep__Pending, pending)
-TYPICAL_HANDLE_F(Fep__End, end)
-TYPICAL_HANDLE_F(Fep__WriteOk, write_ok)
-TYPICAL_HANDLE_F(Fep__FileUpdate, file_update)
-TYPICAL_HANDLE_F(Fep__RenameChunk, rename_chunk)
+TYPICAL_HANDLE_F(Fep__Pong, pong, C_MID)
+TYPICAL_HANDLE_F(Fep__Auth, auth, C_MID)
+TYPICAL_HANDLE_F(Fep__Ok, ok, C_MID)
+TYPICAL_HANDLE_F(Fep__Error, error, C_MID)
+TYPICAL_HANDLE_F(Fep__Pending, pending, C_MID)
+TYPICAL_HANDLE_F(Fep__End, end, C_MID)
+TYPICAL_HANDLE_F(Fep__WriteOk, write_ok, C_MID)
+TYPICAL_HANDLE_F(Fep__FileUpdate, file_update, C_MID)
+TYPICAL_HANDLE_F(Fep__RenameChunk, rename_chunk, C_MID)
 
-NOTIMP_HANDLE_F(Fep__Xfer, xfer)
 NOTIMP_HANDLE_F(Fep__ReadAsk, read_ask)
 
 uint64_t
@@ -135,22 +134,24 @@ _handle_write_ask(struct client *c, unsigned type, Fep__WriteAsk *msg)
 	if (errmsg)
 		return send_error(c, msg->id, errmsg, -1);
 
-	memset(&wx, 0, sizeof(struct wait_xfer));
-	ws = calloc(1, sizeof(struct wait_store) + sizeof(struct wait_xfer));
-	/* открытие/создание файла */
-	wx.fd = open(path, O_CREAT | O_TRUNC, S_IRWXU);
-	if (wx.fd == -1 || !ws) {
-		errmsg = "Internal error: cache not available";
-	}
-	/* и отправить подтверждение */
 	{
+		bool fid_in; /* логический костыль */
 		hash = guid2hash(msg->file_guid);
-		if (!touch_id(c, C_FID, hash)) {
+		fid_in = ((fid_ws = touch_id(c, C_FID, hash)) != NULL);
+
+		if (!fid_ws)
 			fid_ws = calloc(1, sizeof(struct wait_store)
 					+ sizeof(struct wait_file));
-			if (!fid_ws)
-				errmsg = "Internal error: canceled";
+		memset(&wx, 0, sizeof(struct wait_xfer));
+		ws = calloc(1, sizeof(struct wait_store) + sizeof(struct wait_xfer));
+		/* открытие/создание файла */
+		wx.fd = open(path, O_CREAT | O_TRUNC, S_IRWXU);
+		if (wx.fd == -1 || !ws || !fid_ws) {
+			errmsg = "Internal error: cache not available";
 		}
+
+		if (fid_in)
+			fid_ws = NULL;
 	}
 
 	if (errmsg) {
@@ -306,7 +307,7 @@ wait_id(struct client *c, client_idl_t idl, uint64_t id, wait_store_t *s)
 	struct idlist *wid;
 
 	/* ещё одна бесполезная проверка */
-	if (!s || !s->cb) {
+	if (!s) {
 		xsyslog(LOG_DEBUG, "client[%p] wait_id() not receive wait_store or cb",
 				(void*)c->cev);
 		return false;
@@ -372,6 +373,30 @@ uint64_t
 generate_id(struct client *c)
 {
 	return ++c->genid;
+}
+
+bool
+_handle_xfer(struct client *c, unsigned type, Fep__Xfer *xfer)
+{
+	struct wait_store *ws;
+	struct wait_xfer *wx;
+
+	ws = touch_id(c, C_SID, xfer->session_id);
+	if (!ws)
+		return send_error(c, xfer->id, "Unexpected xfer message", -1);
+	wx = ws->data;
+
+	if (xfer->data.len + xfer->offset > wx->size)
+		return send_error(c, xfer->id, "Owerdose input data", -1);
+
+	if (lseek(wx->fd, (off_t)xfer->offset, SEEK_SET) != (off_t)-1) {
+		if (write(wx->fd, xfer->data.data, xfer->data.len) != xfer->data.len) {
+			/* подтверждения не будет */
+			return true;
+		}
+	}
+
+	return send_error(c, xfer->id, "xfer unknown", -1);
 }
 
 bool

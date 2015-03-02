@@ -7,6 +7,8 @@
 #include <stdint.h>
 #include <stdbool.h>
 
+#define GUID_MAX 38
+
 typedef struct guid {
 	uint32_t f1;
 	uint16_t f2;

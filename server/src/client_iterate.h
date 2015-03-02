@@ -4,6 +4,7 @@
 #ifndef _SRC_CLIENT_ITERATE_1423393202_H_
 #define _SRC_CLIENT_ITERATE_1423393202_H_
 #include "main.h"
+#include "guid.h"
 
 #define BUFFER_ALLOC 1024
 #define BUFFER_MAX 65536
@@ -134,8 +135,9 @@ typedef struct wait_store
 
 struct wait_xfer {
 	int fd;
-	uint64_t size;
-	size_t segments;
+	uint64_t size; /* полный размер чанка */
+	uint64_t filling; /* сколько данных было записано */
+	struct wait_file *wf;
 };
 
 struct wait_file {
@@ -143,6 +145,7 @@ struct wait_file {
 	unsigned chunks_ok;
 
 	/* meta */
+	guid_t file_guid;
 };
 
 /* получение привязанных к id данных */
@@ -153,12 +156,12 @@ wait_store_t *query_id(struct client *c, client_idl_t idl, uint64_t id);
 bool wait_id(struct client *c, client_idl_t idl, uint64_t id, wait_store_t *s);
 
 /* упрощалки кода */
-#define TYPICAL_HANDLE_F(struct_t, name)\
+#define TYPICAL_HANDLE_F(struct_t, name, idl)\
 	static bool \
 	_handle_ ## name (struct client *c, unsigned type, struct_t *msg)\
 	{\
 		bool lval;\
-		wait_store_t *s = query_id(c, C_MID, msg->id);\
+		wait_store_t *s = query_id(c, idl, msg->id);\
 		if (!s || !s->cb) {\
 			if (s) free(s);\
 			return sendlog_error(c, msg->id, "Unexpected " #name " message", -1);\
