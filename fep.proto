@@ -238,7 +238,7 @@ message xfer {
 	required uint64 id = 1 [default = 0];
 	/* идентификатор сессии передачи */
 	required uint32 session_id = 2;
-	/* номер текущего сегмента и общее количество сегментов */
+	/* смещение в файле */
 	required uint32 offset = 4;
 	required bytes data = 6;
 }
