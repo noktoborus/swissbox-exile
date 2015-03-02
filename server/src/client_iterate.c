@@ -34,6 +34,23 @@ TYPICAL_HANDLE_F(Fep__RenameChunk, rename_chunk)
 NOTIMP_HANDLE_F(Fep__Xfer, xfer)
 NOTIMP_HANDLE_F(Fep__ReadAsk, read_ask)
 
+uint64_t
+guid2hash(const char *key)
+{
+	register uint64_t h = 0u;
+	register uint64_t hl, hr;
+
+	while (*key) {
+		if (*key == '{' || *key == '}' || *key == '-')
+			continue;
+		h += *key;
+		hl = 0x5c5c5 ^ (h & 0xfff00000) >> 30;
+		hr = (h & 0x000fffff);
+		h = hl ^ hr ^ *key++;
+	}
+	return h;
+}
+
 static inline bool
 is_legal_guid(char *guid)
 {
@@ -61,6 +78,11 @@ _handle_write_ask(struct client *c, unsigned type, Fep__WriteAsk *msg)
 	char path[PATH_MAX];
 	struct wait_store *ws;
 	struct wait_xfer wx;
+
+	uint64_t hash;
+	struct wait_store *fid_ws;
+	struct wait_file fid_wf;
+	Fep__WriteOk wrok = FEP__WRITE_OK__INIT;
 
 	if (msg->size == 0u) {
 		errmsg = "Zero-size chunk? PFF";
@@ -113,22 +135,50 @@ _handle_write_ask(struct client *c, unsigned type, Fep__WriteAsk *msg)
 	if (errmsg)
 		return send_error(c, msg->id, errmsg, -1);
 
+	memset(&wx, 0, sizeof(struct wait_xfer));
 	ws = calloc(1, sizeof(struct wait_store) + sizeof(struct wait_xfer));
 	/* открытие/создание файла */
 	wx.fd = open(path, O_CREAT | O_TRUNC, S_IRWXU);
 	if (wx.fd == -1 || !ws) {
-		errmsg = "Internal error: cache resource not available";
-		xsyslog(LOG_WARNING, "client[%p] open(%s) failed: %s",
-				(void*)c->cev, path, strerror(errno));
+		errmsg = "Internal error: cache not available";
+	}
+	/* и отправить подтверждение */
+	{
+		hash = guid2hash(msg->file_guid);
+		if (!touch_id(c, C_FID, hash)) {
+			fid_ws = calloc(1, sizeof(struct wait_store)
+					+ sizeof(struct wait_file));
+			if (!fid_ws)
+				errmsg = "Internal error: canceled";
+		}
+	}
+
+	if (errmsg) {
 		if (ws)
 			free(ws);
 		if (wx.fd != -1)
 			close(wx.fd);
+		if (fid_ws)
+			free(fid_ws);
+		xsyslog(LOG_WARNING, "client[%p] open(%s) failed: %s",
+				(void*)c->cev, path, strerror(errno));
 		return send_error(c, msg->id, errmsg, -1);
 	}
-	/* нужно дождаться самих данных */
+	/* пакуем структуры */
+	wrok.id = msg->id;
+	wrok.session_id = generate_id(c);
 
-	return true;
+	ws->data = ws + 1;
+	memcpy(ws->data, &wx, sizeof(struct wait_xfer));
+
+	fid_ws->data = fid_ws + 1;
+	memcpy(fid_ws->data, &fid_wf, sizeof(struct wait_file));
+
+	wait_id(c, C_SID, wrok.session_id, ws);
+	if (fid_ws)
+		wait_id(c, C_FID, hash, fid_ws);
+
+	return send_message(c->cev, FEP__TYPE__tWriteOk, &wrok);
 }
 
 /* простые сообщения */
@@ -240,6 +290,8 @@ _struct_id(struct client *c, client_idl_t idl, struct idlist *drop)
 			return _struct_drop_or_root(&c->mid, drop);
 		case C_SID:
 			return _struct_drop_or_root(&c->scope_id, drop);
+		case C_FID:
+			return _struct_drop_or_root(&c->file_id, drop);
 		default:
 			xsyslog(LOG_WARNING, "client[%p] unknown client_idl no: %d",
 					(void*)c->cev, idl);
@@ -583,6 +635,12 @@ client_destroy(struct client *c)
 		if (c->mid->data);
 			free(c->mid->data);
 		c->mid = idlist_free(c->mid);
+	}
+
+	while (c->file_id) {
+		if (c->file_id->data)
+			free(c->file_id->data);
+		c->file_id = idlist_free(c->file_id);
 	}
 
 	/* при чистке скопов нужно быть деликатнее */

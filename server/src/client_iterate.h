@@ -17,7 +17,8 @@ enum cev_state
 
 typedef enum clien_idl {
 	C_MID = 0,
-	C_SID = 1
+	C_SID = 1,
+	C_FID = 2
 } client_idl_t;
 
 #define C_NAMELEN 128
@@ -35,6 +36,7 @@ struct client {
 	 */
 	struct idlist *mid; /* обычные сообщения */
 	struct idlist *scope_id; /* сообщения трансфера */
+	struct idlist *file_id; /* метадата файлов */
 
 	/* счётчик ошибок
 	 * TODO: добавить в конфигурашку
@@ -134,6 +136,13 @@ struct wait_xfer {
 	int fd;
 	uint64_t size;
 	size_t segments;
+};
+
+struct wait_file {
+	unsigned chunks;
+	unsigned chunks_ok;
+
+	/* meta */
 };
 
 /* получение привязанных к id данных */
