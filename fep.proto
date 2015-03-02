@@ -239,7 +239,7 @@ message xfer {
 	/* идентификатор сессии передачи */
 	required uint32 session_id = 2;
 	/* смещение в файле */
-	required uint32 offset = 4;
+	required uint64 offset = 4;
 	required bytes data = 6;
 }
 
