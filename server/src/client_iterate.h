@@ -5,6 +5,11 @@
 #define _SRC_CLIENT_ITERATE_1423393202_H_
 #include "main.h"
 #include "guid.h"
+#if __linux__
+# include <linux/limits.h>
+#else
+# include <limits.h>
+#endif
 
 #define BUFFER_ALLOC 1024
 #define BUFFER_MAX 65536
@@ -135,6 +140,7 @@ typedef struct wait_store
 
 struct wait_xfer {
 	int fd;
+	char path[PATH_MAX];
 	uint64_t size; /* полный размер чанка */
 	uint64_t filling; /* сколько данных было записано */
 	struct wait_file *wf;
@@ -143,6 +149,7 @@ struct wait_xfer {
 struct wait_file {
 	unsigned chunks;
 	unsigned chunks_ok;
+	unsigned chunks_fail;
 
 	/* meta */
 	guid_t file_guid;

@@ -15,18 +15,12 @@
 #include <sys/time.h>
 #include <sys/types.h>
 #include <netinet/in.h>
-#if __linux__
-# include <linux/limits.h>
-#else
-# include <limits.h>
-#endif
 
 TYPICAL_HANDLE_F(Fep__Pong, pong, C_MID)
 TYPICAL_HANDLE_F(Fep__Auth, auth, C_MID)
 TYPICAL_HANDLE_F(Fep__Ok, ok, C_MID)
 TYPICAL_HANDLE_F(Fep__Error, error, C_MID)
 TYPICAL_HANDLE_F(Fep__Pending, pending, C_MID)
-TYPICAL_HANDLE_F(Fep__End, end, C_MID)
 TYPICAL_HANDLE_F(Fep__WriteOk, write_ok, C_MID)
 TYPICAL_HANDLE_F(Fep__FileUpdate, file_update, C_MID)
 TYPICAL_HANDLE_F(Fep__RenameChunk, rename_chunk, C_MID)
@@ -149,6 +143,11 @@ _handle_write_ask(struct client *c, unsigned type, Fep__WriteAsk *msg)
 		if (wx.fd == -1 || !ws || !fid_ws) {
 			errmsg = "Internal error: cache not available";
 		}
+		memcpy(wx.path, path, PATH_MAX);
+#if DEEPDEBUG
+		xsyslog(LOG_DEBUG, "client[%p] fd#%d for %s",
+				(void*)c->cev, wx.fd, wx.path);
+#endif
 
 		if (fid_in)
 			fid_ws = NULL;
@@ -380,23 +379,74 @@ _handle_xfer(struct client *c, unsigned type, Fep__Xfer *xfer)
 {
 	struct wait_store *ws;
 	struct wait_xfer *wx;
+	char *errmsg = NULL;
 
 	ws = touch_id(c, C_SID, xfer->session_id);
 	if (!ws)
 		return send_error(c, xfer->id, "Unexpected xfer message", -1);
 	wx = ws->data;
 
-	if (xfer->data.len + xfer->offset > wx->size)
-		return send_error(c, xfer->id, "Owerdose input data", -1);
-
-	if (lseek(wx->fd, (off_t)xfer->offset, SEEK_SET) != (off_t)-1) {
-		if (write(wx->fd, xfer->data.data, xfer->data.len) != xfer->data.len) {
-			/* подтверждения не будет */
-			return true;
-		}
+	if (xfer->data.len + xfer->offset > wx->size) {
+		errmsg = "Owerdose input data";
+	} else if (lseek(wx->fd, (off_t)xfer->offset, SEEK_SET) == (off_t)-1) {
+		errmsg = "Can't set offset";
+	} else if (write(wx->fd, xfer->data.data, xfer->data.len) != xfer->data.len) {
+		errmsg = "Write fail";
+	} else {
+		return true;
 	}
 
-	return send_error(c, xfer->id, "xfer unknown", -1);
+	/* больше чанк нам не нужен, т.к. его должны переслать заного */
+	if ((ws = query_id(c, C_SID, xfer->session_id)) != NULL)
+		free(ws);
+	close(wx->fd);
+	unlink(wx->path);
+	return send_error(c, xfer->id, errmsg, -1);
+}
+
+void
+file_check_update(struct client *c, struct wait_file *wf)
+{
+	/* TODO: разослать уведомление */
+	if (wf->chunks == wf->chunks_ok) {
+#if DEEPDEBUG
+		xsyslog(LOG_DEBUG, "client[%p] file fin: %u/%u[%u]",
+				(void*)c->cev, (unsigned)wf->chunks_ok,
+				(unsigned)wf->chunks, (unsigned)wf->chunks_fail);
+#endif
+	}
+}
+
+bool
+_handle_end(struct client *c, unsigned type, Fep__End *end)
+{
+	struct wait_store *ws;
+	struct wait_xfer *wx;
+	char *errmsg = NULL;
+
+	/* TODO: добавить в бд запись */
+	ws = query_id(c, C_SID, end->session_id);
+	if (!ws)
+		return send_error(c, end->id, "Unexpected End message", -1);
+	wx = ws->data;
+#if DEEPDEBUG
+	xsyslog(LOG_DEBUG, "client[%p] close fd#%d",
+			(void*)c->cev, wx->fd);
+#endif
+	close(wx->fd);
+	if (wx->filling != wx->size) {
+		errmsg = "Infernal sizes";
+	}
+
+
+	if (!errmsg) {
+		wx->wf->chunks_ok++;
+		file_check_update(c, wx->wf);
+		return send_ok(c, end->id);
+	}
+	wx->wf->chunks_fail++;
+	unlink(wx->path);
+	return send_error(c, end->id, errmsg, -1);
 }
 
 bool
