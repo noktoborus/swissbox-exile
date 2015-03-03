@@ -71,6 +71,12 @@ def send_message(s, msg):
     ptype = FEP.Type.keys().index("t" + msg.__class__.__name__) + 1
     sl = msg.SerializeToString()
     ph = struct.pack("!H", ptype) + struct.pack("!I", len(sl))[1:] + '\0'
+    try:
+        write_std("# send id: %s, type: %s, len: (%s, %s)\n"\
+                %(msg.id, msg.__class__.__name__), len(sl), len(ph))
+    except:
+        write_std("#send type: %s, len: (%s, %s)\n"\
+                %(msg.__class__.__name__, len(sl), len(ph)))
     ph += sl
     s.send(ph)
 
@@ -107,10 +113,44 @@ def proto(s, c):
         return
     if c == "ping":
         msg = FEP.Ping()
-        ping.id = 100
-        ping.timestamp = 0
-        ping.usecs = 0
-        send_message(s, ping)
+        msg.id = 100
+        msg.timestamp = 0
+        msg.usecs = 0
+        send_message(s, msg)
+    if c == "file":
+        c = 6
+        f = b"\0" * 65
+        msg = FEP.WriteAsk()
+        msg.id = 200
+        msg.rootdir_guid = "6ad2e7b2-c1d0-11e4-be14-a417319a88f9"
+        msg.file_guid = "653e17c2-c1d0-11e4-be14-a417319a88f9"
+        msg.chunk_guid = "64d68d0a-c1d0-11e4-be14-a417319a88f9"
+        msg.size = len(f) * c
+        send_message(s, msg)
+        rmsg = recv_message(s)[2]
+        for q in range(0, c):
+            msg = FEP.xfer()
+            msg.id = 201
+            msg.session_id = rmsg.session_id
+            msg.data = f
+            msg.offset = 0
+            send_message(s, msg)
+        msg = FEP.End()
+        msg.id = 202
+        msg.session_id = rmsg.session_id
+        msg.offset = 0
+        msg.origin_len = 1
+        send_message(s, msg)
+        recv_message(s)
+        msg = FEP.FileUpdate()
+        msg.id = 203
+        msg.chunks = 1
+        msg.rootdir_guid = "6ad2e7b2-c1d0-11e4-be14-a417319a88f9"
+        msg.revision_guid = "038b0d98-c1d8-11e4-b23e-a417319a88f9" 
+        msg.file_guid = "653e17c2-c1d0-11e4-be14-a417319a88f9"
+        send_message(s, msg)
+        recv_message(s)
+
     # TODO:
 
 def connect(host, command):
