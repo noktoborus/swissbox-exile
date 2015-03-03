@@ -75,7 +75,7 @@ _handle_write_ask(struct client *c, unsigned type, Fep__WriteAsk *msg)
 
 	uint64_t hash;
 	struct wait_store *fid_ws;
-	struct wait_file fid_wf;
+	struct wait_file *wf;
 	Fep__WriteOk wrok = FEP__WRITE_OK__INIT;
 
 	if (msg->size == 0u) {
@@ -137,17 +137,21 @@ _handle_write_ask(struct client *c, unsigned type, Fep__WriteAsk *msg)
 		hash = guid2hash(msg->file_guid);
 		fid_in = ((fid_ws = touch_id(c, C_FID, hash)) != NULL);
 
-		if (!fid_ws)
+		if (!fid_ws) {
 			fid_ws = calloc(1, sizeof(struct wait_store)
 					+ sizeof(struct wait_file));
+			fid_ws->data = fid_ws + 1;
+		}
 		memset(&wx, 0, sizeof(struct wait_xfer));
 		ws = calloc(1, sizeof(struct wait_store) + sizeof(struct wait_xfer));
 		/* открытие/создание файла */
-		wx.fd = open(path, O_CREAT | O_TRUNC, S_IRWXU);
+		wx.size = msg->size;
+		wx.fd = open(path, O_CREAT | O_TRUNC | O_RDWR, S_IRWXU);
 		if (wx.fd == -1 || !ws || !fid_ws) {
 			errmsg = "Internal error: cache not available";
 		}
 		memcpy(wx.path, path, PATH_MAX);
+		wx.wf = fid_ws->data;
 #if DEEPDEBUG
 		xsyslog(LOG_DEBUG, "client[%p] fd#%d for %s",
 				(void*)c->cev, wx.fd, wx.path);
@@ -177,8 +181,9 @@ _handle_write_ask(struct client *c, unsigned type, Fep__WriteAsk *msg)
 
 	wait_id(c, C_SID, wrok.session_id, ws);
 	if (fid_ws) {
-		fid_ws->data = fid_ws + 1;
-		memcpy(fid_ws->data, &fid_wf, sizeof(struct wait_file));
+		/* TODO: наполнить wf */
+		wf = fid_ws->data;
+		string2guid(msg->file_guid, strlen(msg->file_guid), &wf->file_guid);
 		wait_id(c, C_FID, hash, fid_ws);
 	}
 
@@ -234,7 +239,10 @@ send_error(struct client *c, uint64_t id, char *message, int remain)
 	err.message = message;
 	if (remain > 0)
 		err.remain = (unsigned)remain;
-	/* дропаем сразу подключение */
+#if DEEPDEBUG
+	xsyslog(LOG_DEBUG, "client[%p] send error(%d): %s",
+			(void*)c->cev, remain, message);
+#endif
 	return send_message(c->cev, FEP__TYPE__tError, &err);
 }
 
@@ -397,8 +405,15 @@ _handle_xfer(struct client *c, unsigned type, Fep__Xfer *xfer)
 	} else if (write(wx->fd, xfer->data.data, xfer->data.len) != xfer->data.len) {
 		errmsg = "Write fail";
 	} else {
+		wx->filling += xfer->data.len;
 		return true;
 	}
+#if DEEPDEBUG
+	if (errmsg) {
+		xsyslog(LOG_DEBUG, "client[%p] got xfer error: %s",
+				(void*)c->cev, strerror(errno));
+	}
+#endif
 
 	/* больше чанк нам не нужен, т.к. его должны переслать заного */
 	if ((ws = query_id(c, C_SID, xfer->session_id)) != NULL)
@@ -432,6 +447,7 @@ _handle_file_update(struct client *c, unsigned type, Fep__FileUpdate *fu)
 
 	ws = touch_id(c, C_FID, hash);
 	/* если записи нет, нужно создать новую */
+
 	if (!ws) {
 		ws = calloc(1, sizeof(wait_store_t) + sizeof (struct wait_file));
 		if (!ws) {
@@ -442,8 +458,11 @@ _handle_file_update(struct client *c, unsigned type, Fep__FileUpdate *fu)
 		ws->data = ws + 1;
 		wf = ws->data;
 		string2guid(fu->file_guid, strlen(fu->file_guid), &wf->file_guid);
+	} else {
+		wf = ws->data;
 	}
 	wf->chunks = fu->chunks;
+	file_check_update(c, wf);
 	return send_ok(c, fu->id);
 }
 
@@ -468,12 +487,12 @@ _handle_end(struct client *c, unsigned type, Fep__End *end)
 		errmsg = "Infernal sizes";
 	}
 
-
 	if (!errmsg) {
 		wx->wf->chunks_ok++;
 		file_check_update(c, wx->wf);
 		return send_ok(c, end->id);
 	}
+	/* чанк не нужен, клиент перетащит его заного */
 	wx->wf->chunks_fail++;
 	unlink(wx->path);
 	return send_error(c, end->id, errmsg, -1);
@@ -680,10 +699,6 @@ handle_header(unsigned char *buf, size_t size, struct client *c)
 			/* не должно случаться такого, что бы небыло анпакера,
 			 * но как-то вот
 			 */
-#if DEEPDEBUG
-			xsyslog(LOG_DEBUG, "client[%p] in message: %u, len: %u",
-					(void*)c->cev, (unsigned)c->h_type, c->h_len);
-#endif
 			if (!handle[c->h_type].p) {
 				if (!handle[c->h_type].f(c, c->h_type, rawmsg))
 					exit = true;

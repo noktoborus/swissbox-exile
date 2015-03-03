@@ -261,12 +261,12 @@ client_alloc(struct ev_loop *loop, int fd, struct sev_ctx *next)
 	cev->fd = -1;
 
 	xsyslog(LOG_INFO, "client init(%p, fd#%d) serial: %u",
-			(void*)cev, fd, sev_ctx_seq);
+			(void*)cev, fd, ++sev_ctx_seq);
 	memset(cev, 0, sizeof(struct sev_ctx));
 	pthread_cond_init(&cev->ond, NULL);
 	pthread_mutex_init(&cev->utex, NULL);
 
-	cev->serial = ++sev_ctx_seq;
+	cev->serial = sev_ctx_seq;
 
 	/* лок для того, что бы тред не попытался прочитать/писать в сокет
 	 * до того, как ev_io будет проинициализировано
@@ -275,7 +275,7 @@ client_alloc(struct ev_loop *loop, int fd, struct sev_ctx *next)
 
 	if (pthread_create(&cev->thread, NULL, client_thread, (void*)cev)) {
 		xsyslog(LOG_WARNING, "client init(%p, fd#%d) thread fail: %s",
-				(void*)cev, fd, strerror(errno));
+				(void*)cev, cev->fd, strerror(errno));
 		memset(&cev->thread, 0, sizeof(cev->thread));
 		pthread_mutex_unlock(&cev->utex);
 		client_free(cev);
@@ -283,7 +283,7 @@ client_alloc(struct ev_loop *loop, int fd, struct sev_ctx *next)
 		return NULL;
 	} else {
 		xsyslog(LOG_INFO, "client init(%p, fd#%d) new thread[%p]",
-				(void*)cev, cev->fd, (void*)cev->thread);
+				(void*)cev, fd, (void*)cev->thread);
 
 		/* интеграция в список */
 		if (next) {
@@ -293,7 +293,7 @@ client_alloc(struct ev_loop *loop, int fd, struct sev_ctx *next)
 				cev->prev = next->prev;
 			}
 			xsyslog(LOG_DEBUG, "client init(%p, fd#%d) prev: %p, next: %p",
-					(void*)cev, cev->fd, (void*)cev->prev, (void*)cev->next);
+					(void*)cev, fd, (void*)cev->prev, (void*)cev->next);
 		}
 
 		/* инициализация вторичных значений */
