@@ -655,16 +655,23 @@ handle_header(unsigned char *buf, size_t size, struct client *c)
 					exit = true;
 			} else {
 				msg = handle[c->h_type].p(NULL, c->h_len, (uint8_t*)rawmsg);
-				if (!handle[c->h_type].f(c, c->h_type, msg))
-					exit = true;
-				/* проверять заполненность структуры нужно в компилтайме,
-				 * но раз такой возможности нет, то делаем это в рантайме
-				 */
-				if (!handle[c->h_type].e) {
-					xsyslog(LOG_WARNING, "memory leak for message type %u\n",
-							c->h_type);
+				if (msg) {
+					if (!handle[c->h_type].f(c, c->h_type, msg))
+						exit = true;
+					/* проверять заполненность структуры нужно в компилтайме,
+					 * но раз такой возможности нет, то делаем это в рантайме
+					 */
+					if (!handle[c->h_type].e) {
+						xsyslog(LOG_WARNING,
+								"memory leak for message type #%u\n",
+								c->h_type);
+					} else {
+						handle[c->h_type].e(msg, NULL);
+					}
 				} else {
-					handle[c->h_type].e(msg, NULL);
+					xsyslog(LOG_INFO,
+							"client[%p] send malformed message type #%u",
+							(void*)c->cev, c->h_type);
 				}
 			}
 		}
