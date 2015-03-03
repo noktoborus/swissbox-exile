@@ -22,7 +22,6 @@ TYPICAL_HANDLE_F(Fep__Ok, ok, C_MID)
 TYPICAL_HANDLE_F(Fep__Error, error, C_MID)
 TYPICAL_HANDLE_F(Fep__Pending, pending, C_MID)
 TYPICAL_HANDLE_F(Fep__WriteOk, write_ok, C_MID)
-TYPICAL_HANDLE_F(Fep__FileUpdate, file_update, C_MID)
 TYPICAL_HANDLE_F(Fep__RenameChunk, rename_chunk, C_MID)
 
 NOTIMP_HANDLE_F(Fep__ReadAsk, read_ask)
@@ -34,12 +33,14 @@ guid2hash(const char *key)
 	register uint64_t hl, hr;
 
 	while (*key) {
-		if (*key == '{' || *key == '}' || *key == '-')
+		if (*key == '{' || *key == '}' || *key == '-') {
+			key++;
 			continue;
+		}
 		h += *key;
 		hl = 0x5c5c5 ^ (h & 0xfff00000) >> 30;
 		hr = (h & 0x000fffff);
-		h = hl ^ hr ^ *key++;
+		h = hl ^ hr ^ *(key++);
 	}
 	return h;
 }
@@ -105,10 +106,13 @@ _handle_write_ask(struct client *c, unsigned type, Fep__WriteAsk *msg)
 				(void*)c->cev, path, strerror(errno));
 	} else {
 		struct stat st;
-		snprintf(path, PATH_MAX, "%s/%s", path, msg->file_guid);
+		snprintf(path, PATH_MAX, "%s/%s/%s",
+				c->options.home, msg->rootdir_guid, msg->file_guid);
 		mkdir(path, S_IRWXU);
-		snprintf(path, PATH_MAX, "%s/%s", path, msg->chunk_guid);
-		if (stat(path, &st) == -1 || errno != ENOENT) {
+		snprintf(path, PATH_MAX, "%s/%s/%s/%s",
+				c->options.home, msg->rootdir_guid,
+				msg->file_guid, msg->chunk_guid);
+		if (stat(path, &st) == -1 && errno != ENOENT) {
 			errmsg = "Internal error: prepare space failed";
 			xsyslog(LOG_WARNING, "client[%p] stat(%s) error: %s",
 					(void*)c->cev, path, strerror(errno));
@@ -171,12 +175,12 @@ _handle_write_ask(struct client *c, unsigned type, Fep__WriteAsk *msg)
 	ws->data = ws + 1;
 	memcpy(ws->data, &wx, sizeof(struct wait_xfer));
 
-	fid_ws->data = fid_ws + 1;
-	memcpy(fid_ws->data, &fid_wf, sizeof(struct wait_file));
-
 	wait_id(c, C_SID, wrok.session_id, ws);
-	if (fid_ws)
+	if (fid_ws) {
+		fid_ws->data = fid_ws + 1;
+		memcpy(fid_ws->data, &fid_wf, sizeof(struct wait_file));
 		wait_id(c, C_FID, hash, fid_ws);
+	}
 
 	return send_message(c->cev, FEP__TYPE__tWriteOk, &wrok);
 }
@@ -415,6 +419,32 @@ file_check_update(struct client *c, struct wait_file *wf)
 				(unsigned)wf->chunks, (unsigned)wf->chunks_fail);
 #endif
 	}
+}
+
+bool
+_handle_file_update(struct client *c, unsigned type, Fep__FileUpdate *fu)
+{
+	uint64_t hash;
+	wait_store_t *ws;
+	struct wait_file *wf;
+
+	hash = guid2hash(fu->file_guid);
+
+	ws = touch_id(c, C_FID, hash);
+	/* если записи нет, нужно создать новую */
+	if (!ws) {
+		ws = calloc(1, sizeof(wait_store_t) + sizeof (struct wait_file));
+		if (!ws) {
+			xsyslog(LOG_INFO, "client[%p] memory fail in fileUpdate: %s",
+					(void*)c->cev, strerror(errno));
+			return send_error(c, fu->id, "Infernal error", -1);
+		}
+		ws->data = ws + 1;
+		wf = ws->data;
+		string2guid(fu->file_guid, strlen(fu->file_guid), &wf->file_guid);
+	}
+	wf->chunks = fu->chunks;
+	return send_ok(c, fu->id);
 }
 
 bool
