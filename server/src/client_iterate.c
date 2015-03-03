@@ -681,8 +681,8 @@ handle_header(unsigned char *buf, size_t size, struct client *c)
 			 * но как-то вот
 			 */
 #if DEEPDEBUG
-			xsyslog(LOG_DEBUG, "client[%p] in message: %u, len: %lu",
-					(void*)c->cev, c->h_type, c->h_len);
+			xsyslog(LOG_DEBUG, "client[%p] in message: %u, len: %u",
+					(void*)c->cev, (unsigned)c->h_type, c->h_len);
 #endif
 			if (!handle[c->h_type].p) {
 				if (!handle[c->h_type].f(c, c->h_type, rawmsg))

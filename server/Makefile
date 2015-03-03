@@ -13,7 +13,7 @@ clean:
 	rm -f ${BIN}
 
 debug:
-	make clean && make EF=-DEEPDEBUG ${BIN}
+	make clean && make EF=-DDEEPDEBUG ${BIN}
 
 runtest: ${BIN} proto/fep_pb2.py
 	python2 test/proto.py ${BIN} auth
