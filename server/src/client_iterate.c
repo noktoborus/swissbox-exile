@@ -27,19 +27,19 @@ TYPICAL_HANDLE_F(Fep__RenameChunk, rename_chunk, &c->mid)
 NOTIMP_HANDLE_F(Fep__ReadAsk, read_ask)
 
 static void
-midsid_free(void *data)
+midfid_free(void *data)
 {
 	free(data);
 }
 
 static void
-fid_free(wait_store_t *ws)
+sid_free(wait_store_t *ws)
 {
 	struct wait_xfer *wx;
 	wx = ws->data;
 	if (wx->fd != -1) {
-		close(wx->fd);
 		xsyslog(LOG_DEBUG, "destroy xfer fd#%d", wx->fd);
+		close(wx->fd);
 	}
 	free(ws);
 }
@@ -747,9 +747,9 @@ client_destroy(struct client *c)
 	if (!c)
 		return;
 	/* чистка очередей */
-	while (list_free_root(&c->mid, &midsid_free));
-	while (list_free_root(&c->sid, &midsid_free));
-	while (list_free_root(&c->fid, (void(*)(void*))&fid_free));
+	while (list_free_root(&c->mid, &midfid_free));
+	while (list_free_root(&c->sid, (void(*)(void*))&sid_free));
+	while (list_free_root(&c->fid, &midfid_free));
 
 	/* буфера */
 	if (c->buffer)
