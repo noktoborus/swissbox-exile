@@ -32,6 +32,8 @@ list_alloc(struct listRoot *root, uint64_t id, void *data)
 	root->next = ln;
 	ln->root = root;
 
+	ln->data = data;
+
 	return true;
 }
 
