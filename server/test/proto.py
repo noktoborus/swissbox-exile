@@ -146,7 +146,7 @@ def proto(s, c):
             msg = FEP.End()
         for q in range(0, c):
             msg.id = (2000 + q)
-            msg.session_id = rmsg.session_id
+            msg.session_id = ids[q]
             msg.offset = 0
             msg.origin_len = 1
             send_message(s, msg)
