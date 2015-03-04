@@ -77,6 +77,8 @@ client_thread(void *ctx)
 		if (cev->action & SEV_ACTION_EXIT) {
 			xsyslog(LOG_DEBUG, "client %p thread[%p] exit at event",
 					(void*)cev, (void*)cev->thread);
+			pthread_mutex_unlock(&cev->utex);
+			break;
 		}
 		pthread_mutex_unlock(&cev->utex);
 	}
