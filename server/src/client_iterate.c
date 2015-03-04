@@ -814,12 +814,84 @@ client_alloc(struct sev_ctx *cev)
 	return c;
 }
 
+bool static inline
+_client_iterate_read(struct client *c)
+{
+	register int lval;
+	/* алоцируем буфер */
+	if (c->blen + BUFFER_ALLOC > c->bsz) {
+		void *tmp;
+		tmp = realloc(c->buffer, c->bsz + BUFFER_ALLOC);
+		if (!tmp) {
+			xsyslog(LOG_WARNING, "client %p, grow from %lu to %lu fail: %s",
+					(void*)c->cev, c->bsz, c->bsz + BUFFER_ALLOC,
+					strerror(errno));
+			/* если обвалились по памяти, то ждём следующей итерации,
+			 * так как в процессе может что-то освободиться */
+			return true;
+		}
+		c->buffer = tmp;
+		c->bsz += BUFFER_ALLOC;
+	}
+	/* wait data */
+	lval = sev_recv(c->cev, &c->buffer[c->blen], c->bsz - c->blen);
+	if (lval < 0) {
+		xsyslog(LOG_WARNING, "client[%p] recv %d\n", (void*)c->cev, lval);
+		return false;
+	} else if (lval == 0) {
+		/* pass to cycle sanitize (check timeouts, etc) */
+		return true;
+	}
+	c->blen += lval;
+	return true;
+}
+
+bool static inline
+_client_iterate_handle(struct client *c)
+{
+	register int lval;
+	lval = handle_header(c->buffer, c->blen, c);
+	/* смещаем хвост в начало буфера */
+	if (lval > 0) {
+		if (lval < c->blen) {
+			/* если вдруг обвалится memove, то восстанавливать, вощем-то,
+			 * нечего, потому просто валимся
+			 */
+			if (!memmove(c->buffer, &c->buffer[lval], c->blen - lval)) {
+				xsyslog(LOG_WARNING, "client[%p] memmove() fail: %s",
+						(void*)c->cev, strerror(errno));
+				return false;
+			}
+			c->blen -= lval;
+		} else {
+			c->blen = 0u;
+		}
+	} else if (lval == HEADER_INVALID) {
+		xsyslog(LOG_WARNING, "client[%p] mismatch protocol:"
+				"%x %x %x %x %x %x", (void*)c->cev,
+				c->buffer[0], c->buffer[1], c->buffer[2],
+				c->buffer[3], c->buffer[4], c->buffer[5]);
+		return false;
+	} else if (lval == HEADER_STOP) {
+		xsyslog(LOG_WARNING, "client[%p] stop chat with "
+				"header[type: %u, len: %u]",
+				(void*)c->cev, c->h_type, c->h_len);
+	} else if (lval == HEADER_MORE) {
+		if (!_client_iterate_read(c))
+			return false;
+	}
+	if (c->count_error <= 0) {
+		xsyslog(LOG_INFO, "client[%p] to many errors", (void*)c->cev);
+		return false;
+	}
+	return true;
+}
+
 /* вовзращает положительный результат, если требуется прервать io */
 bool
 client_iterate(struct sev_ctx *cev, bool last, void **p)
 {
 	struct client *c = (struct client *)*p;
-	int lval = 0;
 	/* подчищаем, если вдруг последний раз запускаемся */
 	if (last) {
 		client_destroy(c);
@@ -858,64 +930,13 @@ client_iterate(struct sev_ctx *cev, bool last, void **p)
 					(void*)cev, strerror(errno));
 		}
 	}
-	while (lval >= 0) {
-		/* need realloc */
-		if (c->blen + BUFFER_ALLOC > c->bsz) {
-			void *tmp;
-			tmp = realloc(c->buffer, c->bsz + BUFFER_ALLOC);
-			if (!tmp) {
-				xsyslog(LOG_WARNING, "client %p, grow from %lu to %lu fail: %s",
-						(void*)cev, c->bsz, c->bsz + BUFFER_ALLOC,
-						strerror(errno));
-				/* если обвалились по памяти, то ждём следующей итерации,
-				 * так как в процессе может что-то освободиться */
-				break;
-			}
-			c->buffer = tmp;
-			c->bsz += BUFFER_ALLOC;
-		}
-		/* wait data */
-		lval = sev_recv(cev, &c->buffer[c->blen], c->bsz - c->blen);
-		if (lval < 0) {
-			xsyslog(LOG_WARNING, "client[%p] recv %d\n", (void*)cev, lval);
-			break;
-		} else if (lval == 0) {
-			/* pass to cycle sanitize (check timeouts, etc) */
-			break;
-		}
-		c->blen += lval;
-		lval = handle_header(c->buffer, c->blen, c);
-		/* смещаем хвост в начало буфера */
-		if (lval > 0) {
-			if (lval < c->blen) {
-				/* если вдруг обвалится memove, то восстанавливать, вощем-то,
-				 * нечего, потому просто валимся
-				 */
-				if (!memmove(c->buffer, &c->buffer[lval], c->blen - lval)) {
-					xsyslog(LOG_WARNING, "client[%p] memmove() fail: %s",
-							(void*)cev, strerror(errno));
-					return true;
-				}
-				c->blen -= lval;
-			} else {
-				c->blen = 0u;
-			}
-		} else if (lval == HEADER_INVALID) {
-			xsyslog(LOG_WARNING, "client[%p] mismatch protocol:"
-					"%x %x %x %x %x %x", (void*)cev,
-					c->buffer[0], c->buffer[1], c->buffer[2],
-					c->buffer[3], c->buffer[4], c->buffer[5]);
-			return true;
-		} else if (lval == HEADER_STOP) {
-			xsyslog(LOG_WARNING, "client[%p] stop chat with "
-					"header[type: %u, len: %u]",
-					(void*)cev, c->h_type, c->h_len);
-		}
-		if (c->count_error <= 0) {
-			xsyslog(LOG_INFO, "client[%p] to many errors", (void*)cev);
-			return true;
-		}
+	/* если обработка заголовка или чтение завалилось,
+	 * то можно прерывать цикл
+	 */
+	if (!_client_iterate_handle(c)) {
+		return false;
 	}
-	return false;
+	/* переходим на следующую итерацию */
+	return true;
 }
 
