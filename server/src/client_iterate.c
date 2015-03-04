@@ -152,10 +152,6 @@ _handle_write_ask(struct client *c, unsigned type, Fep__WriteAsk *msg)
 		}
 		memcpy(wx.path, path, PATH_MAX);
 		wx.wf = fid_ws->data;
-#if DEEPDEBUG
-		xsyslog(LOG_DEBUG, "client[%p] fd#%d for %s",
-				(void*)c->cev, wx.fd, wx.path);
-#endif
 
 		if (fid_in)
 			fid_ws = NULL;
@@ -178,7 +174,10 @@ _handle_write_ask(struct client *c, unsigned type, Fep__WriteAsk *msg)
 
 	ws->data = ws + 1;
 	memcpy(ws->data, &wx, sizeof(struct wait_xfer));
-
+#if DEEPDEBUG
+	xsyslog(LOG_DEBUG, "client[%p] fd#%d for %s [%"PRIu32"]",
+			(void*)c->cev, wx.fd, wx.path, wrok.session_id);
+#endif
 	wait_id(c, C_SID, wrok.session_id, ws);
 	if (fid_ws) {
 		/* TODO: наполнить wf */
@@ -316,10 +315,14 @@ bool
 wait_id(struct client *c, client_idl_t idl, uint64_t id, wait_store_t *s)
 {
 	struct idlist *wid;
+#if DEEPDEBUG
+	xsyslog(LOG_DEBUG, "client[%p] list wait_id(%d, %"PRIu64")",
+			(void*)c->cev, idl, id);
+#endif
 
 	/* ещё одна бесполезная проверка */
 	if (!s) {
-		xsyslog(LOG_DEBUG, "client[%p] wait_id() not receive wait_store or cb",
+		xsyslog(LOG_DEBUG, "client[%p] wait_id() not receive wait_store",
 				(void*)c->cev);
 		return false;
 	}
@@ -351,6 +354,10 @@ query_id(struct client *c, client_idl_t idl, uint64_t id)
 {
 	struct idlist *wid;
 	wait_store_t *data;
+#if DEEPDEBUG
+	xsyslog(LOG_DEBUG, "client[%p] list query_id(%d, %"PRIu64")",
+			(void*)c->cev, idl, id);
+#endif
 
 	if (!(wid = _struct_id(c, idl, NULL)))
 		return NULL;
@@ -369,7 +376,10 @@ wait_store_t*
 touch_id(struct client *c, client_idl_t idl, uint64_t id)
 {
 	struct idlist *wid;
-
+#if DEEPDEBUG
+	xsyslog(LOG_DEBUG, "client[%p] list touch_id(%d, %"PRIu64")",
+			(void*)c->cev, idl, id);
+#endif
 	if (!(wid = _struct_id(c, idl, NULL)))
 		return NULL;
 
@@ -394,8 +404,13 @@ _handle_xfer(struct client *c, unsigned type, Fep__Xfer *xfer)
 	char *errmsg = NULL;
 
 	ws = touch_id(c, C_SID, xfer->session_id);
-	if (!ws)
+	if (!ws) {
+#if DEEPDEBUG
+		xsyslog(LOG_DEBUG, "client[%p] xfer not found for id %"PRIu32,
+				(void*)c->cev, xfer->session_id);
+#endif
 		return send_error(c, xfer->id, "Unexpected xfer message", -1);
+	}
 	wx = ws->data;
 
 	if (xfer->data.len + xfer->offset > wx->size) {
@@ -475,12 +490,17 @@ _handle_end(struct client *c, unsigned type, Fep__End *end)
 
 	/* TODO: добавить в бд запись */
 	ws = query_id(c, C_SID, end->session_id);
-	if (!ws)
+	if (!ws) {
+#if DEEPDEBUG
+		xsyslog(LOG_DEBUG, "client[%p] End not found for id %"PRIu32,
+				(void*)c->cev, end->session_id);
+#endif
 		return send_error(c, end->id, "Unexpected End message", -1);
+	}
 	wx = ws->data;
 #if DEEPDEBUG
-	xsyslog(LOG_DEBUG, "client[%p] close fd#%d",
-			(void*)c->cev, wx->fd);
+	xsyslog(LOG_DEBUG, "client[%p] close fd#%d, id %"PRIu32,
+			(void*)c->cev, wx->fd, end->session_id);
 #endif
 	close(wx->fd);
 	if (wx->filling != wx->size) {
