@@ -89,7 +89,7 @@ def proto_bootstrap(s):
                 msg.id = msgt[2].id
                 msg.authType = FEP.tUserToken
                 msg.domain = "it-grad.ru"
-                msg.username = "1"
+                msg.username = str(__import__("uuid").uuid1())
                 msg.authToken = "1"
                 send_message(s, msg)
             elif msgt[1] == "tOk":
