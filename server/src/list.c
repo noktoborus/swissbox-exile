@@ -59,7 +59,7 @@ list_free_node(struct listNode *node, void(*data_free)(void*))
 		return false;
 
 	if (node->root) {
-		if (node->root->next  == node) {
+		if (node->root->next == node) {
 			node->root->next = node->next;
 		}
 	}
