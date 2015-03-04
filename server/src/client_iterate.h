@@ -146,6 +146,8 @@ struct wait_file {
 	unsigned chunks_ok;
 	unsigned chunks_fail;
 
+	size_t ref; /* количество ссылок из wait_xfer */
+
 	/* meta */
 	uint64_t id;
 	guid_t file_guid;

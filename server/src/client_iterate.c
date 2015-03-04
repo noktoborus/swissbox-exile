@@ -169,8 +169,10 @@ _handle_write_ask(struct client *c, unsigned type, Fep__WriteAsk *msg)
 			errmsg = "Internal error: cache not available";
 		}
 		memcpy(wx.path, path, PATH_MAX);
+		/* ссылаемся на wait_file и увеличиваем счётчик */
 		wx.wf = fid_ws->data;
-
+		wx.wf->ref++;
+		/* логический костыль */
 		if (fid_in)
 			fid_ws = NULL;
 	}
@@ -389,18 +391,24 @@ _handle_xfer(struct client *c, unsigned type, Fep__Xfer *xfer)
 				(void*)c->cev, wx->fd);
 	}
 #endif
-
-	/* больше чанк нам не нужен, т.к. его должны переслать заного */
-	if ((ws = query_id(c, &c->sid, xfer->session_id)) != NULL)
-		free(ws);
+	/* больше чанк нам не нужен, т.к. его должны переслать заного
+	 * закрываем всякие ресурсы и уменьшаем счётчик ссылок
+	 */
+	wx->wf->ref--;
 	close(wx->fd);
 	unlink(wx->path);
+	/* освобождение памяти в последнюю очередь,
+	 * т.к. wx и ws выделяются в последнюю очередь
+	 */
+	if ((ws = query_id(c, &c->sid, xfer->session_id)) != NULL)
+		free(ws);
 	return send_error(c, xfer->id, errmsg, -1);
 }
 
 bool
 file_check_update(struct client *c, struct wait_file *wf)
 {
+	void *d;
 	/* TODO: разослать уведомление */
 	if (wf->chunks == wf->chunks_ok) {
 #if DEEPDEBUG
@@ -408,6 +416,14 @@ file_check_update(struct client *c, struct wait_file *wf)
 				(void*)c->cev, (unsigned)wf->chunks_ok,
 				(unsigned)wf->chunks, (unsigned)wf->chunks_fail);
 #endif
+		if (!wf->ref) {
+#if DEEPDEBUG
+			xsyslog(LOG_DEBUG, "client[%p] file fully loaded",
+					(void*)c->cev);
+#endif
+			if ((d = query_id(c, &c->fid, wf->id)) != NULL)
+				free(d);
+		}
 		return true;
 	}
 	return false;
@@ -459,24 +475,24 @@ _handle_end(struct client *c, unsigned type, Fep__End *end)
 #endif
 		return send_error(c, end->id, "Unexpected End message", -1);
 	}
+	/* копия для удобства и освобождаем память от ненужной структуры */
 	memcpy(&wx, ws->data, sizeof(struct wait_xfer));
 	free(ws);
+	/* закрываем всякий мусор и уменьшаем счётчик */
+	wx.wf->ref--;
+	close(wx.fd);
 #if DEEPDEBUG
 	xsyslog(LOG_DEBUG, "client[%p] close fd#%d, id %"PRIu32,
 			(void*)c->cev, wx.fd, end->session_id);
 #endif
-	close(wx.fd);
+	/* размеры не совпали */
 	if (wx.filling != wx.size) {
 		errmsg = "Infernal sizes";
 	}
 
 	if (!errmsg) {
 		wx.wf->chunks_ok++;
-		if (file_check_update(c, wx.wf)) {
-			void *d = query_id(c, &c->fid, wx.wf->id);
-			if (d)
-				free(d);
-		}
+		file_check_update(c, wx.wf);
 		return send_ok(c, end->id);
 	}
 	/* чанк не нужен, клиент перетащит его заного */
