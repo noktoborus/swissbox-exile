@@ -119,32 +119,37 @@ def proto(s, c):
         send_message(s, msg)
     if c == "file":
         c = 6
+        x = 1
         f = b"\0" * 65
-        msg = FEP.WriteAsk()
-        msg.id = 200
-        msg.rootdir_guid = "6ad2e7b2-c1d0-11e4-be14-a417319a88f9"
-        msg.file_guid = "653e17c2-c1d0-11e4-be14-a417319a88f9"
-        msg.chunk_guid = "64d68d0a-c1d0-11e4-be14-a417319a88f9"
-        msg.size = len(f) * c
-        send_message(s, msg)
-        rmsg = recv_message(s)[2]
         for q in range(0, c):
-            msg = FEP.xfer()
-            msg.id = 201
-            msg.session_id = rmsg.session_id
-            msg.data = f
-            msg.offset = 0
+            msg = FEP.WriteAsk()
+            msg.id = (2000 + q)
+            guid = "64d68d0a-c1d0-11e4-be14-a417319a800m"
+            ee = str(q)
+            guid = guid[0:len(guid) - len(ee)] + ee
+            msg.rootdir_guid = "6ad2e7b2-c1d0-11e4-be14-a417319a88f9"
+            msg.file_guid = "653e17c2-c1d0-11e4-be14-a417319a88f9"
+            msg.chunk_guid = guid
+            msg.size = len(f) * x
             send_message(s, msg)
-        msg = FEP.End()
-        msg.id = 202
-        msg.session_id = rmsg.session_id
-        msg.offset = 0
-        msg.origin_len = 1
-        send_message(s, msg)
-        recv_message(s)
+            rmsg = recv_message(s)[2]
+            for qn in range(0, x):
+                msg = FEP.xfer()
+                msg.id = (2000 + q) * 100 + qn
+                msg.session_id = rmsg.session_id
+                msg.data = f
+                msg.offset = 0
+                send_message(s, msg)
+            msg = FEP.End()
+            msg.id = (2000 + q)
+            msg.session_id = rmsg.session_id
+            msg.offset = 0
+            msg.origin_len = 1
+            send_message(s, msg)
+            recv_message(s)
         msg = FEP.FileUpdate()
         msg.id = 203
-        msg.chunks = 1
+        msg.chunks = c
         msg.rootdir_guid = "6ad2e7b2-c1d0-11e4-be14-a417319a88f9"
         msg.revision_guid = "038b0d98-c1d8-11e4-b23e-a417319a88f9" 
         msg.file_guid = "653e17c2-c1d0-11e4-be14-a417319a88f9"
