@@ -121,6 +121,7 @@ def proto(s, c):
         c = 6
         x = 1
         f = b"\0" * 65
+        ids = {}
         for q in range(0, c):
             msg = FEP.WriteAsk()
             msg.id = (2000 + q)
@@ -133,6 +134,8 @@ def proto(s, c):
             msg.size = len(f) * x
             send_message(s, msg)
             rmsg = recv_message(s)[2]
+            ids[q] = rmsg.session_id
+        for q in range(0, c):
             for qn in range(0, x):
                 msg = FEP.xfer()
                 msg.id = (2000 + q) * 100 + qn
@@ -141,6 +144,7 @@ def proto(s, c):
                 msg.offset = 0
                 send_message(s, msg)
             msg = FEP.End()
+        for q in range(0, c):
             msg.id = (2000 + q)
             msg.session_id = rmsg.session_id
             msg.offset = 0
