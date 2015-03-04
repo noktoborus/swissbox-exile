@@ -4,6 +4,7 @@
 #ifndef _MAIN_1422961154_H_
 #define _MAIN_1422961154_H_
 
+#include "list.h"
 #include "xsyslog.h"
 #include "proto/fep.pb-c.h"
 
@@ -64,18 +65,6 @@ struct main
 	struct sev_main *sev;
 };
 
-struct idlist
-{
-	uint64_t id;
-
-	struct timeval born;
-
-	void *data;
-
-	struct idlist *left;
-	struct idlist *right;
-};
-
 typedef enum direction
 {
 	/* в любую сторону, нужно осторожно использовать в циклах */
@@ -85,15 +74,6 @@ typedef enum direction
 	/* только в левую сторону */
 	DLEFT
 } direction_t;
-
-/* добавляет новую структу слева от *left */
-struct idlist *idlist_alloc(uint64_t id, struct idlist *left);
-/* ищет структуру с указанным id, начиная от left в обе стороны */
-struct idlist *idlist_find(uint64_t id, struct idlist *left, direction_t dir);
-/* освобождает память по указателю и возвращает левую или правую структуру */
-struct idlist *idlist_free(struct idlist *idw);
-/* поиск устарелых структур, на более чем seconds */
-struct idlist *idlist_find_obs(struct idlist *left, time_t seconds, direction_t dir);
 
 /*
  * void *ctx == struct sev_ctx

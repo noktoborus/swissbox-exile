@@ -16,15 +16,33 @@
 #include <sys/types.h>
 #include <netinet/in.h>
 
-TYPICAL_HANDLE_F(Fep__Pong, pong, C_MID)
-TYPICAL_HANDLE_F(Fep__Auth, auth, C_MID)
-TYPICAL_HANDLE_F(Fep__Ok, ok, C_MID)
-TYPICAL_HANDLE_F(Fep__Error, error, C_MID)
-TYPICAL_HANDLE_F(Fep__Pending, pending, C_MID)
-TYPICAL_HANDLE_F(Fep__WriteOk, write_ok, C_MID)
-TYPICAL_HANDLE_F(Fep__RenameChunk, rename_chunk, C_MID)
+TYPICAL_HANDLE_F(Fep__Pong, pong, &c->mid)
+TYPICAL_HANDLE_F(Fep__Auth, auth, &c->mid)
+TYPICAL_HANDLE_F(Fep__Ok, ok, &c->mid)
+TYPICAL_HANDLE_F(Fep__Error, error, &c->mid)
+TYPICAL_HANDLE_F(Fep__Pending, pending, &c->mid)
+TYPICAL_HANDLE_F(Fep__WriteOk, write_ok, &c->mid)
+TYPICAL_HANDLE_F(Fep__RenameChunk, rename_chunk, &c->mid)
 
 NOTIMP_HANDLE_F(Fep__ReadAsk, read_ask)
+
+static void
+midsid_free(void *data)
+{
+	free(data);
+}
+
+static void
+fid_free(wait_store_t *ws)
+{
+	struct wait_xfer *wx;
+	wx = ws->data;
+	if (wx->fd != -1) {
+		close(wx->fd);
+		xsyslog(LOG_DEBUG, "destroy xfer fd#%d", wx->fd);
+	}
+	free(ws);
+}
 
 uint64_t
 guid2hash(const char *key)
@@ -135,7 +153,7 @@ _handle_write_ask(struct client *c, unsigned type, Fep__WriteAsk *msg)
 	{
 		bool fid_in; /* логический костыль */
 		hash = guid2hash(msg->file_guid);
-		fid_in = ((fid_ws = touch_id(c, C_FID, hash)) != NULL);
+		fid_in = ((fid_ws = touch_id(c, &c->fid, hash)) != NULL);
 
 		if (!fid_ws) {
 			fid_ws = calloc(1, sizeof(struct wait_store)
@@ -178,12 +196,12 @@ _handle_write_ask(struct client *c, unsigned type, Fep__WriteAsk *msg)
 	xsyslog(LOG_DEBUG, "client[%p] fd#%d for %s [%"PRIu32"]",
 			(void*)c->cev, wx.fd, wx.path, wrok.session_id);
 #endif
-	wait_id(c, C_SID, wrok.session_id, ws);
+	wait_id(c, &c->sid, wrok.session_id, ws);
 	if (fid_ws) {
 		/* TODO: наполнить wf */
 		wf = fid_ws->data;
 		string2guid(msg->file_guid, strlen(msg->file_guid), &wf->file_guid);
-		wait_id(c, C_FID, hash, fid_ws);
+		wait_id(c, &c->fid, hash, fid_ws);
 	}
 
 	return send_message(c->cev, FEP__TYPE__tWriteOk, &wrok);
@@ -220,7 +238,7 @@ send_ping(struct client *c)
 	s->cb = (c_cb_t)c_pong_cb;
 	s->data = s + 1;
 	memcpy(s->data, &tv, sizeof(struct timeval));
-	if (!wait_id(c, C_MID, ping.id, s)) {
+	if (!wait_id(c, &c->mid, ping.id, s)) {
 		xsyslog(LOG_WARNING, "client[%p] can't set filter for pong id %"PRIu64,
 				(void*)c->cev, ping.id);
 		free(s);
@@ -270,123 +288,68 @@ send_pending(struct client *c, uint64_t id)
 	return send_message(c->cev, FEP__TYPE__tPending, &pending);
 }
 
-/*
- * Удаляет сообщение из очереди или добавляет сообщение в корень,
- * если корень пустой
- */
-static inline struct idlist*
-_struct_drop_or_root(struct idlist **root, struct idlist *target)
+static inline const char *
+list_name(struct client *c, struct listRoot *list)
 {
-	if (!root)
-		return NULL;
-	if (target) {
-		if (*root == target)
-			*root = idlist_free(target);
-		else if (!*root)
-			*root = target;
-		else
-			return idlist_free(target);
-	}
-	return *root;
+	if (list == &c->mid)
+		return "mid";
+	else if(list == &c->sid)
+		return "sid";
+	else if(list == &c->fid)
+		return "fid";
+	else
+		return "???";
 }
 
-/*
- * стуктура, переданная в *drop будет извлечена из указанного списка
- */
-static inline struct idlist*
-_struct_id(struct client *c, client_idl_t idl, struct idlist *drop)
-{
-	switch (idl) {
-		case C_MID:
-			return _struct_drop_or_root(&c->mid, drop);
-		case C_SID:
-			return _struct_drop_or_root(&c->scope_id, drop);
-		case C_FID:
-			return _struct_drop_or_root(&c->file_id, drop);
-		default:
-			xsyslog(LOG_WARNING, "client[%p] unknown client_idl no: %d",
-					(void*)c->cev, idl);
-			return NULL;
-	}
-}
-
-/* постановка id в очередь ожидания TODO */
 bool
-wait_id(struct client *c, client_idl_t idl, uint64_t id, wait_store_t *s)
+wait_id(struct client *c, struct listRoot *list, uint64_t id, wait_store_t *s)
 {
-	struct idlist *wid;
 #if DEEPDEBUG
-	xsyslog(LOG_DEBUG, "client[%p] list wait_id(%d, %"PRIu64")",
-			(void*)c->cev, idl, id);
+	xsyslog(LOG_DEBUG, "client[%p] list wait_id(%s, %"PRIu64")",
+			(void*)c->cev, list_name(c, list), id);
 #endif
 
-	/* ещё одна бесполезная проверка */
-	if (!s) {
-		xsyslog(LOG_DEBUG, "client[%p] wait_id() not receive wait_store",
-				(void*)c->cev);
-		return false;
-	}
-
-	if (!(wid = _struct_id(c, idl, NULL))) {
-		/* корень пустой */
-		if ((wid = idlist_alloc(id, wid)) != NULL) {
-			/* бесполезная проверка на вкручиваемость узла в корень */
-			if (!(_struct_id(c, idl, wid))) {
-				idlist_free(wid);
-				wid = NULL;
-			}
-		}
-	} else {
-		/* новый узел без обновления корня */
-		wid = idlist_alloc(id, wid);
-	}
-
-	if (!wid) {
-		return false;
-	} else {
-		wid->data = (void*)s;
-		return true;
-	}
+	return list_alloc(list, id, s);
 }
 
 wait_store_t*
-query_id(struct client *c, client_idl_t idl, uint64_t id)
+query_id(struct client *c, struct listRoot *list, uint64_t id)
 {
-	struct idlist *wid;
+	struct listNode *ln;
 	wait_store_t *data;
+	void (*free_ptr)(void*) = NULL;
 #if DEEPDEBUG
-	xsyslog(LOG_DEBUG, "client[%p] list query_id(%d, %"PRIu64")",
-			(void*)c->cev, idl, id);
+	xsyslog(LOG_DEBUG, "client[%p] list query_id(%s, %"PRIu64")",
+			(void*)c->cev, list_name(c, list), id);
 #endif
-
-	if (!(wid = _struct_id(c, idl, NULL)))
+	if (!(ln = list_find(list, id)))
 		return NULL;
 
-	if (!(wid = idlist_find(id, wid, DANY)))
-		return NULL;
+	data = (wait_store_t*)ln->data;
 
-	data = (wait_store_t*)wid->data;
+	if (list == &c->mid || list == &c->sid)
+		free_ptr = &midsid_free;
+	else if (list == &c->fid)
+		free_ptr = (void(*)(void*))&fid_free;
 
 	/* удаление ненужной структуры */
-	_struct_id(c, idl, wid);
+	if (free_ptr)
+		list_free_node(ln, free_ptr);
 	return data;
 }
 
 wait_store_t*
-touch_id(struct client *c, client_idl_t idl, uint64_t id)
+touch_id(struct client *c, struct listRoot *list, uint64_t id)
 {
-	struct idlist *wid;
+	struct listNode *ln;
 #if DEEPDEBUG
-	xsyslog(LOG_DEBUG, "client[%p] list touch_id(%d, %"PRIu64")",
-			(void*)c->cev, idl, id);
+	xsyslog(LOG_DEBUG, "client[%p] list touch_id(%s, %"PRIu64")",
+			(void*)c->cev, list_name(c, list), id);
 #endif
-	if (!(wid = _struct_id(c, idl, NULL)))
+	if (!(ln = list_find(list, id)))
 		return NULL;
 
-	if (!(wid = idlist_find(id, wid, DANY)))
-		return NULL;
-
-	return (wait_store_t*)wid->data;
+	return (wait_store_t*)ln->data;
 }
 
 /* всякая ерунда */
@@ -403,7 +366,7 @@ _handle_xfer(struct client *c, unsigned type, Fep__Xfer *xfer)
 	struct wait_xfer *wx;
 	char *errmsg = NULL;
 
-	ws = touch_id(c, C_SID, xfer->session_id);
+	ws = touch_id(c, &c->sid, xfer->session_id);
 	if (!ws) {
 #if DEEPDEBUG
 		xsyslog(LOG_DEBUG, "client[%p] xfer not found for id %"PRIu32,
@@ -431,7 +394,7 @@ _handle_xfer(struct client *c, unsigned type, Fep__Xfer *xfer)
 #endif
 
 	/* больше чанк нам не нужен, т.к. его должны переслать заного */
-	if ((ws = query_id(c, C_SID, xfer->session_id)) != NULL)
+	if ((ws = query_id(c, &c->sid, xfer->session_id)) != NULL)
 		free(ws);
 	close(wx->fd);
 	unlink(wx->path);
@@ -460,7 +423,7 @@ _handle_file_update(struct client *c, unsigned type, Fep__FileUpdate *fu)
 
 	hash = guid2hash(fu->file_guid);
 
-	ws = touch_id(c, C_FID, hash);
+	ws = touch_id(c, &c->fid, hash);
 	/* если записи нет, нужно создать новую */
 
 	if (!ws) {
@@ -489,7 +452,7 @@ _handle_end(struct client *c, unsigned type, Fep__End *end)
 	char *errmsg = NULL;
 
 	/* TODO: добавить в бд запись */
-	ws = query_id(c, C_SID, end->session_id);
+	ws = query_id(c, &c->sid, end->session_id);
 	if (!ws) {
 #if DEEPDEBUG
 		xsyslog(LOG_DEBUG, "client[%p] End not found for id %"PRIu32,
@@ -777,37 +740,13 @@ client_load(struct client *c)
 static inline void
 client_destroy(struct client *c)
 {
-	struct wait_xfer *wx;
-	struct wait_store *ws;
 	if (!c)
 		return;
 	/* чистка очередей */
-	while (c->mid) {
-		if (c->mid->data);
-			free(c->mid->data);
-		c->mid = idlist_free(c->mid);
-	}
+	while (list_free_root(&c->mid, &midsid_free));
+	while (list_free_root(&c->sid, &midsid_free));
+	while (list_free_root(&c->fid, (void(*)(void*))&fid_free));
 
-	while (c->file_id) {
-		if (c->file_id->data)
-			free(c->file_id->data);
-		c->file_id = idlist_free(c->file_id);
-	}
-
-	/* при чистке скопов нужно быть деликатнее */
-	while (c->scope_id) {
-		ws = c->scope_id->data;
-		if (ws) {
-			if ((wx = ws->data)) {
-				if (wx->fd != -1)
-					close(wx->fd);
-				xsyslog(LOG_INFO, "client[%p] free xfer fd#%d, id %"PRIu64,
-						(void*)c->cev, wx->fd, c->scope_id->id);
-			}
-			free(ws);
-		}
-		c->scope_id = idlist_free(c->scope_id);
-	}
 	/* буфера */
 	if (c->buffer)
 		free(c->buffer);
@@ -939,7 +878,7 @@ client_iterate(struct sev_ctx *cev, bool last, void **p)
 			if ((s = calloc(1, sizeof (wait_store_t))) != NULL)
 				s->cb = (c_cb_t)c_auth_cb;
 
-			if (!s || !wait_id(c, C_MID, reqAuth.id, s)) {
+			if (!s || !wait_id(c, &c->mid, reqAuth.id, s)) {
 				if (s) free(s);
 				xsyslog(LOG_WARNING,
 						"client[%p] can't set filter for id %"PRIu64,

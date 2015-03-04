@@ -5,6 +5,7 @@
 #define _SRC_CLIENT_ITERATE_1423393202_H_
 #include "main.h"
 #include "guid.h"
+#include "list.h"
 #if __linux__
 # include <linux/limits.h>
 #else
@@ -21,12 +22,6 @@ enum cev_state
 	CEV_MORE
 };
 
-typedef enum clien_idl {
-	C_MID = 0,
-	C_SID = 1,
-	C_FID = 2
-} client_idl_t;
-
 #define C_NAMELEN 128
 struct client {
 	unsigned char *buffer;
@@ -40,9 +35,9 @@ struct client {
 	/*
 	 * списки для фильтрации id сообщений
 	 */
-	struct idlist *mid; /* обычные сообщения */
-	struct idlist *scope_id; /* сообщения трансфера */
-	struct idlist *file_id; /* метадата файлов */
+	struct listRoot mid; /* обычные сообщения (id) */
+	struct listRoot sid; /* сообщения трансфера (session_id) */
+	struct listRoot fid; /* метадата файлов (hash(file_guid)) */
 
 	/* счётчик ошибок
 	 * TODO: добавить в конфигурашку
@@ -156,11 +151,11 @@ struct wait_file {
 };
 
 /* получение привязанных к id данных */
-wait_store_t* touch_id(struct client *c, client_idl_t idl, uint64_t id);
+wait_store_t *touch_id(struct client *c, struct listRoot *list, uint64_t id);
 /* аналогично touch_id, но после извлечения id вынимается из списка */
-wait_store_t *query_id(struct client *c, client_idl_t idl, uint64_t id);
+wait_store_t *query_id(struct client *c, struct listRoot *list, uint64_t id);
 /* добавить новый элемент в список */
-bool wait_id(struct client *c, client_idl_t idl, uint64_t id, wait_store_t *s);
+bool wait_id(struct client *c, struct listRoot *list, uint64_t id, wait_store_t *s);
 
 /* упрощалки кода */
 #define TYPICAL_HANDLE_F(struct_t, name, idl)\
