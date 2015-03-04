@@ -118,7 +118,7 @@ def proto(s, c):
         msg.usecs = 0
         send_message(s, msg)
     if c == "file":
-        c = 6
+        c = 2
         x = 1
         f = b"\0" * 65
         ids = {}
@@ -139,7 +139,7 @@ def proto(s, c):
             for qn in range(0, x):
                 msg = FEP.xfer()
                 msg.id = (2000 + q) * 100 + qn
-                msg.session_id = rmsg.session_id
+                msg.session_id = ids[q]
                 msg.data = f
                 msg.offset = 0
                 send_message(s, msg)
