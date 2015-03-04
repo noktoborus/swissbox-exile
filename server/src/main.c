@@ -112,6 +112,9 @@ client_free(struct sev_ctx *cev)
 
 	if (cev->fd != -1) {
 		shutdown(cev->fd, SHUT_RDWR);
+#if DEEPDEBUG
+		xsyslog(LOG_DEBUG, "client[%p] destroy fd#%d", (void*)cev, cev->fd);
+#endif
 		close(cev->fd);
 		cev->fd = -1;
 	}

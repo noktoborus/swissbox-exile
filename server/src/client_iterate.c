@@ -201,6 +201,7 @@ _handle_write_ask(struct client *c, unsigned type, Fep__WriteAsk *msg)
 		/* TODO: наполнить wf */
 		wf = fid_ws->data;
 		string2guid(msg->file_guid, strlen(msg->file_guid), &wf->file_guid);
+		wf->id = hash;
 		wait_id(c, &c->fid, hash, fid_ws);
 	}
 
@@ -317,7 +318,6 @@ query_id(struct client *c, struct listRoot *list, uint64_t id)
 {
 	struct listNode *ln;
 	wait_store_t *data;
-	void (*free_ptr)(void*) = NULL;
 #if DEEPDEBUG
 	xsyslog(LOG_DEBUG, "client[%p] list query_id(%s, %"PRIu64")",
 			(void*)c->cev, list_name(c, list), id);
@@ -327,14 +327,8 @@ query_id(struct client *c, struct listRoot *list, uint64_t id)
 
 	data = (wait_store_t*)ln->data;
 
-	if (list == &c->mid || list == &c->sid)
-		free_ptr = &midsid_free;
-	else if (list == &c->fid)
-		free_ptr = (void(*)(void*))&fid_free;
-
 	/* удаление ненужной структуры */
-	if (free_ptr)
-		list_free_node(ln, free_ptr);
+	list_free_node(ln, NULL);
 	return data;
 }
 
@@ -388,8 +382,11 @@ _handle_xfer(struct client *c, unsigned type, Fep__Xfer *xfer)
 	}
 #if DEEPDEBUG
 	if (errmsg) {
-		xsyslog(LOG_DEBUG, "client[%p] got xfer error: %s",
-				(void*)c->cev, strerror(errno));
+		xsyslog(LOG_DEBUG, "client[%p] got xfer fd#%d error: %s",
+				(void*)c->cev, wx->fd, strerror(errno));
+	} else {
+		xsyslog(LOG_DEBUG, "client[%p] destroy xfer fd#%d because error",
+				(void*)c->cev, wx->fd);
 	}
 #endif
 
@@ -401,7 +398,7 @@ _handle_xfer(struct client *c, unsigned type, Fep__Xfer *xfer)
 	return send_error(c, xfer->id, errmsg, -1);
 }
 
-void
+bool
 file_check_update(struct client *c, struct wait_file *wf)
 {
 	/* TODO: разослать уведомление */
@@ -411,7 +408,9 @@ file_check_update(struct client *c, struct wait_file *wf)
 				(void*)c->cev, (unsigned)wf->chunks_ok,
 				(unsigned)wf->chunks, (unsigned)wf->chunks_fail);
 #endif
+		return true;
 	}
+	return false;
 }
 
 bool
@@ -448,7 +447,7 @@ bool
 _handle_end(struct client *c, unsigned type, Fep__End *end)
 {
 	struct wait_store *ws;
-	struct wait_xfer *wx;
+	struct wait_xfer wx;
 	char *errmsg = NULL;
 
 	/* TODO: добавить в бд запись */
@@ -460,24 +459,29 @@ _handle_end(struct client *c, unsigned type, Fep__End *end)
 #endif
 		return send_error(c, end->id, "Unexpected End message", -1);
 	}
-	wx = ws->data;
+	memcpy(&wx, ws->data, sizeof(struct wait_xfer));
+	free(ws);
 #if DEEPDEBUG
 	xsyslog(LOG_DEBUG, "client[%p] close fd#%d, id %"PRIu32,
-			(void*)c->cev, wx->fd, end->session_id);
+			(void*)c->cev, wx.fd, end->session_id);
 #endif
-	close(wx->fd);
-	if (wx->filling != wx->size) {
+	close(wx.fd);
+	if (wx.filling != wx.size) {
 		errmsg = "Infernal sizes";
 	}
 
 	if (!errmsg) {
-		wx->wf->chunks_ok++;
-		file_check_update(c, wx->wf);
+		wx.wf->chunks_ok++;
+		if (file_check_update(c, wx.wf)) {
+			void *d = query_id(c, &c->fid, wx.wf->id);
+			if (d)
+				free(d);
+		}
 		return send_ok(c, end->id);
 	}
 	/* чанк не нужен, клиент перетащит его заного */
-	wx->wf->chunks_fail++;
-	unlink(wx->path);
+	wx.wf->chunks_fail++;
+	unlink(wx.path);
 	return send_error(c, end->id, errmsg, -1);
 }
 

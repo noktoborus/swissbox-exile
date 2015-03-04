@@ -147,6 +147,7 @@ struct wait_file {
 	unsigned chunks_fail;
 
 	/* meta */
+	uint64_t id;
 	guid_t file_guid;
 };
 
