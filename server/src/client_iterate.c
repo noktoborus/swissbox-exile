@@ -203,6 +203,10 @@ _handle_write_ask(struct client *c, unsigned type, Fep__WriteAsk *msg)
 		/* TODO: наполнить wf */
 		wf = fid_ws->data;
 		string2guid(msg->file_guid, strlen(msg->file_guid), &wf->file_guid);
+		string2guid(msg->revision_guid, strlen(msg->revision_guid),
+				&wf->revision_guid);
+		string2guid(msg->rootdir_guid, strlen(msg->rootdir_guid),
+				&wf->rootdir_guid);
 		wf->id = hash;
 		wait_id(c, &c->fid, hash, fid_ws);
 	}
@@ -405,6 +409,33 @@ _handle_xfer(struct client *c, unsigned type, Fep__Xfer *xfer)
 	return send_error(c, xfer->id, errmsg, -1);
 }
 
+static void
+_file_update_notify_free(struct fdb_fileUpdate *ffu)
+{
+	free(ffu);
+}
+
+static inline bool
+_file_update_notify(struct client *c, struct wait_file *wf)
+{
+	struct fdb_fileUpdate *ffu;
+	ffu = calloc(1, sizeof(struct fdb_fileUpdate));
+	if (!ffu)
+		return false;
+	ffu->head.type = C_FILEUPDATE;
+	ffu->msg.rootdir_guid = ffu->rootdir_guid;
+	ffu->msg.file_guid = ffu->file_guid;
+	ffu->msg.revision_guid = ffu->revision_guid;
+	ffu->msg.chunks = wf->chunks;
+	guid2string(&wf->rootdir_guid, ffu->rootdir_guid, GUID_MAX);
+	guid2string(&wf->file_guid, ffu->file_guid, GUID_MAX);
+	guid2string(&wf->revision_guid, ffu->revision_guid, GUID_MAX);
+	if (fdb_store(c->fdb, ffu, (void(*)(void*))_file_update_notify_free))
+		return true;
+	_file_update_notify_free(ffu);
+	return false;
+}
+
 bool
 file_check_update(struct client *c, struct wait_file *wf)
 {
@@ -416,15 +447,17 @@ file_check_update(struct client *c, struct wait_file *wf)
 				(void*)c->cev, (unsigned)wf->chunks_ok,
 				(unsigned)wf->chunks, (unsigned)wf->chunks_fail);
 #endif
+		if (!wf->notified) {
+			wf->notified = _file_update_notify(c, wf);
+		}
 		if (!wf->ref) {
 #if DEEPDEBUG
-			xsyslog(LOG_DEBUG, "client[%p] file fully loaded",
-					(void*)c->cev);
+			xsyslog(LOG_DEBUG, "client[%p] file fully loaded, notify = %s",
+					(void*)c->cev, wf->notified ? "true" : "false");
 #endif
 			if ((d = query_id(c, &c->fid, wf->id)) != NULL)
 				free(d);
-		}
-		return true;
+		}		return true;
 	}
 	return false;
 }
@@ -767,6 +800,9 @@ client_destroy(struct client *c)
 	while (list_free_root(&c->sid, (void(*)(void*))&sid_free));
 	while (list_free_root(&c->fid, &midfid_free));
 
+	/* ? */
+	fdb_uncursor(c->fdb);
+
 	/* буфера */
 	if (c->buffer)
 		free(c->buffer);
@@ -825,7 +861,24 @@ _client_iterate_read(struct client *c)
 	return true;
 }
 
-bool static inline
+static inline bool
+_client_iterate_fdb(struct client *c)
+{
+	struct fdb_head *inm = fdb_walk(c->fdb);
+	if (!inm)
+		return true;
+	if (inm->type != C_FILEUPDATE) {
+		xsyslog(LOG_INFO, "client[%p] not file update", (void*)c->cev);
+		return true;
+	}
+	{
+		struct fdb_fileUpdate *ffu = (void*)inm;
+		send_message(c->cev, FEP__TYPE__tFileUpdate, &ffu->msg);
+	}
+	return true;
+}
+
+static inline bool
 _client_iterate_handle(struct client *c)
 {
 	register int lval;
@@ -877,9 +930,15 @@ client_iterate(struct sev_ctx *cev, bool last, void **p)
 		*p = NULL;
 		return true;
 	} else if (p && !c) {
+		/* инициализация */
 		c = client_alloc(cev);
 		if (!(*p = (void*)c))
 			return true;
+		c->fdb = fdb_cursor();
+		if (!c->fdb) {
+			xsyslog(LOG_WARNING, "client[%p] can't get fdb cursor",
+					(void*)cev);
+		}
 	} else if (!p) {
 		xsyslog(LOG_WARNING, "client[%p] field for structure not passed",
 				(void*)cev);
@@ -908,6 +967,10 @@ client_iterate(struct sev_ctx *cev, bool last, void **p)
 			xsyslog(LOG_WARNING, "client[%p] no hello with memory fail: %s",
 					(void*)cev, strerror(errno));
 		}
+	}
+	/* всякая ерунда на отправку */
+	if (!_client_iterate_fdb(c)) {
+		return false;
 	}
 	/* если обработка заголовка или чтение завалилось,
 	 * то можно прерывать цикл

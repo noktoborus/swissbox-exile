@@ -11,6 +11,7 @@
 #else
 # include <limits.h>
 #endif
+#include "fakedb/fakedb.h"
 
 #define BUFFER_ALLOC 1024
 #define BUFFER_MAX 65536
@@ -20,6 +21,24 @@ enum cev_state
 	CEV_FIRST = 0,
 	CEV_AUTH,
 	CEV_MORE
+};
+
+
+enum c_fdb_type {
+	C_FILEUPDATE = 1,
+};
+
+struct fdb_head {
+	enum c_fdb_type type;
+};
+
+struct fdb_fileUpdate {
+	struct fdb_head head;
+	Fep__FileUpdate msg;
+	char rootdir_guid[GUID_MAX + 1];
+	char file_guid[GUID_MAX + 1];
+	char parent_revision_guid[GUID_MAX + 1];
+	char revision_guid[GUID_MAX + 1];
 };
 
 #define C_NAMELEN 128
@@ -52,6 +71,8 @@ struct client {
 
 	uint64_t genid;
 	enum cev_state state;
+
+	struct fdbCursor *fdb;
 
 	struct {
 		char *home;
@@ -142,6 +163,7 @@ struct wait_xfer {
 };
 
 struct wait_file {
+	bool notified;
 	unsigned chunks;
 	unsigned chunks_ok;
 	unsigned chunks_fail;
@@ -150,7 +172,9 @@ struct wait_file {
 
 	/* meta */
 	uint64_t id;
+	guid_t rootdir_guid;
 	guid_t file_guid;
+	guid_t revision_guid;
 };
 
 /* получение привязанных к id данных */
