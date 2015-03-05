@@ -419,14 +419,16 @@ static inline bool
 _file_update_notify(struct client *c, struct wait_file *wf)
 {
 	struct fdb_fileUpdate *ffu;
+	Fep__FileUpdate fu = FEP__FILE_UPDATE__INIT;
 	ffu = calloc(1, sizeof(struct fdb_fileUpdate));
 	if (!ffu)
 		return false;
 	ffu->head.type = C_FILEUPDATE;
-	ffu->msg.rootdir_guid = ffu->rootdir_guid;
-	ffu->msg.file_guid = ffu->file_guid;
-	ffu->msg.revision_guid = ffu->revision_guid;
-	ffu->msg.chunks = wf->chunks;
+	fu.rootdir_guid = ffu->rootdir_guid;
+	fu.file_guid = ffu->file_guid;
+	fu.revision_guid = ffu->revision_guid;
+	fu.chunks = wf->chunks;
+	memcpy(&ffu->msg, &fu, sizeof(Fep__FileUpdate));
 	guid2string(&wf->rootdir_guid, ffu->rootdir_guid, GUID_MAX);
 	guid2string(&wf->file_guid, ffu->file_guid, GUID_MAX);
 	guid2string(&wf->revision_guid, ffu->revision_guid, GUID_MAX);
