@@ -159,6 +159,8 @@ def proto(s, c):
         msg.file_guid = "653e17c2-c1d0-11e4-be14-a417319a88f9"
         send_message(s, msg)
         recv_message(s)
+    if c == "wait":
+        recv_message(s)
 
     # TODO:
 
