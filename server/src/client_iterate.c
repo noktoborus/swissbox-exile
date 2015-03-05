@@ -936,6 +936,7 @@ client_iterate(struct sev_ctx *cev, bool last, void **p)
 		c = client_alloc(cev);
 		if (!(*p = (void*)c))
 			return true;
+		c->cev->recv_timeout = 2;
 		c->fdb = fdb_cursor();
 		if (!c->fdb) {
 			xsyslog(LOG_WARNING, "client[%p] can't get fdb cursor",
@@ -970,9 +971,11 @@ client_iterate(struct sev_ctx *cev, bool last, void **p)
 					(void*)cev, strerror(errno));
 		}
 	}
-	/* всякая ерунда на отправку */
-	if (!_client_iterate_fdb(c)) {
-		return false;
+	if (c->state > CEV_AUTH) {
+		/* всякая ерунда на отправку */
+		if (!_client_iterate_fdb(c)) {
+			return false;
+		}
 	}
 	/* если обработка заголовка или чтение завалилось,
 	 * то можно прерывать цикл
