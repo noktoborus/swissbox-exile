@@ -3,6 +3,7 @@
  */
 #include "main.h"
 #include "utils.h"
+#include "fakedb/fakedb.h"
 
 #include <arpa/inet.h>
 #include <errno.h>
@@ -503,6 +504,7 @@ main(int argc, char *argv[])
 	struct ev_loop *loop;
 	struct main pain;
 	openlog(NULL, LOG_PERROR | LOG_PID, LOG_LOCAL0);
+	fdb_open();
 	xsyslog(LOG_INFO, "--- START ---");
 	loop = EV_DEFAULT;
 	{
@@ -529,6 +531,7 @@ main(int argc, char *argv[])
 		ev_timer_stop(loop, &pain.watcher);
 		ev_async_stop(loop, &pain.alarm);
 		ev_loop_destroy(loop);
+		fdb_close();
 		closelog();
 	}
 	xsyslog(LOG_INFO, "--- EXIT ---");

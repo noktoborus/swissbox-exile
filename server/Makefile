@@ -6,6 +6,7 @@ CFLAGS=-ggdb2 -D_POSIX_C_SOURCE -D_BSD_SOURCE -Wall -pedantic -std=c99 -I.
 CFLAGS+=${EF}
 BIN=bin/server
 SRC=src/
+FAKEDB=fakedb/fakedb.c
 
 all: ${BIN}
 
@@ -19,7 +20,7 @@ runtest: ${BIN} proto/fep_pb2.py
 	python2 test/proto.py ${BIN} auth
 
 ${BIN}: ${SRC}/main.c ${SRC}/utils.c ${SRC}/client_iterate.c proto/fep.pb-c.c\
-	${SRC}/client_cb.c ${SRC}/guid.c ${SRC}/list.c
+	${SRC}/client_cb.c ${SRC}/guid.c ${SRC}/list.c ${FAKEDB}
 	${CC} -o ${BIN} ${CFLAGS} $^ ${LIBS}
 
 proto/fep.pb-c.c: ../fep.proto
