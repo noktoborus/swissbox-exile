@@ -8,6 +8,13 @@
 
 struct fdbCursor {
 	struct fdbNode *cur;
+	/* ссылки на список курсоров для определения "старых" записей
+	 * нужно прочесать все курсоры, найти старейшую прочтённую запись
+	 * после чего вычистить список до найденой записи
+	 * TODO:
+	 */
+	struct fdbCursor *next;
+	struct fdbCursor *prev;
 };
 
 struct fdbNode {
@@ -117,6 +124,23 @@ fdb_cursor()
 	r = _fdb_cursor();
 	pthread_mutex_unlock(&fdb.single);
 	return r;
+}
+
+static inline void
+_fdb_uncursor(struct fdbCursor *c)
+{
+	if (!c)
+		return;
+	fdb.cursors--;
+	free(c);
+}
+
+void
+fdb_uncursor(struct fdbCursor *c)
+{
+	pthread_mutex_lock(&fdb.single);
+	_fdb_uncursor(c);
+	pthread_mutex_unlock(&fdb.single);
 }
 
 static inline void*

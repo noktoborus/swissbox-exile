@@ -15,6 +15,7 @@ void fdb_close();
 
 bool fdb_store(struct fdbCursor *c, void *data, void (*data_free)(void*));
 struct fdbCursor *fdb_cursor();
+void fdb_uncursor(struct fdbCursor *c);
 void *fdb_walk(struct fdbCursor *c);
 
 
