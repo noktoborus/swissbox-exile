@@ -65,6 +65,16 @@ fdb_open()
 void
 fdb_close()
 {
+	struct fdbNode *n;
+	for (n = fdb.first; n; n = fdb.first) {
+		if (n->data && n->data_free)
+			n->data_free(n->data);
+		fdb.first = n->next;
+		free(n);
+	}
+	fdb.inited = false;
+	pthread_mutex_destroy(&fdb.single);
+
 }
 
 static inline bool
