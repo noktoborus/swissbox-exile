@@ -130,6 +130,7 @@ def proto(s, c):
             guid = guid[0:len(guid) - len(ee)] + ee
             msg.rootdir_guid = "6ad2e7b2-c1d0-11e4-be14-a417319a88f9"
             msg.file_guid = "653e17c2-c1d0-11e4-be14-a417319a88f9"
+            msg.revision_guid = "038b0d98-c1d8-11e4-b23e-a417319a88f9"
             msg.chunk_guid = guid
             msg.size = len(f) * x
             send_message(s, msg)
