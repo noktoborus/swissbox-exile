@@ -1,2 +1,3 @@
 server/bin/*
 server/proto/*
+server/user/*
