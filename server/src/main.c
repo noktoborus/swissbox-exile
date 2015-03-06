@@ -18,43 +18,10 @@
 #include <sys/socket.h>
 #include <sys/time.h>
 #include <sys/types.h>
+#include <sys/select.h>
 #include <unistd.h>
 
 static unsigned int sev_ctx_seq = 0u;
-
-void
-client_cb(struct ev_loop *loop, ev_io *w, int revents)
-{
-	struct sev_ctx *ptx = (struct sev_ctx*)w;
-	if (revents & EV_READ) {
-		if (!pthread_mutex_trylock(&ptx->utex)) {
-			if (ptx->action & SEV_ACTION_READ) {
-				/* unset event */
-				ev_io_stop(loop, &ptx->evio);
-				ev_io_set(&ptx->evio, ptx->fd, ptx->evio.events & ~EV_READ);
-				ev_io_start(loop, &ptx->evio);
-				pthread_mutex_unlock(&ptx->utex);
-			}
-			/* notify to thread */
-			ptx->action |= SEV_ACTION_READ;
-			pthread_cond_signal(&ptx->ond);
-			pthread_mutex_unlock(&ptx->utex);
-		}
-	}
-
-	if (revents & EV_WRITE) {
-		if (!pthread_mutex_trylock(&ptx->utex)) {
-			if (ptx->action & SEV_ACTION_WRITE) {
-				ev_io_stop(loop, &ptx->evio);
-				ev_io_set(&ptx->evio, ptx->fd, ptx->evio.events & ~EV_WRITE);
-				ev_io_start(loop, &ptx->evio);
-			}
-			ptx->action |= SEV_ACTION_WRITE;
-			pthread_cond_signal(&ptx->ond);
-			pthread_mutex_unlock(&ptx->utex);
-		}
-	}
-}
 
 bool client_iterate(struct sev_ctx *, bool, void **);
 
@@ -64,11 +31,16 @@ client_thread(void *ctx)
 	struct sev_ctx *cev = (struct sev_ctx*)ctx;
 	struct timespec tv;
 	void *p = NULL;
+	/* лок в самом начале нужен что бы структуры инициализировались
+	 * нормально до старта самого треда
+	 */
+	pthread_mutex_lock(&cev->utex);
 #ifdef __USE_GNU
 	char thread_name[sizeof(uintptr_t) * 16 + 1];
 	snprintf(thread_name, sizeof(thread_name), "client:%p", (void*)ctx);
 	pthread_setname_np(pthread_self(), thread_name);
 #endif
+	pthread_mutex_unlock(&cev->utex);
 	while (true) {
 		if (!client_iterate(cev, false, &p)) {
 			xsyslog(LOG_DEBUG, "client %p thread[%p] leave thread",
@@ -110,7 +82,6 @@ client_free(struct sev_ctx *cev)
 		xsyslog(LOG_DEBUG, "client free(%p, fd#%d) join thread[%p]",
 				(void*)cev, cev->fd, (void*)cev->thread);
 		pthread_join(cev->thread, &retval);
-		ev_io_stop(cev->evloop, &cev->evio);
 		xsyslog(LOG_INFO, "client free(%p, fd#%d) exit thread[%p]",
 				(void*)cev, cev->fd, (void*)cev->thread);
 	}
@@ -142,7 +113,7 @@ client_free(struct sev_ctx *cev)
 	}
 }
 
-struct sev_ctx *
+static inline struct sev_ctx *
 client_alloc(struct ev_loop *loop, int fd, struct sev_ctx *next)
 {
 	struct sev_ctx *cev;
@@ -195,14 +166,7 @@ client_alloc(struct ev_loop *loop, int fd, struct sev_ctx *next)
 		cev->fd = fd;
 		cev->evloop = loop;
 		cev->alarm = &pain->alarm;
-
-		/* назначаем оба события, после первого прохода отметка о возможности
-		 * чтения или записи будет присутсвовать, и evio выпадет из очереди
-		 */
-		ev_io_init(&cev->evio, client_cb, fd, EV_READ | EV_WRITE);
-		ev_io_start(cev->evloop, &cev->evio);
 	}
-
 	pthread_mutex_unlock(&cev->utex);
 	return cev;
 }
@@ -211,40 +175,25 @@ client_alloc(struct ev_loop *loop, int fd, struct sev_ctx *next)
 int
 sev_send(void *ctx, const unsigned char *buf, size_t len)
 {
-	/* 1. lock
-	 * 2. wait signal
-	 * 3. send
-	 * */
+	/* TODO: сделать что-нибудь если данные в сокет ушли не полностью. */
 	struct sev_ctx *ptx = (struct sev_ctx*)ctx;
 	ssize_t re = 0;
-	pthread_mutex_lock(&ptx->utex);
-	/* update ev info */
-	if (!(ptx->evio.events & EV_WRITE)) {
-		ev_io_stop(ptx->evloop, &ptx->evio);
-		ev_io_set(&ptx->evio, ptx->fd, ptx->evio.events | EV_WRITE);
-		ev_io_start(ptx->evloop, &ptx->evio);
-		ev_async_send(ptx->evloop, ptx->alarm);
-	}
-	/* wait signal, if flag not setted */
-	if (!(ptx->action & SEV_ACTION_WRITE || ptx->action & SEV_ACTION_EXIT)) {
-		/* if timeout exists, use timedwait */
-		if (ptx->send_timeout) {
-			struct timespec tv;
-			clock_gettime(CLOCK_REALTIME, &tv);
-			tv.tv_sec += ptx->send_timeout;
-			pthread_cond_timedwait(&ptx->ond, &ptx->utex, &tv);
-		} else
-			pthread_cond_wait(&ptx->ond, &ptx->utex);
-	}
-	/* read data */
-	if (ptx->action & SEV_ACTION_WRITE) {
-		/* zero value indicate as exception (broken pipe in non-bloking) */
+	if (ptx->send_timeout) {
+		fd_set fdw;
+		struct timeval tv;
+		FD_ZERO(&fdw);
+		FD_SET(ptx->fd, &fdw);
+		tv.tv_sec = ptx->send_timeout;
+		tv.tv_usec = 0;
+
+		if (select(ptx->fd + 1, NULL, &fdw, NULL, &tv) > 0) {
+			if (!(re = write(ptx->fd, (void*)buf, len)))
+				re = -1;
+		}
+	} else {
 		if (!(re = write(ptx->fd, (void*)buf, len)))
 			re = -1;
-		ptx->action &= ~SEV_ACTION_WRITE;
 	}
-	/* unset ev */
-	pthread_mutex_unlock(&ptx->utex);
 	return (int)re;
 }
 
@@ -254,29 +203,22 @@ sev_recv(void *ctx, unsigned char *buf, size_t len)
 {
 	struct sev_ctx *ptx = (struct sev_ctx*)ctx;
 	ssize_t re = 0;
-	pthread_mutex_lock(&ptx->utex);
-	if (!(ptx->evio.events & EV_READ)) {
-		ev_io_stop(ptx->evloop, &ptx->evio);
-		ev_io_set(&ptx->evio, ptx->fd, ptx->evio.events | EV_READ);
-		ev_io_start(ptx->evloop, &ptx->evio);
-		ev_async_send(ptx->evloop, ptx->alarm);
-	}
-	if (!(ptx->action & SEV_ACTION_READ || ptx->action & SEV_ACTION_EXIT))
-	{
-		if (ptx->recv_timeout) {
-			struct timespec tv;
-			clock_gettime(CLOCK_REALTIME, &tv);
-			tv.tv_sec += ptx->recv_timeout;
-			pthread_cond_timedwait(&ptx->ond, &ptx->utex, &tv);
-		} else
-			pthread_cond_wait(&ptx->ond, &ptx->utex);
-	}
-	if (ptx->action & SEV_ACTION_READ) {
+	if (ptx->recv_timeout) {
+		fd_set fdr;
+		struct timeval tv;
+		FD_ZERO(&fdr);
+		FD_SET(ptx->fd, &fdr);
+		tv.tv_sec = ptx->recv_timeout;
+		tv.tv_usec = 0;
+
+		if (select(ptx->fd + 1, &fdr, NULL, NULL, &tv) > 0) {
+			if (!(re = read(ptx->fd, (void*)buf, len)))
+				re = -1;
+		}
+	} else {
 		if (!(re = read(ptx->fd, (void*)buf, len)))
 			re = -1;
-		ptx->action &= ~SEV_ACTION_READ;
 	}
-	pthread_mutex_unlock(&ptx->utex);
 	return (int)re;
 }
 

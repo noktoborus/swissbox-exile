@@ -18,7 +18,6 @@
 struct sev_ctx
 {
 	/* io */
-	ev_io evio;
 	struct ev_loop *evloop;
 	struct ev_async *alarm;
 	uint8_t action;
