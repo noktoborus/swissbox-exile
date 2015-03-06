@@ -63,6 +63,9 @@ def recv_message(s):
                 write_std("# header id: %s\n" %(msg.id))
             else:
                 write_std("# header has no id\n")
+            if msg.__class__.__name__ == "FileUpdate":
+                write_std("# fileUpdate")
+                return recv_message(s)
             return (ptypen, ptype, msg)
         except:
             write_std("# header parse fail: %s\n" %(rawmsg.encode("hex")))
@@ -120,8 +123,8 @@ def proto(s, c):
         send_message(s, msg)
     if c == "file":
         c = 100
-        x = 1
-        f = b"\0" * 650
+        x = 100
+        f = b"\0" * 65000
         ids = {}
         for q in range(0, c):
             msg = FEP.WriteAsk()

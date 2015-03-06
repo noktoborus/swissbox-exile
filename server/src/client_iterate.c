@@ -732,8 +732,11 @@ handle_header(unsigned char *buf, size_t size, struct client *c)
 		if (size < HEADER_OFFSET) {
 			return HEADER_MORE;
 		} else {
+			/* два байта на тип */
 			memcpy(&c->h_type, buf, 2);
+			/* и три байта на длину */
 			memcpy(&c->h_len, &buf[2], 3);
+			/* привести к хостовому порядку байт */
 			c->h_type = ntohs(c->h_type);
 			c->h_len = ntohl(c->h_len << 8);
 #if DEEPDEBUG

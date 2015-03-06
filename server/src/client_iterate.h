@@ -6,12 +6,14 @@
 #include "main.h"
 #include "guid.h"
 #include "list.h"
+#include "fakedb/fakedb.h"
+
+#include <stdint.h>
 #if __linux__
 # include <linux/limits.h>
 #else
 # include <limits.h>
 #endif
-#include "fakedb/fakedb.h"
 
 #define BUFFER_ALLOC 1024
 #define BUFFER_MAX 65536
@@ -70,8 +72,8 @@ struct client {
 	struct sev_ctx *cev;
 
 	/* header type and length */
-	unsigned short h_type;
-	unsigned int h_len;
+	uint16_t h_type;
+	uint32_t h_len;
 
 	uint64_t genid;
 	enum cev_state state;

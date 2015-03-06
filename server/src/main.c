@@ -196,7 +196,10 @@ client_alloc(struct ev_loop *loop, int fd, struct sev_ctx *next)
 		cev->evloop = loop;
 		cev->alarm = &pain->alarm;
 
-		ev_io_init(&cev->evio, client_cb, fd, EV_NONE);
+		/* назначаем оба события, после первого прохода отметка о возможности
+		 * чтения или записи будет присутсвовать, и evio выпадет из очереди
+		 */
+		ev_io_init(&cev->evio, client_cb, fd, EV_READ | EV_WRITE);
 		ev_io_start(cev->evloop, &cev->evio);
 	}
 
