@@ -78,7 +78,7 @@ client_thread(void *ctx)
 		/* шоп не жрало цпу, делаем слипы до евента */
 		clock_gettime(CLOCK_REALTIME, &tv);
 		pthread_mutex_lock(&cev->utex);
-		tv.tv_sec += 1;
+		tv.tv_nsec += 300;
 		pthread_cond_timedwait(&cev->ond, &cev->utex, &tv);
 		if (cev->action & SEV_ACTION_EXIT) {
 			xsyslog(LOG_DEBUG, "client %p thread[%p] exit at event",
