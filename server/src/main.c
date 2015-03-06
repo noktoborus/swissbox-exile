@@ -37,7 +37,7 @@ client_cb(struct ev_loop *loop, ev_io *w, int revents)
 			}
 			/* notify to thread */
 			ptx->action |= SEV_ACTION_READ;
-			pthread_cond_broadcast(&ptx->ond);
+			pthread_cond_signal(&ptx->ond);
 			pthread_mutex_unlock(&ptx->utex);
 		}
 	}
@@ -50,7 +50,7 @@ client_cb(struct ev_loop *loop, ev_io *w, int revents)
 				ev_io_start(loop, &ptx->evio);
 			}
 			ptx->action |= SEV_ACTION_WRITE;
-			pthread_cond_broadcast(&ptx->ond);
+			pthread_cond_signal(&ptx->ond);
 			pthread_mutex_unlock(&ptx->utex);
 		}
 	}
@@ -76,9 +76,9 @@ client_thread(void *ctx)
 			break;
 		}
 		/* шоп не жрало цпу, делаем слипы до евента */
+		clock_gettime(CLOCK_REALTIME, &tv);
 		pthread_mutex_lock(&cev->utex);
-		tv.tv_sec = 0;
-		tv.tv_nsec = 100;
+		tv.tv_sec += 1;
 		pthread_cond_timedwait(&cev->ond, &cev->utex, &tv);
 		if (cev->action & SEV_ACTION_EXIT) {
 			xsyslog(LOG_DEBUG, "client %p thread[%p] exit at event",
@@ -105,7 +105,7 @@ client_free(struct sev_ctx *cev)
 				(void*)cev, cev->fd, (void*)cev->thread);
 		pthread_mutex_lock(&cev->utex);
 		cev->action |= SEV_ACTION_EXIT;
-		pthread_cond_broadcast(&cev->ond);
+		pthread_cond_signal(&cev->ond);
 		pthread_mutex_unlock(&cev->utex);
 		xsyslog(LOG_DEBUG, "client free(%p, fd#%d) join thread[%p]",
 				(void*)cev, cev->fd, (void*)cev->thread);
@@ -230,8 +230,8 @@ sev_send(void *ctx, const unsigned char *buf, size_t len)
 		/* if timeout exists, use timedwait */
 		if (ptx->send_timeout) {
 			struct timespec tv;
-			tv.tv_sec = ptx->send_timeout;
-			tv.tv_nsec = 0u;
+			clock_gettime(CLOCK_REALTIME, &tv);
+			tv.tv_sec += ptx->send_timeout;
 			pthread_cond_timedwait(&ptx->ond, &ptx->utex, &tv);
 		} else
 			pthread_cond_wait(&ptx->ond, &ptx->utex);
@@ -265,8 +265,8 @@ sev_recv(void *ctx, unsigned char *buf, size_t len)
 	{
 		if (ptx->recv_timeout) {
 			struct timespec tv;
-			tv.tv_sec = ptx->recv_timeout;
-			tv.tv_nsec = 0u;
+			clock_gettime(CLOCK_REALTIME, &tv);
+			tv.tv_sec += ptx->recv_timeout;
 			pthread_cond_timedwait(&ptx->ond, &ptx->utex, &tv);
 		} else
 			pthread_cond_wait(&ptx->ond, &ptx->utex);
