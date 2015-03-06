@@ -40,6 +40,7 @@ def write_std(string, color = None):
     return len(string)
 
 def recv_message(s):
+    write_std("# wait incoming...\n")
     b = s.recv(6)
     if not b:
         write_std("# zero result\n")
@@ -118,9 +119,9 @@ def proto(s, c):
         msg.usecs = 0
         send_message(s, msg)
     if c == "file":
-        c = 2
+        c = 100
         x = 1
-        f = b"\0" * 65
+        f = b"\0" * 650
         ids = {}
         for q in range(0, c):
             msg = FEP.WriteAsk()
