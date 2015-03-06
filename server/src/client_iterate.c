@@ -27,9 +27,25 @@ TYPICAL_HANDLE_F(Fep__RenameChunk, rename_chunk, &c->mid)
 NOTIMP_HANDLE_F(Fep__ReadAsk, read_ask)
 
 static void
-midfid_free(void *data)
+mid_free(void *data)
 {
 	free(data);
+}
+
+static void
+fid_free(wait_store_t *ws)
+{
+	struct wait_file *wf;
+	wf = ws->data;
+	if (wf) {
+		if (wf->enc_filename)
+			free(wf->enc_filename);
+		if (wf->hash_filename)
+			free(wf->hash_filename);
+		if (wf->key)
+			free(wf->key);
+	}
+	free(ws);
 }
 
 static void
@@ -419,8 +435,14 @@ static inline bool
 _file_update_notify(struct client *c, struct wait_file *wf)
 {
 	struct fdb_fileUpdate *ffu;
+	size_t hash_sz;
+	size_t enc_sz;
+	size_t key_sz;
 	Fep__FileUpdate fu = FEP__FILE_UPDATE__INIT;
-	ffu = calloc(1, sizeof(struct fdb_fileUpdate));
+	hash_sz = wf->hash_filename ? strlen(wf->hash_filename) + 1 : 0u;
+	enc_sz = wf->enc_filename ? strlen(wf->enc_filename) + 1 : 0u;
+	key_sz = wf->key ? strlen(wf->key) + 1 : 0u;
+	ffu = calloc(1, sizeof(struct fdb_fileUpdate) + enc_sz + key_sz + hash_sz);
 	if (!ffu)
 		return false;
 	ffu->head.type = C_FILEUPDATE;
@@ -432,6 +454,22 @@ _file_update_notify(struct client *c, struct wait_file *wf)
 	guid2string(&wf->rootdir_guid, ffu->rootdir_guid, GUID_MAX);
 	guid2string(&wf->file_guid, ffu->file_guid, GUID_MAX);
 	guid2string(&wf->revision_guid, ffu->revision_guid, GUID_MAX);
+
+	if (key_sz) {
+		ffu->key = (char*)(ffu + 1);
+		memcpy(ffu->key, wf->key, key_sz);
+	}
+
+	if (hash_sz) {
+		ffu->hash_filename = ((char*)(ffu + 1)) + key_sz;
+		memcpy(ffu->hash_filename, wf->hash_filename, hash_sz);
+	}
+
+	if (enc_sz) {
+		ffu->enc_filename = ((char*)(ffu + 1)) + key_sz + hash_sz;
+		memcpy(ffu->enc_filename, wf->enc_filename, enc_sz);
+	}
+
 	if (fdb_store(c->fdb, ffu, (void(*)(void*))_file_update_notify_free))
 		return true;
 	_file_update_notify_free(ffu);
@@ -489,6 +527,12 @@ _handle_file_update(struct client *c, unsigned type, Fep__FileUpdate *fu)
 	} else {
 		wf = ws->data;
 	}
+	if (fu->enc_filename && !wf->enc_filename)
+		wf->enc_filename = strdup(fu->enc_filename);
+	if (fu->hash_filename && !wf->hash_filename)
+		wf->hash_filename = strdup(fu->hash_filename);
+	if (fu->key && !wf->key)
+		wf->key = strdup(fu->key);
 	wf->chunks = fu->chunks;
 	file_check_update(c, wf);
 	return send_ok(c, fu->id);
@@ -798,9 +842,9 @@ client_destroy(struct client *c)
 	if (!c)
 		return;
 	/* чистка очередей */
-	while (list_free_root(&c->mid, &midfid_free));
+	while (list_free_root(&c->mid, &mid_free));
 	while (list_free_root(&c->sid, (void(*)(void*))&sid_free));
-	while (list_free_root(&c->fid, &midfid_free));
+	while (list_free_root(&c->fid, (void(*)(void*))&fid_free));
 
 	/* ? */
 	fdb_uncursor(c->fdb);
@@ -971,12 +1015,14 @@ client_iterate(struct sev_ctx *cev, bool last, void **p)
 					(void*)cev, strerror(errno));
 		}
 	}
+
 	if (c->state > CEV_AUTH) {
 		/* всякая ерунда на отправку */
 		if (!_client_iterate_fdb(c)) {
 			return false;
 		}
 	}
+
 	/* если обработка заголовка или чтение завалилось,
 	 * то можно прерывать цикл
 	 */

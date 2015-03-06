@@ -39,6 +39,10 @@ struct fdb_fileUpdate {
 	char file_guid[GUID_MAX + 1];
 	char parent_revision_guid[GUID_MAX + 1];
 	char revision_guid[GUID_MAX + 1];
+
+	char *key;
+	char *hash_filename;
+	char *enc_filename;
 };
 
 #define C_NAMELEN 128
@@ -175,6 +179,10 @@ struct wait_file {
 	guid_t rootdir_guid;
 	guid_t file_guid;
 	guid_t revision_guid;
+
+	char *hash_filename;
+	char *enc_filename;
+	char *key;
 };
 
 /* получение привязанных к id данных */
