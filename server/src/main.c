@@ -64,6 +64,11 @@ client_thread(void *ctx)
 	struct sev_ctx *cev = (struct sev_ctx*)ctx;
 	struct timespec tv;
 	void *p = NULL;
+#ifdef __USE_GNU
+	char thread_name[sizeof(uintptr_t) * 16 + 1];
+	snprintf(thread_name, sizeof(thread_name), "client:%p", (void*)ctx);
+	pthread_setname_np(pthread_self(), thread_name);
+#endif
 	while (true) {
 		if (!client_iterate(cev, false, &p)) {
 			xsyslog(LOG_DEBUG, "client %p thread[%p] leave thread",
