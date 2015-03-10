@@ -8,6 +8,7 @@
 
 struct fdbCursor {
 	struct fdbNode *cur;
+	struct timeval borntime;
 	/* ссылки на список курсоров для определения "старых" записей
 	 * нужно прочесать все курсоры, найти старейшую прочтённую запись
 	 * после чего вычистить список до найденой записи
@@ -54,6 +55,42 @@ fdb_hash(uint8_t *str, size_t len)
 	return hash;
 }
 #endif
+
+static void
+_fdb_clean()
+{
+#if 0
+	pthread_t self;
+	struct fdbNode *nex;
+	struct fdbNode *cur;
+	struct fdbNode *pre = NULL;
+
+	self = pthread_self();
+	/* удаление всех ненужных записей */
+	for (cur = fdb.first; cur; cur = nex) {
+		nex = cur->next;
+		if (cur->walked >= fdb.cursors && cur->parent != self) {
+			if (pre)
+				pre->next = nex;
+			if (fdb.first == cur)
+				fdb.first = nex;
+			if (fdb.last == cur)
+				fdb.last = pre;
+			if (cur->data_free)
+				cur->data_free(cur->data);
+			free(cur);
+		} else {
+			pre = cur;
+			/* что бы не вычищала нужные записи, счётчик нужно сбросить
+			 * для тех записей, что были созданы этим тредом
+			 */
+			if (cur->parent == self) {
+				cur->walked--;
+			}
+		}
+	}
+#endif
+}
 
 void
 fdb_open()
@@ -120,7 +157,8 @@ _fdb_cursor()
 {
 	struct fdbCursor *c = calloc(1, sizeof(struct fdbCursor));
 	if (c) {
-		c->cur = fdb.first;
+		gettimeofday(&c->borntime, NULL);
+		c->cur = NULL;
 		fdb.cursors++;
 	}
 	return c;
@@ -150,6 +188,7 @@ fdb_uncursor(struct fdbCursor *c)
 {
 	pthread_mutex_lock(&fdb.single);
 	_fdb_uncursor(c);
+	_fdb_clean();
 	pthread_mutex_unlock(&fdb.single);
 }
 
@@ -159,7 +198,7 @@ _fdb_walk(struct fdbCursor *c)
 	pthread_t self;
 
 	self = pthread_self();
-	do {
+	while (fdb.first != NULL) {
 		if (!c->cur) {
 			/* идём в рут, если курсор пустой */
 			if (fdb.first)
@@ -172,12 +211,16 @@ _fdb_walk(struct fdbCursor *c)
 		} else {
 			break;
 		}
-		/* пропускаем, если запись была создана в текущим треде */
-		if (c->cur->parent == self)
+		/* пропускаем, если запись была создана в текущим треде
+		 * или раньше создания текущего треда
+		 */
+		if (c->cur->parent == self
+				|| c->cur->borntime.tv_sec < c->borntime.tv_sec)
 			continue;
+		_fdb_clean();
 		c->cur->walked++;
 		return c->cur->data;
-	} while (false);
+	}
 	return NULL;
 }
 
