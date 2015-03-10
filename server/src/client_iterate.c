@@ -454,26 +454,28 @@ _file_update_notify(struct client *c, struct wait_file *wf)
 	if (key_sz) {
 		ffu->key = (char*)(ffu + 1);
 		memcpy(ffu->key, wf->key, wf->key_len);
+		fu.key.data = (uint8_t*)ffu->key;
+		fu.key.len = wf->key_len;
+		fu.has_key = true;
 	}
 
 	if (hash_sz) {
 		ffu->hash_filename = ((char*)(ffu + 1)) + key_sz;
 		memcpy(ffu->hash_filename, wf->hash_filename, hash_sz);
+		fu.hash_filename = ffu->hash_filename;
 	}
 
 	if (enc_sz) {
 		ffu->enc_filename = ((char*)(ffu + 1)) + key_sz + hash_sz;
 		memcpy(ffu->enc_filename, wf->enc_filename, enc_sz);
+		fu.enc_filename = ffu->enc_filename;
 	}
 
 	fu.rootdir_guid = ffu->rootdir_guid;
 	fu.file_guid = ffu->file_guid;
 	fu.revision_guid = ffu->revision_guid;
 	fu.chunks = wf->chunks;
-	fu.key.data = (uint8_t*)ffu->key;
-	fu.key.len = wf->key_len;
-	fu.hash_filename = ffu->hash_filename;
-	fu.enc_filename = ffu->enc_filename;
+
 	memcpy(&ffu->msg, &fu, sizeof(Fep__FileUpdate));
 	if (fdb_store(c->fdb, ffu, (void(*)(void*))_file_update_notify_free))
 		return true;
