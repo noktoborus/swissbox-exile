@@ -527,6 +527,12 @@ _handle_file_update(struct client *c, unsigned type, Fep__FileUpdate *fu)
 	} else {
 		wf = ws->data;
 	}
+#if DEEPDEBUG
+	xsyslog(LOG_DEBUG, "enc_filename: \"%s\", hash_filename: \"%s\", "
+			"file_guid: \"%s\", revision_guid: \"%s\"",
+			fu->enc_filename, fu->hash_filename,
+			fu->file_guid, fu->revision_guid);
+#endif
 	if (fu->enc_filename && !wf->enc_filename)
 		wf->enc_filename = strdup(fu->enc_filename);
 	if (fu->hash_filename && !wf->hash_filename)
