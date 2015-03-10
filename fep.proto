@@ -177,7 +177,7 @@ message FileUpdate {
 	/* дополнительные поля */
 	optional string enc_filename = 50;
 	optional string hash_filename = 51;
-	optional string key = 52;
+	optional bytes key = 52;
 }
 
 /*
