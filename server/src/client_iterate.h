@@ -43,6 +43,7 @@ struct fdb_fileUpdate {
 	char revision_guid[GUID_MAX + 1];
 
 	char *key;
+	size_t key_len;
 	char *hash_filename;
 	char *enc_filename;
 };
@@ -185,6 +186,7 @@ struct wait_file {
 	char *hash_filename;
 	char *enc_filename;
 	char *key;
+	size_t key_len;
 };
 
 /* получение привязанных к id данных */

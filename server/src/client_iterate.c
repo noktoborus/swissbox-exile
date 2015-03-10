@@ -441,23 +441,19 @@ _file_update_notify(struct client *c, struct wait_file *wf)
 	Fep__FileUpdate fu = FEP__FILE_UPDATE__INIT;
 	hash_sz = wf->hash_filename ? strlen(wf->hash_filename) + 1 : 0u;
 	enc_sz = wf->enc_filename ? strlen(wf->enc_filename) + 1 : 0u;
-	key_sz = wf->key ? strlen(wf->key) + 1 : 0u;
+	key_sz = wf->key_len ? wf->key_len + 1 : 0u;
 	ffu = calloc(1, sizeof(struct fdb_fileUpdate) + enc_sz + key_sz + hash_sz);
 	if (!ffu)
 		return false;
 	ffu->head.type = C_FILEUPDATE;
-	fu.rootdir_guid = ffu->rootdir_guid;
-	fu.file_guid = ffu->file_guid;
-	fu.revision_guid = ffu->revision_guid;
-	fu.chunks = wf->chunks;
-	memcpy(&ffu->msg, &fu, sizeof(Fep__FileUpdate));
+
 	guid2string(&wf->rootdir_guid, ffu->rootdir_guid, GUID_MAX);
 	guid2string(&wf->file_guid, ffu->file_guid, GUID_MAX);
 	guid2string(&wf->revision_guid, ffu->revision_guid, GUID_MAX);
 
 	if (key_sz) {
 		ffu->key = (char*)(ffu + 1);
-		memcpy(ffu->key, wf->key, key_sz);
+		memcpy(ffu->key, wf->key, wf->key_len);
 	}
 
 	if (hash_sz) {
@@ -470,6 +466,15 @@ _file_update_notify(struct client *c, struct wait_file *wf)
 		memcpy(ffu->enc_filename, wf->enc_filename, enc_sz);
 	}
 
+	fu.rootdir_guid = ffu->rootdir_guid;
+	fu.file_guid = ffu->file_guid;
+	fu.revision_guid = ffu->revision_guid;
+	fu.chunks = wf->chunks;
+	fu.key.data = (uint8_t*)ffu->key;
+	fu.key.len = wf->key_len;
+	fu.hash_filename = ffu->hash_filename;
+	fu.enc_filename = ffu->enc_filename;
+	memcpy(&ffu->msg, &fu, sizeof(Fep__FileUpdate));
 	if (fdb_store(c->fdb, ffu, (void(*)(void*))_file_update_notify_free))
 		return true;
 	_file_update_notify_free(ffu);
@@ -527,18 +532,21 @@ _handle_file_update(struct client *c, unsigned type, Fep__FileUpdate *fu)
 	} else {
 		wf = ws->data;
 	}
-#if DEEPDEBUG
-	xsyslog(LOG_DEBUG, "enc_filename: \"%s\", hash_filename: \"%s\", "
-			"file_guid: \"%s\", revision_guid: \"%s\"",
-			fu->enc_filename, fu->hash_filename,
-			fu->file_guid, fu->revision_guid);
-#endif
 	if (fu->enc_filename && !wf->enc_filename)
 		wf->enc_filename = strdup(fu->enc_filename);
 	if (fu->hash_filename && !wf->hash_filename)
 		wf->hash_filename = strdup(fu->hash_filename);
-	if (fu->key && !wf->key)
-		wf->key = strdup(fu->key);
+	if (fu->key.len && !wf->key) {
+		wf->key = calloc(1, fu->key.len);
+		wf->key_len = fu->key.len;
+		memcpy(wf->key, fu->key.data, wf->key_len);
+	}
+#if DEEPDEBUG
+	xsyslog(LOG_DEBUG, "enc_filename: \"%s\", hash_filename: \"%s\", "
+			"file_guid: \"%s\", revision_guid: \"%s\", key_len: %"PRIuPTR,
+			fu->enc_filename, fu->hash_filename,
+			fu->file_guid, fu->revision_guid, wf->key_len);
+#endif
 	wf->chunks = fu->chunks;
 	file_check_update(c, wf);
 	return send_ok(c, fu->id);
