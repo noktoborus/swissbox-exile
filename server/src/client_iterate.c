@@ -922,6 +922,7 @@ _client_iterate_fdb(struct client *c)
 	}
 	{
 		struct fdb_fileUpdate *ffu = (void*)inm;
+		ffu->msg.id = generate_id(c);
 		send_message(c->cev, FEP__TYPE__tFileUpdate, &ffu->msg);
 	}
 	return true;
