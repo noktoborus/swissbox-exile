@@ -929,17 +929,17 @@ _client_iterate_read(struct client *c)
 static inline bool
 _client_iterate_fdb(struct client *c)
 {
-	struct fdb_head *inm = fdb_walk(c->fdb);
-	if (!inm)
-		return true;
-	if (inm->type != C_FILEUPDATE) {
-		xsyslog(LOG_INFO, "client[%p] not file update", (void*)c->cev);
-		return true;
-	}
-	{
-		struct fdb_fileUpdate *ffu = (void*)inm;
-		ffu->msg.id = generate_id(c);
-		send_message(c->cev, FEP__TYPE__tFileUpdate, &ffu->msg);
+	struct fdb_head *inm;
+	while ((inm = fdb_walk(c->fdb)) != NULL) {
+		if (inm->type != C_FILEUPDATE) {
+			xsyslog(LOG_INFO, "client[%p] not file update", (void*)c->cev);
+			return true;
+		}
+		{
+			struct fdb_fileUpdate *ffu = (void*)inm;
+			ffu->msg.id = generate_id(c);
+			send_message(c->cev, FEP__TYPE__tFileUpdate, &ffu->msg);
+		}
 	}
 	return true;
 }
