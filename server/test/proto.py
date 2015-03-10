@@ -65,10 +65,12 @@ def recv_message(s):
                 write_std("# header has no id\n")
             if msg.__class__.__name__ == "FileUpdate":
                 write_std("# fileUpdate")
+                #__import__("pdb").set_trace()
                 return recv_message(s)
             return (ptypen, ptype, msg)
         except:
-            write_std("# header parse fail: %s\n" %(rawmsg.encode("hex")))
+            write_std("# exc %s" %str(sys.exc_info()))
+            write_std("# header parse fail: %s (%s)\n" %(rawmsg.encode("hex"), len(rawmsg)))
     return None
 
 def send_message(s, msg):
@@ -122,8 +124,8 @@ def proto(s, c):
         msg.usecs = 0
         send_message(s, msg)
     if c == "file":
-        c = 100
-        x = 100
+        c = 1
+        x = 10
         f = b"\0" * 65000
         ids = {}
         for q in range(0, c):
@@ -157,6 +159,9 @@ def proto(s, c):
             send_message(s, msg)
             recv_message(s)
         msg = FEP.FileUpdate()
+        msg.enc_filename = "123"
+        msg.hash_filename = "123"
+        msg.key = "123123"
         msg.id = 203
         msg.chunks = c
         msg.rootdir_guid = "6ad2e7b2-c1d0-11e4-be14-a417319a88f9"

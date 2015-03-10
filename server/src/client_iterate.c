@@ -503,7 +503,7 @@ file_check_update(struct client *c, struct wait_file *wf)
 					(void*)c->cev, wf->notified ? "true" : "false");
 #endif
 			if ((d = query_id(c, &c->fid, wf->id)) != NULL)
-				free(d);
+				fid_free(d);
 		}		return true;
 	}
 	return false;
@@ -550,7 +550,9 @@ _handle_file_update(struct client *c, unsigned type, Fep__FileUpdate *fu)
 			fu->file_guid, fu->revision_guid, wf->key_len);
 #endif
 	wf->chunks = fu->chunks;
-	file_check_update(c, wf);
+	if (!file_check_update(c, wf)) {
+		wait_id(c, &c->fid, hash, ws);
+	}
 	return send_ok(c, fu->id);
 }
 
