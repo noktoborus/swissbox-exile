@@ -42,6 +42,18 @@ option optimize_for = SPEED;
  Последовательность чтения:
  TODO: не готово
 
+ Получение количества чанков:
+ C: QueryChunks (id = 100)
+ S: ResultChunks (id = 100, chunk_no = 1, chunk_max = 3)
+ S: ResultChunks (id = 100, chunk_no = 2, chunk_max = 3)
+ S: ResultChunks (id = 100, chunk_no = 3, chunk_max = 3)
+
+ Получение списка ревизий
+ C: QueryRevisions (id = 100, depth = 3, offset = 0)
+ S: ResultRevision (id = 100, rev_no = 1, rev_max = 3)
+ S: ResultRevision (id = 100, rev_no = 2, rev_max = 3)
+ S: ResultRevision (id = 100, rev_no = 3, rev_max = 3)
+
  Серверу не имеет значения, был ли доставлен файл до клиента,
  Потому завершающее сообщение отправляется с Id == 0 и не требует ответа 
 
@@ -62,6 +74,10 @@ enum Type {
 	tWriteOk = 12;
 	tFileUpdate = 13;
 	tRenameChunk = 14;
+	tQueryChunks = 15;
+	tResultChunks = 16;
+	tQueryRevisions = 17;
+	tResultRevision = 18;
 }
 
 /*
@@ -198,6 +214,8 @@ message WriteAsk {
 	required string file_guid = 5;
 	required string chunk_guid = 6;
 	required string revision_guid = 7;
+	/* sha256 хеш чанка */
+	required bytes chunk_hash = 10;
 }
 
 message WriteOk {
@@ -228,8 +246,6 @@ message End {
 	 для костылинга
 	 */
 	required uint64 origin_len = 4;
-	/* в конце передачи сообщаем контрольную сумму, или не сообщаем */
-	optional string crc = 10;
 }
 
 /* 
@@ -260,18 +276,47 @@ message ReadAsk {
 	required uint32 session_id = 2;
 
 	required string rootdir_guid = 3;
-	/* размер сегментов в байтах */
-	required uint32 segment_size = 4;
-
 	required string chunk_guid = 5;
 }
 
-message Chunk {
-	required uint64 id = 1 [default = 1];
-
-	required uint32 session_id = 2;
+message QueryRevisions {
+	required uint64 id = 1 [default = 0];
 
 	required string rootdir_guid = 3;
+	required string file_guid = 4;
+
+	required uint32 depth = 5 [default = 3];
+	required uint32 offset = 6 [default = 0];
+}
+
+message ResultRevision {
+	required uint64 id = 1 [default = 0];
+
+	required string revision_guid = 3;
+
+	required uint32 rev_no = 5;
+	required uint32 rev_max = 6;
+}
+
+/* запрос чанков для ревизии revision_guid */
+message QueryChunks {
+	required uint64 id = 1 [default = 1];
+
+	required string rootdir_guid = 3;
+	required string file_guid = 4;
+	required string revision_guid = 5;
+}
+
+/* ответ на QueryChunks */
+message ResultChunks {
+	required uint64 id = 1 [default = 1];
+
+	required string chunk_guid = 5;
+	/* общее количество подобных сообщений и номер текущего сообщения  */
+	required uint32 chunk_no = 7;
+	required uint32 chunk_max = 8;
+	
+	required bytes chunk_hash = 10;
 }
 
 /* */
