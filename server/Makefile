@@ -1,12 +1,13 @@
 # vim: ft=make ff=unix fenc=utf-8
 # file: Makefile
-LIBS=`pkg-config --libs --cflags libev pthread-stubs libprotobuf-c`
+LIBS=`pkg-config --libs --cflags libev pthread-stubs libprotobuf-c libpq`
 LIBS+=-pthread
 CFLAGS=-ggdb2 -D_GNU_SOURCE -D_POSIX_C_SOURCE -D_BSD_SOURCE -Wall -pedantic -std=c99 -I.
 CFLAGS+=${EF}
 BIN=bin/server
 SRC=src/
 FAKEDB=fakedb/fakedb.c
+SIMPLEPQ=simplepq/simplepq.c
 
 all: ${BIN}
 
@@ -20,7 +21,7 @@ runtest: ${BIN} proto/fep_pb2.py
 	python2 test/proto.py ${BIN} auth
 
 ${BIN}: ${SRC}/main.c ${SRC}/utils.c ${SRC}/client_iterate.c proto/fep.pb-c.c\
-	${SRC}/client_cb.c ${SRC}/guid.c ${SRC}/list.c ${FAKEDB}
+	${SRC}/client_cb.c ${SRC}/guid.c ${SRC}/list.c ${FAKEDB} ${SIMPLEPQ}
 	${CC} -o ${BIN} ${CFLAGS} $^ ${LIBS}
 
 proto/fep.pb-c.c: ../fep.proto

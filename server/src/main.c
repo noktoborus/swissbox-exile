@@ -3,6 +3,7 @@
  */
 #include "main.h"
 #include "utils.h"
+#include "simplepq/simplepq.h"
 #include "fakedb/fakedb.h"
 
 #include <arpa/inet.h>
@@ -454,8 +455,9 @@ main(int argc, char *argv[])
 	struct ev_loop *loop;
 	struct main pain;
 	openlog(NULL, LOG_PERROR | LOG_PID, LOG_LOCAL0);
-	fdb_open();
 	xsyslog(LOG_INFO, "--- START ---");
+	fdb_open();
+	spq_open(10, "dbname = fepserver");
 	loop = EV_DEFAULT;
 	{
 		memset(&pain, 0, sizeof(struct main));
@@ -482,6 +484,7 @@ main(int argc, char *argv[])
 		ev_async_stop(loop, &pain.alarm);
 		ev_loop_destroy(loop);
 		fdb_close();
+		spq_close();
 		closelog();
 	}
 	xsyslog(LOG_INFO, "--- EXIT ---");
