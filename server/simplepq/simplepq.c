@@ -2,9 +2,9 @@
  * file: simplepq/simplepq.c
  */
 #include "simplepq.h"
+#include "snip.h"
 #include <syslog.h>
 
-#include <stdbool.h>
 #include <stdlib.h>
 
 #include <errno.h>
@@ -63,6 +63,7 @@ acquire_conn(struct spq_root *spq)
 			break;
 		if (!spq->acquire.sc) {
 			pthread_cond_signal(&spq->cond);
+		} else {
 			c = spq->acquire.sc;
 			spq->acquire.sc = NULL;
 		}
@@ -121,6 +122,7 @@ _thread_mgm(struct spq_root *spq)
 					PQfinish(sc->conn);
 				}
 				sc->conn = PQconnectdb(spq->pgstring);
+				PQsetErrorVerbosity(sc->conn, PQERRORS_TERSE);
 			} else if ((sc->conn && pgstatus == CONNECTION_BAD)
 					|| (spq_c > spq->pool && !sc->mark_active)) {
 				/*
@@ -171,7 +173,7 @@ _thread_mgm(struct spq_root *spq)
 		/* выбор активного соеденения */
 		if (!spq->acquire.sc) {
 			for (sc = spq->first; sc; sc = sc->next) {
-				if (sc->mark_active)
+				if (sc->mark_active || PQstatus(sc->conn) != CONNECTION_OK)
 					continue;
 				spq->acquire.sc = sc;
 			}
@@ -191,7 +193,6 @@ _thread_mgm(struct spq_root *spq)
 	syslog(LOG_WARNING, "spq: manager exit");
 	return NULL;
 }
-
 
 void
 spq_open(unsigned pool, char *pgstring)
@@ -237,5 +238,82 @@ spq_close()
 	pthread_join(_spq.mgm, &n);
 	pthread_mutex_destroy(&_spq.mutex);
 	pthread_cond_destroy(&_spq.cond);
+}
+
+/*
+ *
+ * TABLE file_records # записи FileUpdate + WriteAsk
+ *	time
+ *	user
+ *	rootdir_guid
+ *	chunk_hash
+ *	file_guid
+ *	revision_guid
+ *	parent_revision_guid
+ *
+ */
+
+bool
+spq_create_tables()
+{
+	char errstr[4096];
+	const char *tb_fr = "CREATE TABLE IF NOT EXISTS file_records "
+		"("
+		"	time timestamp with time zone NOT NULL DEFAULT now(), "
+		"	username varchar(1024) NOT NULL, "
+		"	chunk_hash varchar(1024) NOT NULL, "
+		"	rootdir_guid UUID NOT NULL, "
+		"	revision_guid UUID NOT NULL, "
+		"	parent_revision_guid UUID DEFAULT NULL, "
+		"	file_guid UUID, "
+		"	filename varchar(1024) DEFAULT NULL"
+		");";
+	struct spq *sc;
+	PGresult *res;
+	sc = acquire_conn(&_spq);
+	if (!sc)
+		return false;
+	res = PQexec(sc->conn, tb_fr);
+	if (PQresultStatus(res) != PGRES_COMMAND_OK) {
+		snprintf(errstr, sizeof(errstr) - 1, "spq: create error: %s",
+				PQresultErrorMessage(res));
+		syslog(LOG_INFO, errstr);
+	}
+
+	release_conn(&_spq, sc);
+	return true;
+}
+
+bool
+spq_f_chunkNew(char *username, char *hash,
+		guid_t *rootdir, guid_t *revision, guid_t *chunk, guid_t *file)
+{
+	bool r;
+	struct spq *c;
+	if ((c = acquire_conn(&_spq)) != NULL) {
+		r = _spq_f_chunkNew(c->conn, username, hash,
+				rootdir, revision, chunk, file);
+		release_conn(&_spq, c);
+	}
+	return r;
+}
+
+/*
+ * внесение информации в БД для чанков по сообщению FileUpdate
+ * обновление полей:
+ * 	parent_revision_guid
+ *	filename
+ * поиск по полям:
+ * 	username
+ * 	rootdir_guid
+ * 	file_guid
+ * 	revision_guid
+ */
+bool
+spq_f_chunkFile(char *username,
+		guid_t *rootdir_guid, guid_t *file_guid, guid_t *revision_guid,
+		char *filename, guid_t *parent_revision_guid)
+{
+	return true;
 }
 

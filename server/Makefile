@@ -7,7 +7,7 @@ CFLAGS+=${EF}
 BIN=bin/server
 SRC=src/
 FAKEDB=fakedb/fakedb.c
-SIMPLEPQ=simplepq/simplepq.c
+SIMPLEPQ=simplepq/simplepq.c simplepq/snip.c
 JUNK=junk/guid.c
 
 all: ${BIN}

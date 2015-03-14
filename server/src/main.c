@@ -458,8 +458,9 @@ main(int argc, char *argv[])
 	xsyslog(LOG_INFO, "--- START ---");
 	fdb_open();
 	spq_open(10, "dbname = fepserver");
-	loop = EV_DEFAULT;
-	{
+	/* всякая ерунда с бд */
+	if (spq_create_tables()) {
+		loop = EV_DEFAULT;
 		memset(&pain, 0, sizeof(struct main));
 		ev_signal_init(&pain.sigint, signal_cb, SIGINT);
 		ev_signal_start(loop, &pain.sigint);
@@ -483,10 +484,10 @@ main(int argc, char *argv[])
 		ev_timer_stop(loop, &pain.watcher);
 		ev_async_stop(loop, &pain.alarm);
 		ev_loop_destroy(loop);
-		fdb_close();
-		spq_close();
-		closelog();
 	}
+	fdb_close();
+	spq_close();
+	closelog();
 	xsyslog(LOG_INFO, "--- EXIT ---");
 	return EXIT_SUCCESS;
 }
