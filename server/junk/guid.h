@@ -17,7 +17,8 @@ typedef struct guid {
 } guid_t;
 
 bool string2guid(const char *in, size_t inlen, guid_t *guid);
-bool guid2string(guid_t *guid, char *out, size_t outlen);
+/* возвращает количества байт, отображённых в строке out или 0 */
+size_t guid2string(guid_t *guid, char *out, size_t outlen);
 
 #endif /* _SRC_GUID_1425159398_H_ */
 

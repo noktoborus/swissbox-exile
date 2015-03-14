@@ -4,8 +4,8 @@
 #ifndef _SRC_CLIENT_ITERATE_1423393202_H_
 #define _SRC_CLIENT_ITERATE_1423393202_H_
 #include "main.h"
-#include "guid.h"
 #include "list.h"
+#include "junk/guid.h"
 #include "fakedb/fakedb.h"
 
 #include <stdint.h>

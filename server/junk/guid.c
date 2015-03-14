@@ -1,7 +1,7 @@
 /* vim: ft=c ff=unix fenc=utf-8
  * file: src/guid.c
  */
-#include "src/guid.h"
+#include "guid.h"
 
 #include <inttypes.h>
 #include <stdio.h>
@@ -56,15 +56,18 @@ string2guid(const char *in, size_t inlen, guid_t *guid)
 	return true;
 }
 
-bool
+size_t
 guid2string(guid_t *guid, char *out, size_t outlen)
 {
+	int len;
 	if (!guid || !out || !outlen)
 		return false;
-	snprintf(out, outlen,
+	len = snprintf(out, outlen,
 			"%08"PRIX32"-%04"PRIX16"-%04"PRIX16"-%04"PRIX16"-%012"PRIX64,
 			guid->f1, guid->f2, guid->f3,
 			(uint16_t)(guid->f4 >> 48), (guid->f4 & 0xffffffffffff));
-	return true;
+	if (len > 0)
+		return (size_t)len;
+	else return 0;
 }
 
