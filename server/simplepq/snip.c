@@ -11,7 +11,7 @@ _spq_f_chunkNew(PGconn *pgc, char *username, char *hash,
 		guid_t *rootdir, guid_t *revision, guid_t *chunk, guid_t *file)
 {
 	PGresult *res;
-	const char *tb = "INSERT INTO fail_records"
+	const char *tb = "INSERT INTO file_records"
 		"("
 		"	username, "
 		"	chunk_hash, "
