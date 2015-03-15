@@ -23,7 +23,20 @@
 bool _spq_f_chunkNew(PGconn *pgc, char *username, char *hash,
 		guid_t *rootdir, guid_t *revision, guid_t *chunk, guid_t *file);
 
-
+/*
+ * внесение информации в БД для чанков по сообщению FileUpdate
+ * обновление полей:
+ * 	parent_revision_guid
+ *	filename
+ * поиск по полям:
+ * 	username
+ * 	rootdir_guid
+ * 	file_guid
+ * 	revision_guid
+ */
+bool _spq_f_chunkFile(PGconn *pgc, char *username,
+		guid_t *rootdir, guid_t *revision, guid_t *file,
+		char *filename, guid_t *parent_revision);
 
 #endif /* _SIMPLEPQ_SNIP_1426357506_H_ */
 

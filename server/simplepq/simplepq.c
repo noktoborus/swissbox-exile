@@ -298,22 +298,18 @@ spq_f_chunkNew(char *username, char *hash,
 	return r;
 }
 
-/*
- * внесение информации в БД для чанков по сообщению FileUpdate
- * обновление полей:
- * 	parent_revision_guid
- *	filename
- * поиск по полям:
- * 	username
- * 	rootdir_guid
- * 	file_guid
- * 	revision_guid
- */
 bool
 spq_f_chunkFile(char *username,
-		guid_t *rootdir_guid, guid_t *file_guid, guid_t *revision_guid,
-		char *filename, guid_t *parent_revision_guid)
+		guid_t *rootdir, guid_t *revision, guid_t *file,
+		char *filename, guid_t *parent_revision)
 {
-	return true;
+	bool r;
+	struct spq *c;
+	if ((c = acquire_conn(&_spq)) != NULL) {
+		r = _spq_f_chunkFile(c->conn, username, rootdir, revision, file,
+				filename, parent_revision);
+		release_conn(&_spq, c);
+	}
+	return r;
 }
 
