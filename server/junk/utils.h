@@ -5,9 +5,9 @@
 #define _UTILS_1422516244_H_
 
 #include <netinet/in.h>
+#include <stdint.h>
 
-
-size_t bin2hex(char *binary, size_t bin_len, char *string, size_t str_len);
+size_t bin2hex(uint8_t *binary, size_t bin_len, char *string, size_t str_len);
 
 #define SADDR_MIN 48
 /*

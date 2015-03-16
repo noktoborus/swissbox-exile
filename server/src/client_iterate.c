@@ -4,6 +4,8 @@
 
 #include "client_iterate.h"
 #include "client_cb.h"
+#include "junk/utils.h"
+#include "simplepq/simplepq.h"
 
 #include <ev.h>
 #include <stdio.h>
@@ -139,23 +141,22 @@ _handle_write_ask(struct client *c, unsigned type, Fep__WriteAsk *msg)
 		xsyslog(LOG_WARNING, "client[%p] can't create path %s as cachedir: %s",
 				(void*)c->cev, path, strerror(errno));
 	} else {
+		/* FIXME: на данный момент не понимаю как именно нужно сохранять
+			файл и связывать его с бд, возможны нехорошие варианты,
+			когда несколько клиентов начнут писать в один файл
+		*/
 		struct stat st;
+		char chunk_hash[PATH_MAX];
+		bin2hex(msg->chunk_hash.data, msg->chunk_hash.len,
+				chunk_hash, sizeof(chunk_hash));
 		snprintf(path, PATH_MAX, "%s/%s/%s",
-				c->options.home, msg->rootdir_guid, msg->file_guid);
-		mkdir(path, S_IRWXU);
-		snprintf(path, PATH_MAX, "%s/%s/%s/%s",
-				c->options.home, msg->rootdir_guid,
-				msg->file_guid, msg->chunk_guid);
+				c->options.home, msg->rootdir_guid, chunk_hash);
+
 		if (stat(path, &st) == -1 && errno != ENOENT) {
 			errmsg = "Internal error: prepare space failed";
 			xsyslog(LOG_WARNING, "client[%p] stat(%s) error: %s",
 					(void*)c->cev, path, strerror(errno));
 		} else if (errno != ENOENT) {
-			if (st.st_size > 0u) {
-				errmsg = "Interval error: overwrite not permited";
-				xsyslog(LOG_WARNING, "client[%p] overwrite to %s not permited",
-						(void*)c->cev, path);
-			}
 			if (unlink(path)) {
 				xsyslog(LOG_WARNING, "client[%p] can't unlink %s: %s",
 						(void*)c->cev, path, strerror(errno));
@@ -167,6 +168,8 @@ _handle_write_ask(struct client *c, unsigned type, Fep__WriteAsk *msg)
 		return send_error(c, msg->id, errmsg, -1);
 
 	{
+		/* в этом блоке структура wx только настраивается,
+			упаковка происходит дальше */
 		bool fid_in; /* логический костыль */
 		hash = guid2hash(msg->file_guid);
 		fid_in = ((fid_ws = touch_id(c, &c->fid, hash)) != NULL);
@@ -185,9 +188,12 @@ _handle_write_ask(struct client *c, unsigned type, Fep__WriteAsk *msg)
 			errmsg = "Internal error: cache not available";
 		}
 		memcpy(wx.path, path, PATH_MAX);
+		string2guid(msg->chunk_guid, strlen(msg->chunk_guid), &wx.chunk_guid);
 		/* ссылаемся на wait_file и увеличиваем счётчик */
 		wx.wf = fid_ws->data;
 		wx.wf->ref++;
+		wx.hash_len = msg->chunk_hash.len;
+		memcpy(wx.hash, (void*)msg->chunk_hash.data, msg->chunk_hash.len);
 		/* логический костыль */
 		if (fid_in)
 			fid_ws = NULL;
@@ -561,6 +567,7 @@ _handle_end(struct client *c, unsigned type, Fep__End *end)
 {
 	struct wait_store *ws;
 	struct wait_xfer wx;
+	char chunk_hash[HASHHEX_MAX + 1];
 	char *errmsg = NULL;
 
 	/* TODO: добавить в бд запись */
@@ -588,6 +595,11 @@ _handle_end(struct client *c, unsigned type, Fep__End *end)
 	}
 
 	if (!errmsg) {
+		/* чанк пришёл, теперь нужно обновить информацию в бд */
+		bin2hex(wx.hash, wx.hash_len, chunk_hash, sizeof(chunk_hash));
+		spq_f_chunkNew(c->name, chunk_hash, &wx.wf->rootdir_guid,
+				&wx.wf->revision_guid, &wx.chunk_guid, &wx.wf->file_guid);
+		/* заодно проверяем готовность файла */
 		wx.wf->chunks_ok++;
 		file_check_update(c, wx.wf);
 		return send_ok(c, end->id);

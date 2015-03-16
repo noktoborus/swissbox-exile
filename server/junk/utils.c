@@ -8,7 +8,7 @@
 
 
 size_t
-bin2hex(char *binary, size_t bin_len, char *string, size_t str_len)
+bin2hex(uint8_t *binary, size_t bin_len, char *string, size_t str_len)
 {
 	const char hex[16] = "0123456789ABCDEF";
 	size_t i;

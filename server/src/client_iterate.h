@@ -15,6 +15,11 @@
 # include <limits.h>
 #endif
 
+#define SHA256_MAX 32
+#define SHA256HEX_MAX 64
+#define HASHHEX_MAX SHA256HEX_MAX
+#define HASH_MAX SHA256_MAX
+
 #define BUFFER_ALLOC 1024
 #define BUFFER_MAX 65536
 
@@ -167,6 +172,10 @@ struct wait_xfer {
 	uint64_t size; /* полный размер чанка */
 	uint64_t filling; /* сколько данных было записано */
 	struct wait_file *wf;
+
+	guid_t chunk_guid;
+	size_t hash_len; /* длина и сам хеш чанка */
+	uint8_t hash[HASH_MAX];
 };
 
 struct wait_file {

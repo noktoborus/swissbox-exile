@@ -138,6 +138,7 @@ def proto(s, c):
             msg.file_guid = "653e17c2-c1d0-11e4-be14-a417319a88f9"
             msg.revision_guid = "038b0d98-c1d8-11e4-b23e-a417319a88f9"
             msg.chunk_guid = guid
+            msg.chunk_hash = "\0\2\2\3"
             msg.size = len(f) * x
             send_message(s, msg)
             rmsg = recv_message(s)[2]
