@@ -47,7 +47,7 @@ _spq_f_chunkNew(PGconn *pgc, char *username, char *hash, char *path,
 	val[5] = _chunk_guid;
 	val[6] = _file_guid;
 
-	res = PQexecParams(pgc, tb, 6, NULL,
+	res = PQexecParams(pgc, tb, 7, NULL,
 			(const char *const*)val, length, format, 0);
 
 	if (PQresultStatus(res) != PGRES_TUPLES_OK) {
