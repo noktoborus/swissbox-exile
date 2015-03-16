@@ -2,7 +2,7 @@
  * file: main.c
  */
 #include "main.h"
-#include "utils.h"
+#include "junk/utils.h"
 #include "simplepq/simplepq.h"
 #include "fakedb/fakedb.h"
 

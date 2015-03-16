@@ -8,7 +8,7 @@ BIN=bin/server
 SRC=src/
 FAKEDB=fakedb/fakedb.c
 SIMPLEPQ=simplepq/simplepq.c simplepq/snip.c
-JUNK=junk/guid.c
+JUNK=junk/guid.c junk/utils.c
 
 all: ${BIN}
 
@@ -21,7 +21,7 @@ debug:
 runtest: ${BIN} proto/fep_pb2.py
 	python2 test/proto.py ${BIN} auth
 
-${BIN}: ${SRC}/main.c ${SRC}/utils.c ${SRC}/client_iterate.c proto/fep.pb-c.c\
+${BIN}: ${SRC}/main.c ${SRC}/client_iterate.c proto/fep.pb-c.c\
 	${SRC}/client_cb.c ${SRC}/list.c ${FAKEDB} ${SIMPLEPQ} ${JUNK}
 	${CC} -o ${BIN} ${CFLAGS} $^ ${LIBS}
 

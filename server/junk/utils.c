@@ -6,6 +6,30 @@
 #include <stdio.h>
 #include "utils.h"
 
+
+size_t
+bin2hex(char *binary, size_t bin_len, char *string, size_t str_len)
+{
+	const char hex[16] = "0123456789ABCDEF";
+	size_t i;
+
+	if (!string || !str_len || !binary || !bin_len)
+		return 0u;
+
+	for (i = 0u; i < str_len - 1 && i < bin_len * 2; i++) {
+		if (!(i % 2)) {
+			/* first nibble */
+			string[i] = hex[binary[i / 2] >> 4 & 0xf];
+		} else {
+			/* second nibble */
+			string[i] = hex[binary[i / 2] & 0xf];
+		}
+	}
+	string[i] = '\0';
+	return i;
+}
+
+
 void
 saddr_char(char *str, size_t size, sa_family_t family, struct sockaddr *sa)
 {
