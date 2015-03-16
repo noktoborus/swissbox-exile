@@ -53,6 +53,8 @@ string2guid(const char *in, size_t inlen, guid_t *guid)
 	memcpy(a, b + 19, 4);
 	memcpy(a + 4, b + 24, 12);
 	guid->f4 = (uint64_t)strtoull(a, NULL, 16);
+	/* флаг что гуид есть в структуре */
+	guid->not_null = true;
 	return true;
 }
 
@@ -62,6 +64,8 @@ guid2string(guid_t *guid, char *out, size_t outlen)
 	int len;
 	if (!guid || !out || !outlen)
 		return false;
+	if (!guid->not_null)
+		return 0u;
 	len = snprintf(out, outlen,
 			"%08"PRIX32"-%04"PRIX16"-%04"PRIX16"-%04"PRIX16"-%012"PRIX64,
 			guid->f1, guid->f2, guid->f3,

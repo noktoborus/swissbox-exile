@@ -14,6 +14,8 @@ typedef struct guid {
 	uint16_t f2;
 	uint16_t f3;
 	uint64_t f4;
+
+	bool not_null;
 } guid_t;
 
 bool string2guid(const char *in, size_t inlen, guid_t *guid);
