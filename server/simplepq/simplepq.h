@@ -18,5 +18,12 @@ void spq_close();
 
 bool spq_create_tables();
 
+bool spq_f_chunkNew(char *username, char *hash,
+		guid_t *rootdir, guid_t *revision, guid_t *chunk, guid_t *file);
+
+bool spq_f_chunkFile(char *username,
+		guid_t *rootdir, guid_t *revision, guid_t *file,
+		char *filename, guid_t *parent_revision);
+
 #endif /* _SIMPLEPQ_SIMPLEPQ_1426075906_H_ */
 
