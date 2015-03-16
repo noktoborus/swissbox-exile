@@ -266,7 +266,7 @@ spq_create_tables()
 		"	rootdir_guid UUID NOT NULL, "
 		"	revision_guid UUID NOT NULL, "
 		"	parent_revision_guid UUID DEFAULT NULL, "
-		"	chunk_file varchar(1024), "
+		"	chunk_path varchar(1024), "
 		"	file_guid UUID, "
 		"	filename varchar(1024) DEFAULT NULL"
 		");";
@@ -287,13 +287,13 @@ spq_create_tables()
 }
 
 bool
-spq_f_chunkNew(char *username, char *hash,
+spq_f_chunkNew(char *username, char *hash, char *path,
 		guid_t *rootdir, guid_t *revision, guid_t *chunk, guid_t *file)
 {
 	bool r;
 	struct spq *c;
 	if ((c = acquire_conn(&_spq)) != NULL) {
-		r = _spq_f_chunkNew(c->conn, username, hash,
+		r = _spq_f_chunkNew(c->conn, username, hash, path,
 				rootdir, revision, chunk, file);
 		release_conn(&_spq, c);
 	}

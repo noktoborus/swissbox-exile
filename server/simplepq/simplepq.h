@@ -18,7 +18,7 @@ void spq_close();
 
 bool spq_create_tables();
 
-bool spq_f_chunkNew(char *username, char *hash,
+bool spq_f_chunkNew(char *username, char *hash, char *path,
 		guid_t *rootdir, guid_t *revision, guid_t *chunk, guid_t *file);
 
 bool spq_f_chunkFile(char *username,

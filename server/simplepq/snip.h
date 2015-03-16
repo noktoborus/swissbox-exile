@@ -20,7 +20,7 @@
  *  chunk_guid
  *  file_guid
  */
-bool _spq_f_chunkNew(PGconn *pgc, char *username, char *hash,
+bool _spq_f_chunkNew(PGconn *pgc, char *username, char *hash, char *path,
 		guid_t *rootdir, guid_t *revision, guid_t *chunk, guid_t *file);
 
 /*

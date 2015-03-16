@@ -597,7 +597,7 @@ _handle_end(struct client *c, unsigned type, Fep__End *end)
 	if (!errmsg) {
 		/* чанк пришёл, теперь нужно обновить информацию в бд */
 		bin2hex(wx.hash, wx.hash_len, chunk_hash, sizeof(chunk_hash));
-		spq_f_chunkNew(c->name, chunk_hash, &wx.wf->rootdir_guid,
+		spq_f_chunkNew(c->name, chunk_hash, wx.path, &wx.wf->rootdir_guid,
 				&wx.wf->revision_guid, &wx.chunk_guid, &wx.wf->file_guid);
 		/* заодно проверяем готовность файла */
 		wx.wf->chunks_ok++;
