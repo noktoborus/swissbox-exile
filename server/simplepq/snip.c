@@ -5,12 +5,14 @@
 
 #include <stdio.h>
 #include <string.h>
+#include <syslog.h>
 
 bool
 _spq_f_chunkNew(PGconn *pgc, char *username, char *hash, char *path,
 		guid_t *rootdir, guid_t *revision, guid_t *chunk, guid_t *file)
 {
 	PGresult *res;
+	char errstr[1024];
 	const char *tb = "INSERT INTO file_records"
 		"("
 		"	username, "
@@ -50,8 +52,12 @@ _spq_f_chunkNew(PGconn *pgc, char *username, char *hash, char *path,
 	res = PQexecParams(pgc, tb, 7, NULL,
 			(const char *const*)val, length, format, 0);
 
-	if (PQresultStatus(res) != PGRES_TUPLES_OK) {
-		/* TODO */
+	if (PQresultStatus(res) != PGRES_COMMAND_OK) {
+		snprintf(errstr, sizeof(errstr), "spq: chunkNew exec error: %s",
+			PQresultErrorMessage(res));
+		syslog(LOG_INFO, errstr);
+		PQclear(res);
+		return false;
 	}
 
 	PQclear(res);
@@ -65,6 +71,7 @@ _spq_f_chunkFile(PGconn *pgc, char *username,
 		char *filename, guid_t *parent_revision)
 {
 	PGresult *res;
+	char errstr[1024];
 	const char *tb = "UPDATE file_records SET "
 		"	parent_revision = $1, filename = $2 "
 		" WHERE "
@@ -100,8 +107,12 @@ _spq_f_chunkFile(PGconn *pgc, char *username,
 	res = PQexecParams(pgc, tb, 6, NULL,
 			(const char *const*)val, length, format, 0);
 
-	if (PQresultStatus(res) != PGRES_TUPLES_OK) {
-		/* TODO */
+	if (PQresultStatus(res) != PGRES_COMMAND_OK) {
+		snprintf(errstr, sizeof(errstr), "spq: chunkNew exec error: %s",
+			PQresultErrorMessage(res));
+		syslog(LOG_INFO, errstr);
+		PQclear(res);
+		return false;
 	}
 	PQclear(res);
 	return true;
