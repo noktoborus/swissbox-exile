@@ -27,19 +27,18 @@ _spq_f_chunkNew(PGconn *pgc, char *username, char *hash,
 	char _chunk_guid[GUID_MAX + 1];
 	char _file_guid[GUID_MAX + 1];
 
-	char _hash_hex[] = " ";
 	char *val[6];
 	int length[6];
 
 	length[0] = strlen(username);
-	length[1] = 1;
+	length[1] = strlen(hash);
 	length[2] = guid2string(rootdir, _rootdir_guid, sizeof(_rootdir_guid));
 	length[3] = guid2string(revision, _revision_guid, sizeof(_revision_guid));
 	length[4] = guid2string(chunk, _chunk_guid, sizeof(_chunk_guid));
 	length[5] = guid2string(file, _file_guid, sizeof(_file_guid));
 
 	val[0] = username;
-	val[1] = _hash_hex;
+	val[1] = hash;
 	val[2] = _rootdir_guid;
 	val[3] = _revision_guid;
 	val[4] = _chunk_guid;

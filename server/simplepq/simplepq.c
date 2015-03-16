@@ -262,9 +262,11 @@ spq_create_tables()
 		"	time timestamp with time zone NOT NULL DEFAULT now(), "
 		"	username varchar(1024) NOT NULL, "
 		"	chunk_hash varchar(1024) NOT NULL, "
+		"	chunk_guid UUID NOT NULL, "
 		"	rootdir_guid UUID NOT NULL, "
 		"	revision_guid UUID NOT NULL, "
 		"	parent_revision_guid UUID DEFAULT NULL, "
+		"	chunk_file varchar(1024), "
 		"	file_guid UUID, "
 		"	filename varchar(1024) DEFAULT NULL"
 		");";
