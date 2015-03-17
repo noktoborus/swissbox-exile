@@ -24,7 +24,13 @@ TYPICAL_HANDLE_F(Fep__Ok, ok, &c->mid)
 TYPICAL_HANDLE_F(Fep__Error, error, &c->mid)
 TYPICAL_HANDLE_F(Fep__Pending, pending, &c->mid)
 TYPICAL_HANDLE_F(Fep__WriteOk, write_ok, &c->mid)
-TYPICAL_HANDLE_F(Fep__RenameChunk, rename_chunk, &c->mid)
+
+NOTIMP_HANDLE_F(Fep__RenameChunk, rename_chunk)
+NOTIMP_HANDLE_F(Fep__QueryChunks, query_chunks)
+NOTIMP_HANDLE_F(Fep__ResultChunks, result_chunks)
+NOTIMP_HANDLE_F(Fep__QueryRevisions, query_revisions)
+NOTIMP_HANDLE_F(Fep__ResultRevision, result_revision)
+
 
 static struct chunk_send*
 cout_free(struct client *c)
@@ -743,7 +749,11 @@ static struct handle handle[] =
 	TYPICAL_HANDLE_S(FEP__TYPE__tEnd, end), /* 11 */
 	TYPICAL_HANDLE_S(FEP__TYPE__tWriteOk, write_ok), /* 12 */
 	TYPICAL_HANDLE_S(FEP__TYPE__tFileUpdate, file_update), /* 13 */
-	TYPICAL_HANDLE_S(FEP__TYPE__tRenameChunk, rename_chunk) /* 14 */
+	TYPICAL_HANDLE_S(FEP__TYPE__tRenameChunk, rename_chunk), /* 14 */
+	TYPICAL_HANDLE_S(FEP__TYPE__tQueryChunks, query_chunks), /* 15 */
+	TYPICAL_HANDLE_S(FEP__TYPE__tResultChunks, result_chunks), /* 16 */
+	TYPICAL_HANDLE_S(FEP__TYPE__tQueryRevisions, query_revisions), /* 17 */
+	TYPICAL_HANDLE_S(FEP__TYPE__tResultRevision, result_revision), /* 18 */
 };
 
 bool
