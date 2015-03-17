@@ -9,6 +9,23 @@
 #include <stdbool.h>
 #include <libpq-fe.h>
 
+
+/*
+ * получение адреса чанка
+ * результат копируется в *path, не более path_len и терминируется нулём
+ *
+ * поиск по полям:
+ * 	username
+ * 	rootdir_guid
+ * 	file_guid
+ * 	chunk_guid
+ *
+ */
+bool
+_spq_f_getChunkPath(PGconn *pgc, char *username,
+		guid_t *rootdir, guid_t *file, guid_t *chunk,
+		char *path, size_t path_len);
+
 /*
  * внесение информации по загруженному чанку
  * записываемые поля:

@@ -327,3 +327,18 @@ spq_f_chunkFile(char *username,
 	return r;
 }
 
+bool
+spq_f_getChunkPath(char *username,
+		guid_t *rootdir, guid_t *file, guid_t *chunk,
+		char *path, size_t path_len)
+{
+	bool r;
+	struct spq *c;
+	if ((c = acquire_conn(&_spq)) != NULL) {
+		r = _spq_f_getChunkPath(c->conn, username, rootdir, file, chunk,
+				path, path_len);
+		release_conn(&_spq, c);
+	}
+	return r;
+}
+

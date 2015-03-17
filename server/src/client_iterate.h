@@ -53,6 +53,21 @@ struct fdb_fileUpdate {
 	char *enc_filename;
 };
 
+struct chunk_send {
+	int fd;
+
+	off_t sent;
+	off_t size;
+
+	uint32_t session_id;
+
+	/* позиция чанка в файле и длиина даты в чанке */
+	uint32_t file_offset;
+	uint32_t origin_len;
+
+	struct chunk_send *next;
+};
+
 #define C_NAMELEN 128
 struct client {
 	unsigned char *buffer;
@@ -69,6 +84,10 @@ struct client {
 	struct listRoot mid; /* обычные сообщения (id) */
 	struct listRoot sid; /* сообщения трансфера (session_id) */
 	struct listRoot fid; /* метадата файлов (hash(file_guid)) */
+
+	struct chunk_send *cout; /* список для файлов на отсылку */
+	char *cout_buffer; /* буфер для отправки кусков чанков */
+	size_t cout_bfsz;
 
 	/* счётчик ошибок
 	 * TODO: добавить в конфигурашку
@@ -88,6 +107,7 @@ struct client {
 
 	struct {
 		char *home;
+		size_t send_buffer;
 	} options;
 };
 

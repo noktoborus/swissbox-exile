@@ -48,11 +48,19 @@ client_thread(void *ctx)
 					(void*)cev, (void*)cev->thread);
 			break;
 		}
+		/* если выставлен флаг быстрого прохода,
+		 * то не засыпаем, снимаем флаг, делаем проверку и возвращаемся
+		 * в цикл клиента
+		 */
+		if (cev->action & SEV_ACTION_FASTTEST) {
+			cev->action &= ~SEV_ACTION_FASTTEST;
+		} else {
 		/* шоп не жрало цпу, делаем слипы до евента */
-		clock_gettime(CLOCK_REALTIME, &tv);
-		pthread_mutex_lock(&cev->utex);
-		tv.tv_nsec += 300;
-		pthread_cond_timedwait(&cev->ond, &cev->utex, &tv);
+			clock_gettime(CLOCK_REALTIME, &tv);
+			pthread_mutex_lock(&cev->utex);
+			tv.tv_nsec += 300;
+			pthread_cond_timedwait(&cev->ond, &cev->utex, &tv);
+		}
 		if (cev->action & SEV_ACTION_EXIT) {
 			xsyslog(LOG_DEBUG, "client %p thread[%p] exit at event",
 					(void*)cev, (void*)cev->thread);

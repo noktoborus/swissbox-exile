@@ -25,5 +25,9 @@ bool spq_f_chunkFile(char *username,
 		guid_t *rootdir, guid_t *revision, guid_t *file,
 		char *filename, guid_t *parent_revision);
 
+bool spq_f_getChunkPath(char *username,
+		guid_t *rootdir, guid_t *file, guid_t *chunk,
+		char *path, size_t path_len);
+
 #endif /* _SIMPLEPQ_SIMPLEPQ_1426075906_H_ */
 

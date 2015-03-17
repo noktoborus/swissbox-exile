@@ -26,7 +26,19 @@ TYPICAL_HANDLE_F(Fep__Pending, pending, &c->mid)
 TYPICAL_HANDLE_F(Fep__WriteOk, write_ok, &c->mid)
 TYPICAL_HANDLE_F(Fep__RenameChunk, rename_chunk, &c->mid)
 
-NOTIMP_HANDLE_F(Fep__ReadAsk, read_ask)
+static struct chunk_send*
+cout_free(struct client *c)
+{
+	struct chunk_send *p;
+	if ((p = c->cout) != NULL) {
+		if (p->fd != -1) {
+			close(p->fd);
+		}
+		c->cout = c->cout->next;
+		free(p);
+	}
+	return c->cout;
+}
 
 static void
 mid_free(void *data)
@@ -97,6 +109,51 @@ is_legal_guid(char *guid)
 				|| guid[i] == '}'))
 			return false;
 	}
+
+	return true;
+}
+
+bool
+_handle_read_ask(struct client *c, unsigned type, Fep__ReadAsk *msg)
+{
+	/*
+	 * 1. поиск файла в бд
+	 * 2. формирование структуры для отправки файла или отсылка Error
+	 */
+	guid_t rootdir;
+	guid_t file;
+	guid_t chunk;
+	int fd;
+	char path[PATH_MAX];
+	struct chunk_send *chs;
+	struct stat st;
+
+	string2guid(msg->rootdir_guid, strlen(msg->rootdir_guid), &rootdir);
+	string2guid(msg->file_guid, strlen(msg->file_guid), &file);
+	string2guid(msg->chunk_guid, strlen(msg->chunk_guid), &chunk);
+
+	if (!spq_f_getChunkPath(c->name, &rootdir, &file, &chunk,
+				path, sizeof(path))) {
+		return send_error(c, msg->id, "Internal error 120", -1);
+	}
+
+	if (stat(path, &st) == -1) {
+		return send_error(c, msg->id, "Internal error 123", -1);
+	}
+
+	if ((fd = open(path, O_RDONLY)) == -1) {
+		return send_error(c, msg->id, "Internal error 122", -1);
+	}
+
+	if (!(chs = calloc(1, sizeof(struct chunk_send)))) {
+		close(fd);
+		return send_error(c, msg->id, "Internal error 121", -1);
+	}
+
+	chs->fd = fd;
+	chs->size = st.st_size;
+	chs->next = c->cout;
+	c->cout = chs;
 
 	return true;
 }
@@ -866,6 +923,7 @@ client_load(struct client *c)
 				(void*)c->cev, c->options.home, strerror(errno));
 		return false;
 	}
+	c->options.send_buffer = 9660;
 	return true;
 }
 
@@ -879,10 +937,14 @@ client_destroy(struct client *c)
 	while (list_free_root(&c->sid, (void(*)(void*))&sid_free));
 	while (list_free_root(&c->fid, (void(*)(void*))&fid_free));
 
+	while (cout_free(c));
+
 	/* ? */
 	fdb_uncursor(c->fdb);
 
 	/* буфера */
+	if (c->cout_buffer)
+		free(c->cout_buffer);
 	if (c->buffer)
 		free(c->buffer);
 	if (c->options.home)
@@ -906,6 +968,61 @@ client_alloc(struct sev_ctx *cev)
 	c->count_error = 3;
 	c->cev = cev;
 	return c;
+}
+
+bool static inline
+_client_iterate_chunk(struct client *c)
+{
+	Fep__Xfer xfer_msg;
+	ssize_t transed;
+	size_t readsz;
+
+	/* выход если файлов нет */
+	if (!c->cout)
+		return true;
+	/* проверка размера буфера отправки и попытки его выделить */
+	if (!c->cout_buffer || c->cout_bfsz != c->options.send_buffer) {
+		void *p = realloc(c->cout_buffer, c->options.send_buffer);
+		if (!p) {
+			xsyslog(LOG_INFO, "client[%p] realloc from "
+					"%"PRIuPTR" to %"PRIuPTR": %s",
+					(void*)c->cev, c->cout_bfsz, c->options.send_buffer,
+					strerror(errno));
+			if (!c->cout_bfsz)
+				return true;
+		} else {
+			c->cout_bfsz = c->options.send_buffer;
+		}
+	}
+	/* если прочитали всё что можно -- шлём End и деаллочимся */
+	if (c->cout->sent == c->cout->size) {
+		/* TODO: отослать End */
+		cout_free(c);
+	}
+	/* чтение файла */
+	readsz = MIN(c->cout_bfsz, c->cout->size - c->cout->sent);
+	transed = read(c->cout->fd, c->cout_buffer, readsz);
+	if (transed <= 0) {
+		if (transed == -1) {
+			xsyslog(LOG_INFO, "client[%p] read failed: %s",
+					(void*)c->cev, strerror(errno));
+		}
+		cout_free(c);
+		return true;
+	}
+	/* сохранение позиции,
+	 * её нужно передать клиенту
+	 * и обновляем данные
+	 */
+	readsz = c->cout->sent;
+	c->cout->sent += (size_t)readsz;
+	/* отправка чанкодаты */
+	xfer_msg.id = generate_id(c);
+	xfer_msg.session_id = c->cout->session_id;
+	xfer_msg.offset = readsz;
+	xfer_msg.data.data = (uint8_t*)c->cout_buffer;
+	xfer_msg.data.len = transed;
+	return send_message(c->cev, FEP__TYPE__txfer, &xfer_msg);
 }
 
 bool static inline
@@ -1057,11 +1174,25 @@ client_iterate(struct sev_ctx *cev, bool last, void **p)
 		}
 	}
 
+	/*
+	 * отправка куска чанка-файла клиенту, если такие есть в очереди
+	 */
+	if (!_client_iterate_chunk(c)) {
+		return false;
+	}
+
 	/* если обработка заголовка или чтение завалилось,
 	 * то можно прерывать цикл
 	 */
 	if (!_client_iterate_handle(c)) {
 		return false;
+	}
+
+	/* нужно выставить флаг быстрого пропуска,
+	 * если есть файлы в очереди
+	 */
+	if (c->cout) {
+		cev->action |= SEV_ACTION_FASTTEST;
 	}
 	/* переходим на следующую итерацию */
 	return true;

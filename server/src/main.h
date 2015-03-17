@@ -15,6 +15,7 @@
 #define SEV_ACTION_READ 1
 #define SEV_ACTION_WRITE 2
 #define SEV_ACTION_EXIT 4
+#define SEV_ACTION_FASTTEST 8
 struct sev_ctx
 {
 	/* io */

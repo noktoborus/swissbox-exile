@@ -7,6 +7,10 @@
 #include <netinet/in.h>
 #include <stdint.h>
 
+#ifndef MIN
+# define MIN(x, y) ((x) > (y) ? (y) : (x))
+#endif
+
 size_t bin2hex(uint8_t *binary, size_t bin_len, char *string, size_t str_len);
 
 #define SADDR_MIN 48

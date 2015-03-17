@@ -8,6 +8,49 @@
 #include <syslog.h>
 
 bool
+_spq_f_getChunkPath(PGconn *pgc, char *username,
+		guid_t *rootdir, guid_t *file, guid_t *chunk,
+		char *path, size_t path_len)
+{
+	PGresult *res;
+	char errstr[1024];
+	const char *tb = "SELECT path FROM file_records WHERE"
+		"username = $1, rootdir_guid = $2, file_guid = $2, chunk_guid = $3";
+	const int format[4] = {0, 0, 0, 0};
+
+	char _rootdir_guid[GUID_MAX + 1];
+	char _file_guid[GUID_MAX + 1];
+	char _chunk_guid[GUID_MAX + 1];
+
+	char *val[4];
+	int length[4];
+
+	length[0] = strlen(username);
+	length[1] = guid2string(rootdir, _rootdir_guid, sizeof(_rootdir_guid));
+	length[2] = guid2string(file, _file_guid, sizeof(_file_guid));
+	length[3] = guid2string(chunk, _chunk_guid, sizeof(_chunk_guid));
+
+	val[0] = username;
+	val[1] = _rootdir_guid;
+	val[2] = _file_guid;
+	val[3] = _chunk_guid;
+
+	res = PQexecParams(pgc, tb, 4, NULL,
+			(const char *const*)val, length, format, 0);
+
+	if (PQresultStatus(res) != PGRES_COMMAND_OK) {
+
+		/* TODO */
+		PQclear(res);
+		return false;
+	}
+
+	PQclear(res);
+	return true;
+}
+
+
+bool
 _spq_f_chunkNew(PGconn *pgc, char *username, char *hash, char *path,
 		guid_t *rootdir, guid_t *revision, guid_t *chunk, guid_t *file)
 {
