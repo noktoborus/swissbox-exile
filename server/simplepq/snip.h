@@ -36,9 +36,12 @@ _spq_f_getChunkPath(PGconn *pgc, char *username,
  *  revision_guid
  *  chunk_guid
  *  file_guid
+ *  file_offset
+ *  origin_len
  */
 bool _spq_f_chunkNew(PGconn *pgc, char *username, char *hash, char *path,
-		guid_t *rootdir, guid_t *revision, guid_t *chunk, guid_t *file);
+		guid_t *rootdir, guid_t *revision, guid_t *chunk, guid_t *file,
+		uint32_t offset, uint32_t origin_len);
 
 /*
  * внесение информации в БД для чанков по сообщению FileUpdate

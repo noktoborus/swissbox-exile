@@ -5,6 +5,7 @@
 
 #include <stdio.h>
 #include <string.h>
+#include <inttypes.h>
 #include <syslog.h>
 
 bool
@@ -52,7 +53,8 @@ _spq_f_getChunkPath(PGconn *pgc, char *username,
 
 bool
 _spq_f_chunkNew(PGconn *pgc, char *username, char *hash, char *path,
-		guid_t *rootdir, guid_t *revision, guid_t *chunk, guid_t *file)
+		guid_t *rootdir, guid_t *revision, guid_t *chunk, guid_t *file,
+		uint32_t offset, uint32_t origin_len)
 {
 	PGresult *res;
 	char errstr[1024];
@@ -64,17 +66,21 @@ _spq_f_chunkNew(PGconn *pgc, char *username, char *hash, char *path,
 		"	rootdir_guid, "
 		"	revision_guid, "
 		"	chunk_guid, "
-		"	file_guid"
-		") VALUES ($1, $2, $3, $4, $5, $6, $7);";
-	const int format[7] = {0, 0, 0, 0, 0, 0, 0};
+		"	file_guid,"
+		"	offset,"
+		"	origin,"
+		") VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9);";
+	const int format[9] = {0, 0, 0, 0, 0, 0, 0, 0, 0};
 
 	char _rootdir_guid[GUID_MAX + 1];
 	char _revision_guid[GUID_MAX + 1];
 	char _chunk_guid[GUID_MAX + 1];
 	char _file_guid[GUID_MAX + 1];
+	char _offset[16];
+	char _origin[16];
 
-	char *val[7];
-	int length[7];
+	char *val[9];
+	int length[9];
 
 	length[0] = strlen(username);
 	length[1] = strlen(hash);
@@ -83,6 +89,8 @@ _spq_f_chunkNew(PGconn *pgc, char *username, char *hash, char *path,
 	length[4] = guid2string(revision, _revision_guid, sizeof(_revision_guid));
 	length[5] = guid2string(chunk, _chunk_guid, sizeof(_chunk_guid));
 	length[6] = guid2string(file, _file_guid, sizeof(_file_guid));
+	length[7] = snprintf(_offset, sizeof(_offset), "%"PRIu32, offset);
+	length[8] = snprintf(_origin, sizeof(_origin),"%"PRIu32, origin_len);
 
 	val[0] = username;
 	val[1] = hash;
@@ -91,8 +99,10 @@ _spq_f_chunkNew(PGconn *pgc, char *username, char *hash, char *path,
 	val[4] = _revision_guid;
 	val[5] = _chunk_guid;
 	val[6] = _file_guid;
+	val[7] = _offset;
+	val[8] = _origin;
 
-	res = PQexecParams(pgc, tb, 7, NULL,
+	res = PQexecParams(pgc, tb, 9, NULL,
 			(const char *const*)val, length, format, 0);
 
 	if (PQresultStatus(res) != PGRES_COMMAND_OK) {
