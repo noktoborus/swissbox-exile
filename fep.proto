@@ -240,7 +240,7 @@ message End {
 	   и этот идентификатор нужен для последующей записи в это пространство
 	   */
 	required uint32 session_id = 2;
-	/* позиция в файле */
+	/* смещение чанка в файле */
 	required uint32 offset = 3;
 	/* настоящая длина (расшифрованных) данных в чанке
 	 для костылинга
@@ -257,7 +257,7 @@ message xfer {
 	required uint64 id = 1 [default = 0];
 	/* идентификатор сессии передачи */
 	required uint32 session_id = 2;
-	/* смещение в файле */
+	/* смещение в чанке */
 	required uint64 offset = 4;
 	required bytes data = 6;
 }
