@@ -257,7 +257,7 @@ bool
 spq_create_tables()
 {
 	char errstr[4096];
-	const char *tb_fr = "CREATE TABLE IF NOT EXISTS file_records "
+	const char *const tbs[] = {"CREATE TABLE IF NOT EXISTS file_records "
 		"("
 		"	time timestamp with time zone NOT NULL DEFAULT now(), "
 		"	username varchar(1024) NOT NULL, "
@@ -269,17 +269,29 @@ spq_create_tables()
 		"	chunk_path varchar(1024), "
 		"	file_guid UUID, "
 		"	filename varchar(1024) DEFAULT NULL"
-		");";
+		");",
+		"CREATE TABLE file_keys"
+		"("
+		"	rootdir_guid UUID NOT NULL, "
+		"	file_guid UUID NOT NULL, "
+		"	revision_guid UUID DEFAULT NULL, "
+		"	public_key bytea"
+		");",
+		NULL
+	};
+	char **p;
 	struct spq *sc;
 	PGresult *res;
 	sc = acquire_conn(&_spq);
 	if (!sc)
 		return false;
-	res = PQexec(sc->conn, tb_fr);
-	if (PQresultStatus(res) != PGRES_COMMAND_OK) {
-		snprintf(errstr, sizeof(errstr) - 1, "spq: create error: %s",
-				PQresultErrorMessage(res));
-		syslog(LOG_INFO, errstr);
+	for (p = (char**)tbs; *p; p++) {
+		res = PQexec(sc->conn, *p);
+		if (PQresultStatus(res) != PGRES_COMMAND_OK) {
+			snprintf(errstr, sizeof(errstr) - 1, "spq: create error: %s",
+					PQresultErrorMessage(res));
+			syslog(LOG_INFO, errstr);
+		}
 	}
 
 	release_conn(&_spq, sc);
