@@ -276,6 +276,7 @@ message ReadAsk {
 	required uint32 session_id = 2;
 
 	required string rootdir_guid = 3;
+	required string file_guid = 4;
 	required string chunk_guid = 5;
 }
 
