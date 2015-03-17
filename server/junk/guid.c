@@ -24,6 +24,8 @@ string2guid(const char *in, size_t inlen, guid_t *guid)
 		return false;
 	if (inlen < 32)
 		return false;
+	/* на всякий случай всё подчищаем */
+	memset(guid, 0, sizeof(guid_t));
 	memset(b, 0, sizeof(b));
 	/* обрезание '{' и '}'
 	 * 36 -- максимальный размер GUID без {}
