@@ -121,6 +121,7 @@ is_legal_guid(char *guid)
 bool
 _handle_query_chunks(struct client *c, unsigned type, Fep__QueryChunks *msg)
 {
+
 	return false;
 }
 
@@ -989,7 +990,7 @@ client_alloc(struct sev_ctx *cev)
 bool static inline
 _client_iterate_chunk(struct client *c)
 {
-	Fep__Xfer xfer_msg;
+	Fep__Xfer xfer_msg == FEP__XFER__INIT;
 	ssize_t transed;
 	size_t readsz;
 
