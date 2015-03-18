@@ -26,8 +26,7 @@ TYPICAL_HANDLE_F(Fep__Pending, pending, &c->mid)
 TYPICAL_HANDLE_F(Fep__WriteOk, write_ok, &c->mid)
 
 NOTIMP_HANDLE_F(Fep__RenameChunk, rename_chunk)
-NOTIMP_HANDLE_F(Fep__QueryChunks, query_chunks)
-NOTIMP_HANDLE_F(Fep__ResultChunks, result_chunks)
+NOTIMP_HANDLE_F(Fep__ResultChunk, result_chunk)
 NOTIMP_HANDLE_F(Fep__QueryRevisions, query_revisions)
 NOTIMP_HANDLE_F(Fep__ResultRevision, result_revision)
 
@@ -117,6 +116,12 @@ is_legal_guid(char *guid)
 	}
 
 	return true;
+}
+
+bool
+_handle_query_chunks(struct client *c, unsigned type, Fep__QueryChunks *msg)
+{
+	return false;
 }
 
 bool
@@ -751,7 +756,7 @@ static struct handle handle[] =
 	TYPICAL_HANDLE_S(FEP__TYPE__tFileUpdate, file_update), /* 13 */
 	TYPICAL_HANDLE_S(FEP__TYPE__tRenameChunk, rename_chunk), /* 14 */
 	TYPICAL_HANDLE_S(FEP__TYPE__tQueryChunks, query_chunks), /* 15 */
-	TYPICAL_HANDLE_S(FEP__TYPE__tResultChunks, result_chunks), /* 16 */
+	TYPICAL_HANDLE_S(FEP__TYPE__tResultChunk, result_chunk), /* 16 */
 	TYPICAL_HANDLE_S(FEP__TYPE__tQueryRevisions, query_revisions), /* 17 */
 	TYPICAL_HANDLE_S(FEP__TYPE__tResultRevision, result_revision), /* 18 */
 };
