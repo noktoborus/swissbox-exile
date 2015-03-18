@@ -58,5 +58,11 @@ bool _spq_f_chunkFile(PGconn *pgc, char *username,
 		guid_t *rootdir, guid_t *revision, guid_t *file,
 		char *filename, guid_t *parent_revision);
 
+/*
+ * Формирование запроса для итератора
+ */
+PGresult* _spq_f_getChunks_exec(PGconn *conn,
+		char *username, guid_t *rootdir, guid_t *file, guid_t *revision);
+
 #endif /* _SIMPLEPQ_SNIP_1426357506_H_ */
 
