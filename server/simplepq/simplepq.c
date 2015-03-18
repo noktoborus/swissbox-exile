@@ -305,7 +305,7 @@ spq_f_chunkNew(char *username, char *hash, char *path,
 		guid_t *rootdir, guid_t *revision, guid_t *chunk, guid_t *file,
 		uint32_t offset, uint32_t origin_len)
 {
-	bool r;
+	bool r = false;
 	struct spq *c;
 	if ((c = acquire_conn(&_spq)) != NULL) {
 		r = _spq_f_chunkNew(c->conn, username, hash, path,
@@ -320,7 +320,7 @@ spq_f_chunkFile(char *username,
 		guid_t *rootdir, guid_t *revision, guid_t *file,
 		char *filename, guid_t *parent_revision)
 {
-	bool r;
+	bool r = false;
 	struct spq *c;
 	if ((c = acquire_conn(&_spq)) != NULL) {
 		r = _spq_f_chunkFile(c->conn, username, rootdir, revision, file,
@@ -335,7 +335,7 @@ spq_f_getChunkPath(char *username,
 		guid_t *rootdir, guid_t *file, guid_t *chunk,
 		char *path, size_t path_len)
 {
-	bool r;
+	bool r = false;
 	struct spq *c;
 	if ((c = acquire_conn(&_spq)) != NULL) {
 		r = _spq_f_getChunkPath(c->conn, username, rootdir, file, chunk,
@@ -343,5 +343,70 @@ spq_f_getChunkPath(char *username,
 		release_conn(&_spq, c);
 	}
 	return r;
+}
+
+void
+spq_f_getChunks_free(struct getChunks *state)
+{
+	if (state->p) {
+		release_conn(&_spq, state->p);
+	}
+	if (state->res) {
+		PQclear(state->res);
+	}
+	memset(state, 0u, sizeof(struct getChunks));
+}
+
+bool
+spq_f_getChunks(char *username,
+		guid_t *rootdir, guid_t *file, guid_t *revision,
+		struct getChunks *state)
+{
+	struct spq *c;
+	PGresult *res;
+	char *val;
+	size_t len;
+	bool first = false;
+
+	if (!state->p || !state->res)
+		first = true;
+	/* инициализация,
+	 * смысла отдавать на каждой итерации подключение pg
+	 * т.к. пока не будут загребены все результаты,
+	 * выполнить новый запрос не получится(?)
+	 */
+	if (!state->p && (state->p = acquire_conn(&_spq)) == NULL) {
+		return false;
+	}
+	c = (struct spq*)state->p;
+
+	/* если ресурса нет -- делаем запрос */
+	if (!state->res && (state->res = _spq_f_getChunks_exec(c->conn, username,
+				rootdir, file, revision)) == NULL) {
+		return false;
+	}
+	res = (PGresult*)state->res;
+
+	/* если это первый запуск, то выставляем значения */
+	if (first) {
+		state->max = (unsigned)PQntuples(res);
+		state->row = 0u;
+	}
+
+	if (state->max >= state->row) {
+		state->end = true;
+	}
+
+	/* получении записи, возврат значений */
+	/* 0 = hash */
+	len = strlen((val = PQgetvalue(res, state->row, 0)));
+	memcpy(state->hash, val , MIN(len, HASHHEX_MAX));
+	/* 1 = guid */
+	len = strlen((val = PQgetvalue(res, state->row, 1)));
+	string2guid(val, len, &state->chunk);
+
+	state->row++;
+
+	return true;
 }
 

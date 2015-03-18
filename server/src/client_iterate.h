@@ -6,6 +6,7 @@
 #include "main.h"
 #include "list.h"
 #include "junk/guid.h"
+#include "junk/utils.h"
 #include "fakedb/fakedb.h"
 
 #include <stdint.h>
@@ -14,11 +15,6 @@
 #else
 # include <limits.h>
 #endif
-
-#define SHA256_MAX 32
-#define SHA256HEX_MAX 64
-#define HASHHEX_MAX SHA256HEX_MAX
-#define HASH_MAX SHA256_MAX
 
 #define BUFFER_ALLOC 1024
 #define BUFFER_MAX 65536
@@ -51,6 +47,15 @@ struct fdb_fileUpdate {
 	size_t key_len;
 	char *hash_filename;
 	char *enc_filename;
+};
+
+struct query_result {
+	void *res;
+
+	unsigned sent;
+	unsigned max;
+
+	struct query_result *next;
 };
 
 struct chunk_send {

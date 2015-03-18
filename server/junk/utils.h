@@ -11,6 +11,11 @@
 # define MIN(x, y) ((x) > (y) ? (y) : (x))
 #endif
 
+#define SHA256_MAX 32
+#define SHA256HEX_MAX 64
+#define HASHHEX_MAX SHA256HEX_MAX
+#define HASH_MAX SHA256_MAX
+
 size_t bin2hex(uint8_t *binary, size_t bin_len, char *string, size_t str_len);
 
 #define SADDR_MIN 48

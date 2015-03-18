@@ -8,6 +8,7 @@
  * ерунда для простого выполнения запросов
  */
 #include "junk/guid.h"
+#include "junk/utils.h"
 #include <stdbool.h>
 
 /* открытие подключений к бд, pool -- количество подключений */
@@ -29,6 +30,41 @@ bool spq_f_chunkFile(char *username,
 bool spq_f_getChunkPath(char *username,
 		guid_t *rootdir, guid_t *file, guid_t *chunk,
 		char *path, size_t path_len);
+
+/* получение списка чанков (итератор по списку) */
+
+struct getChunks {
+	void *p; /* захваченная структура */
+	void *res; /* ресурс постгреса */
+
+	/* значение текущей строки, гуид чанка и его хеш */
+	guid_t chunk;
+	char hash[HASHHEX_MAX + 1];
+
+	/* флаг о завершении итерации */
+	bool end;
+
+	unsigned row;
+	unsigned max;
+};
+
+/* запрос чанков и построчное изъятие результата
+ * чтение полей:
+ * 	chunk_hash
+ * 	chunk_guid
+ *
+ * поиск по полям:
+ *  username
+ * 	rootdir_guid
+ *	file_guid
+ *	revision_guid
+ */
+bool spq_f_getChunks(char *username,
+		guid_t *rootdir, guid_t *file, guid_t *revision,
+		struct getChunks *state);
+
+/* отчистка результатов getChunks */
+void spq_f_getChunks_free(struct getChunks *state);
 
 #endif /* _SIMPLEPQ_SIMPLEPQ_1426075906_H_ */
 

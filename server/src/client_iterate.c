@@ -4,7 +4,6 @@
 
 #include "client_iterate.h"
 #include "client_cb.h"
-#include "junk/utils.h"
 #include "simplepq/simplepq.h"
 
 #include <ev.h>
@@ -990,7 +989,7 @@ client_alloc(struct sev_ctx *cev)
 bool static inline
 _client_iterate_chunk(struct client *c)
 {
-	Fep__Xfer xfer_msg == FEP__XFER__INIT;
+	Fep__Xfer xfer_msg = FEP__XFER__INIT;
 	ssize_t transed;
 	size_t readsz;
 
