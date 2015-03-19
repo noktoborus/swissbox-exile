@@ -20,12 +20,19 @@ string2guid(const char *in, size_t inlen, guid_t *guid)
 {
 	char b[39];
 	char a[17];
-	if (!guid || !inlen || !in)
+	/* проверка на отсутвие буфера под гуид
+	 * и мусора в in,
+	 * если inlen != 0 когда in == NULL, значит это шлак
+	 */
+	if (!guid || ((intptr_t)inlen != 0u && in == NULL))
 		return false;
 	if (inlen < 32)
 		return false;
 	/* на всякий случай всё подчищаем */
 	memset(guid, 0, sizeof(guid_t));
+	/* выходим нормально с подчисткой памяти если буфера нет */
+	if (!in || !inlen)
+		return true;
 	memset(b, 0, sizeof(b));
 	/* обрезание '{' и '}'
 	 * 36 -- максимальный размер GUID без {}
