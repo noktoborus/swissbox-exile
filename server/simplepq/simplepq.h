@@ -38,6 +38,7 @@ struct getRevisions {
 	void *p;
 	void *res;
 
+	guid_t parent;
 	guid_t revision;
 
 	unsigned row;
@@ -46,8 +47,9 @@ struct getRevisions {
 /* запрос ревизий
  * чтение полей:
  *	revision_guid
+ * 	parent_revision_guid
  *
- * поиск пополям:
+ * поиск по полям:
  * 	time
  * 	username
  * 	parent_revision_guid

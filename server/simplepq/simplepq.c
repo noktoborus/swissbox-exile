@@ -410,22 +410,52 @@ spq_f_getChunks(char *username,
 	return true;
 }
 
+
 bool
 spq_f_getRevisions(char *username, guid_t *rootdir, guid_t *file,
 		unsigned depth, struct getRevisions *state)
 {
-	return false;
+	struct spq *c;
+
+	if (!state->p && (state->p = acquire_conn(&_spq)) != NULL) {
+		return false;
+	}
+	c = (struct spq*)state->p;
+
+	if (state->res && (state->res = _spq_f_getRevisions_exec(c->conn,
+					username, rootdir, file, depth)) == NULL) {
+		return false;
+	}
+
+	state->max = (unsigned)PQntuples((PGresult*)state->res);
+	state->row = 0u;
+
+	return true;
 }
 
 bool
 spq_f_getRevisions_it(struct getRevisions *state)
 {
-	return false;
+	size_t len;
+	char *val;
+	if (state->row >= state->max)
+		return false;
+
+	len = strlen((val = PQgetvalue((PGresult*)state->res, state->row, 0)));
+	string2guid(val, len, &state->revision);
+
+	state->row++;
+	return true;
 }
 
 void
 spq_f_getRevisions_free(struct getRevisions *state)
 {
+	if (state->p)
+		release_conn(&_spq, state->p);
+	if (state->res)
+		PQclear(state->res);
+	memset(state, 0u, sizeof(struct getRevisions));
 }
 
 

@@ -212,3 +212,47 @@ _spq_f_getChunks_exec(PGconn *pgc,
 	return res;
 }
 
+PGresult*
+_spq_f_getRevisions_exec(PGconn *pgc,
+		char *username, guid_t *rootdir, guid_t *file, unsigned depth)
+{
+	PGresult *res;
+	char errstr[1024];
+	const char *tbq = "SELECT revision_guid FROM file_records WHERE "
+		"username = $1, "
+		"rootdir_guid = $2, "
+		"file_guid = $3 "
+		"ORDER BY time DESC LIMIT $4";
+	const int format[5] = {0, 0, 0, 0, 0};
+
+	char _rootdir_guid[GUID_MAX + 1];
+	char _file_guid[GUID_MAX + 1];
+
+	char *val[5];
+	int length[5];
+
+	uint32_t ndepth = htons((uint32_t)depth);
+
+	length[0] = strlen(username);
+	length[1] = guid2string(rootdir, _rootdir_guid, sizeof(_rootdir_guid));
+	length[2] = guid2string(file, _file_guid, sizeof(_file_guid));
+	length[3] = sizeof(uint32_t);
+
+	val[0] = username;
+	val[1] = _rootdir_guid;
+	val[2] = _file_guid;
+	val[3] = (char*)&ndepth;
+
+	res = PQexecParams(pgc, tbq, 5, NULL,
+			(const char *const*)val, length, format, 0);
+
+	if (PQresultStatus(res) != PGRES_COMMAND_OK) {
+		snprintf(errstr, sizeof(errstr), "spq: getChunks exec error: %s",
+				PQresultErrorMessage(res));
+		syslog(LOG_INFO, errstr);
+		PQclear(res);
+		return NULL;
+	}
+	return res;
+}
+

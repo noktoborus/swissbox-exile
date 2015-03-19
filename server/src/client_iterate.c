@@ -1084,9 +1084,14 @@ _client_iterate_result(struct client *c)
 	} else if (c->rout->type == RESULT_REVISIONS) {
 		Fep__ResultRevision msg = FEP__RESULT_REVISION__INIT;
 		char guid[GUID_MAX + 1];
+		char parent[GUID_MAX + 1];
 		if (!spq_f_getRevisions_it(&c->rout->v.r)) {
 			rout_free(c);
 			return true;
+		}
+		if (c->rout->v.r.parent.not_null) {
+			guid2string(&c->rout->v.r.parent, parent, sizeof(guid));
+			msg.parent_revision_guid = parent;
 		}
 		guid2string(&c->rout->v.r.revision, guid, sizeof(guid));
 		msg.rev_no = c->rout->v.r.row;
