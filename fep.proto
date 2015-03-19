@@ -287,7 +287,6 @@ message QueryRevisions {
 	required string file_guid = 4;
 
 	required uint32 depth = 5 [default = 3];
-	required uint32 offset = 6 [default = 0];
 }
 
 message ResultRevision {
