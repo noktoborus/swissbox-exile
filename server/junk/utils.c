@@ -6,6 +6,36 @@
 #include <stdio.h>
 #include "utils.h"
 
+size_t
+hex2bin(const char *hex, size_t hex_len, char *binary, size_t bin_len)
+{
+	register size_t binpos = 0u;
+	register size_t hexpos = 0u;
+	for (; binpos < bin_len && hexpos < hex_len; hexpos+= 2) {
+		/* first 4 bits */
+		if (hex[hexpos] >= '0' && hex[hexpos] <= '9') {
+				binary[binpos] = (hex[hexpos] - '0') << 4;
+		} else if (hex[hexpos] >= 'A' && hex[hexpos] <= 'F') {
+				binary[binpos] = (10 + hex[hexpos] - 'A') << 4;
+		} else if (hex[hexpos] >= 'a' && hex[hexpos] <= 'f') {
+				binary[binpos] = (10 + hex[hexpos] - 'a') << 4;
+		} else
+				continue;
+		/* seconds 4 bits */
+		if (hex[hexpos + 1] >= '0' && hex[hexpos + 1] <= '9') {
+				binary[binpos] |= (hex[hexpos + 1] - '0') & 0xff;
+		} else if (hex[hexpos + 1] >= 'A' && hex[hexpos + 1] <= 'F') {
+				binary[binpos] |= (10 + hex[hexpos + 1] - 'A') & 0xff;
+		} else if (hex[hexpos + 1] >= 'a' && hex[hexpos + 1] <= 'f') {
+				binary[binpos] |= (10 + hex[hexpos + 1] - 'a') & 0xff;
+		} else
+				continue;
+		/* fullbyte */
+		binpos++;
+	}
+	return binpos;
+}
+
 
 size_t
 bin2hex(uint8_t *binary, size_t bin_len, char *string, size_t str_len)
