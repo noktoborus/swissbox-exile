@@ -8,6 +8,7 @@
 #include "junk/guid.h"
 #include "junk/utils.h"
 #include "fakedb/fakedb.h"
+#include "simplepq/simplepq.h"
 
 #include <stdint.h>
 #if __linux__
@@ -49,11 +50,20 @@ struct fdb_fileUpdate {
 	char *enc_filename;
 };
 
-struct query_result {
+typedef enum _result_send {
+	RESULT_CHUNKS = 1,
+	RESULT_REVISIONS = 2,
+} result_send_t;
+
+struct result_send {
 	void *res;
 
-	unsigned sent;
-	unsigned max;
+	result_send_t type;
+
+	union {
+		struct getChunks c;
+		struct getRevisions r;
+	} v;
 
 	struct query_result *next;
 };
@@ -93,6 +103,8 @@ struct client {
 	struct chunk_send *cout; /* список для файлов на отсылку */
 	char *cout_buffer; /* буфер для отправки кусков чанков */
 	size_t cout_bfsz;
+
+	struct result_send *rout; /* список для ответов на всякие Query* */
 
 	/* счётчик ошибок
 	 * TODO: добавить в конфигурашку

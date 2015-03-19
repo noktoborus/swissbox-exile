@@ -358,18 +358,31 @@ spq_f_getChunks_free(struct getChunks *state)
 }
 
 bool
+spq_f_getChunks_it(struct getChunks *state)
+{
+	size_t len;
+	char *val;
+
+	/* получении записи, возврат значений */
+	/* 0 = hash */
+	len = strlen((val = PQgetvalue((PGresult*)state->res, state->row, 0)));
+	memcpy(state->hash, val , MIN(len, HASHHEX_MAX));
+	/* 1 = guid */
+	len = strlen((val = PQgetvalue((PGresult*)state->res, state->row, 1)));
+	string2guid(val, len, &state->chunk);
+
+	state->row++;
+	return true;
+}
+
+bool
 spq_f_getChunks(char *username,
 		guid_t *rootdir, guid_t *file, guid_t *revision,
 		struct getChunks *state)
 {
 	struct spq *c;
 	PGresult *res;
-	char *val;
-	size_t len;
-	bool first = false;
 
-	if (!state->p || !state->res)
-		first = true;
 	/* инициализация,
 	 * смысла отдавать на каждой итерации подключение pg
 	 * т.к. пока не будут загребены все результаты,
@@ -387,25 +400,9 @@ spq_f_getChunks(char *username,
 	}
 	res = (PGresult*)state->res;
 
-	/* если это первый запуск, то выставляем значения */
-	if (first) {
-		state->max = (unsigned)PQntuples(res);
-		state->row = 0u;
-	}
-
-	if (state->max >= state->row) {
-		state->end = true;
-	}
-
-	/* получении записи, возврат значений */
-	/* 0 = hash */
-	len = strlen((val = PQgetvalue(res, state->row, 0)));
-	memcpy(state->hash, val , MIN(len, HASHHEX_MAX));
-	/* 1 = guid */
-	len = strlen((val = PQgetvalue(res, state->row, 1)));
-	string2guid(val, len, &state->chunk);
-
-	state->row++;
+	/* инициализация значений */
+	state->max = (unsigned)PQntuples(res);
+	state->row = 0u;
 
 	return true;
 }

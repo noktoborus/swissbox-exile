@@ -31,6 +31,20 @@ bool spq_f_getChunkPath(char *username,
 		guid_t *rootdir, guid_t *file, guid_t *chunk,
 		char *path, size_t path_len);
 
+/* получение списка ревизий */
+/* TODO: важно реализовать */
+
+struct getRevisions {
+	void *p;
+	void *res;
+
+	bool end;
+
+	unsigned row;
+	unsigned max;
+};
+
+
 /* получение списка чанков (итератор по списку) */
 
 struct getChunks {
@@ -62,7 +76,8 @@ struct getChunks {
 bool spq_f_getChunks(char *username,
 		guid_t *rootdir, guid_t *file, guid_t *revision,
 		struct getChunks *state);
-
+/* прохождение по списку */
+bool spq_f_getChunks_it(struct getChunks *state);
 /* отчистка результатов getChunks */
 void spq_f_getChunks_free(struct getChunks *state);
 

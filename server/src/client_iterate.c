@@ -4,7 +4,6 @@
 
 #include "client_iterate.h"
 #include "client_cb.h"
-#include "simplepq/simplepq.h"
 
 #include <ev.h>
 #include <stdio.h>
@@ -120,7 +119,30 @@ is_legal_guid(char *guid)
 bool
 _handle_query_chunks(struct client *c, unsigned type, Fep__QueryChunks *msg)
 {
+	struct getChunks gc;
+	guid_t rootdir;
+	guid_t file;
+	guid_t revision;
 
+	struct result_send *rs;
+
+	/* конвертим типы */
+	string2guid(msg->rootdir_guid, strlen(msg->rootdir_guid), &rootdir);
+	string2guid(msg->file_guid, strlen(msg->file_guid), &file);
+	string2guid(msg->revision_guid, strlen(msg->revision_guid), &revision);
+
+	if (!spq_f_getChunks(c->name, &rootdir, &file, &revision, &gc)) {
+		return send_error(c, msg->id, "Internal error 110", -1);
+	}
+
+	/* выделяем память под список */
+	rs = calloc(1, sizeof(struct result_send));
+	if (!rs) {
+		spq_f_getChunks_free(&gc);
+		return send_error(c, msg->id, "Internal error 111", -1);
+	}
+	memcpy(&rs->v.c, &gc, sizeof(struct getChunks));
+	rs->type = RESULT_CHUNKS;
 	return false;
 }
 
@@ -987,6 +1009,13 @@ client_alloc(struct sev_ctx *cev)
 }
 
 bool static inline
+_client_iterate_result(struct client *c)
+{
+	/* TODO */
+	return true;
+}
+
+bool static inline
 _client_iterate_chunk(struct client *c)
 {
 	Fep__Xfer xfer_msg = FEP__XFER__INIT;
@@ -1190,11 +1219,16 @@ client_iterate(struct sev_ctx *cev, bool last, void **p)
 		}
 	}
 
-	/*
-	 * отправка куска чанка-файла клиенту, если такие есть в очереди
+	/* в первую помощь нужно отправить короткие сообщения из базы
+	 * а потом можно слать куски файлов
 	 */
-	if (!_client_iterate_chunk(c)) {
-		return false;
+	if (c->rout) {
+		if (!_client_iterate_result(c))
+			return false;
+	} else {
+		/* отправка куска чанка-файла клиенту, если такие есть в очереди */
+		if (!_client_iterate_chunk(c))
+			return false;
 	}
 
 	/* если обработка заголовка или чтение завалилось,
