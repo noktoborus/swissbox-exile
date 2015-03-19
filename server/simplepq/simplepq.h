@@ -38,12 +38,28 @@ struct getRevisions {
 	void *p;
 	void *res;
 
-	bool end;
+	guid_t revision;
 
 	unsigned row;
 	unsigned max;
 };
-
+/* запрос ревизий
+ * чтение полей:
+ *	revision_guid
+ *
+ * поиск пополям:
+ * 	time
+ * 	username
+ * 	parent_revision_guid
+ * 	rootdir_guid
+ * 	file_guid
+ */
+bool spq_f_getRevisions(char *username, guid_t *rootdir, guid_t *file,
+		unsigned depth, struct getRevisions *state);
+/* итерация результата */
+bool spq_f_getRevisions_it(struct getRevisions *state);
+/* отчистка результатов spq_f_getRevisions */
+void spq_f_getRevisions_free(struct getRevisions *state);
 
 /* получение списка чанков (итератор по списку) */
 
@@ -54,9 +70,6 @@ struct getChunks {
 	/* значение текущей строки, гуид чанка и его хеш */
 	guid_t chunk;
 	char hash[HASHHEX_MAX + 1];
-
-	/* флаг о завершении итерации */
-	bool end;
 
 	unsigned row;
 	unsigned max;
@@ -76,7 +89,7 @@ struct getChunks {
 bool spq_f_getChunks(char *username,
 		guid_t *rootdir, guid_t *file, guid_t *revision,
 		struct getChunks *state);
-/* прохождение по списку */
+/* прохождение по списку, возвращает false, если достигнут конец */
 bool spq_f_getChunks_it(struct getChunks *state);
 /* отчистка результатов getChunks */
 void spq_f_getChunks_free(struct getChunks *state);

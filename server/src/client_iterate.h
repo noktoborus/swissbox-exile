@@ -65,7 +65,9 @@ struct result_send {
 		struct getRevisions r;
 	} v;
 
-	struct query_result *next;
+	void (*free)(void*);
+
+	struct result_send *next;
 };
 
 struct chunk_send {

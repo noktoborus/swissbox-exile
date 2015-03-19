@@ -363,6 +363,9 @@ spq_f_getChunks_it(struct getChunks *state)
 	size_t len;
 	char *val;
 
+	if (state->row >= state->max)
+		return false;
+
 	/* получении записи, возврат значений */
 	/* 0 = hash */
 	len = strlen((val = PQgetvalue((PGresult*)state->res, state->row, 0)));
@@ -406,4 +409,24 @@ spq_f_getChunks(char *username,
 
 	return true;
 }
+
+bool
+spq_f_getRevisions(char *username, guid_t *rootdir, guid_t *file,
+		unsigned depth, struct getRevisions *state)
+{
+	return false;
+}
+
+bool
+spq_f_getRevisions_it(struct getRevisions *state)
+{
+	return false;
+}
+
+void
+spq_f_getRevisions_free(struct getRevisions *state)
+{
+}
+
+
 

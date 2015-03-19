@@ -25,9 +25,21 @@ TYPICAL_HANDLE_F(Fep__WriteOk, write_ok, &c->mid)
 
 NOTIMP_HANDLE_F(Fep__RenameChunk, rename_chunk)
 NOTIMP_HANDLE_F(Fep__ResultChunk, result_chunk)
-NOTIMP_HANDLE_F(Fep__QueryRevisions, query_revisions)
 NOTIMP_HANDLE_F(Fep__ResultRevision, result_revision)
 
+static struct result_send*
+rout_free(struct client *c)
+{
+	struct result_send *p;
+	if ((p = c->rout) != NULL) {
+		if (p->free) {
+			p->free(&p->v);
+		}
+		c->rout = c->rout->next;
+		free(p);
+	}
+	return c->rout;
+}
 
 static struct chunk_send*
 cout_free(struct client *c)
@@ -117,6 +129,38 @@ is_legal_guid(char *guid)
 }
 
 bool
+_handle_query_revisions(struct client *c, unsigned type,
+		Fep__QueryRevisions *msg)
+{
+	struct getRevisions gr;
+	guid_t rootdir;
+	guid_t file;
+
+	struct result_send *rs;
+
+	/* конвертация типов */
+	string2guid(msg->rootdir_guid, strlen(msg->rootdir_guid), &rootdir);
+	string2guid(msg->file_guid, strlen(msg->file_guid), &file);
+
+	if (!spq_f_getRevisions(c->name, &rootdir, &file, msg->depth, &gr)) {
+		return send_error(c, msg->id, "Internal error 100", -1);
+	}
+
+	/* выделяем память под список */
+	rs = calloc(1, sizeof(struct result_send));
+	if (!rs) {
+		spq_f_getRevisions_free(&gr);
+		return send_error(c, msg->id, "Internal error 111", -1);
+	}
+	memcpy(&rs->v.r, &gr, sizeof(struct getRevisions));
+	rs->type = RESULT_REVISIONS;
+	rs->free = (void(*)(void*))spq_f_getRevisions_free;
+	rs->next = c->rout;
+	c->rout = rs;
+	return true;
+}
+
+bool
 _handle_query_chunks(struct client *c, unsigned type, Fep__QueryChunks *msg)
 {
 	struct getChunks gc;
@@ -143,7 +187,10 @@ _handle_query_chunks(struct client *c, unsigned type, Fep__QueryChunks *msg)
 	}
 	memcpy(&rs->v.c, &gc, sizeof(struct getChunks));
 	rs->type = RESULT_CHUNKS;
-	return false;
+	rs->free = (void(*)(void*))spq_f_getChunks_free;
+	rs->next = c->rout;
+	c->rout = rs->next;
+	return true;
 }
 
 bool
@@ -976,6 +1023,7 @@ client_destroy(struct client *c)
 	while (list_free_root(&c->fid, (void(*)(void*))&fid_free));
 
 	while (cout_free(c));
+	while (rout_free(c));
 
 	/* ? */
 	fdb_uncursor(c->fdb);
@@ -1011,7 +1059,41 @@ client_alloc(struct sev_ctx *cev)
 bool static inline
 _client_iterate_result(struct client *c)
 {
-	/* TODO */
+	if (!c->rout)
+		return true;
+	/* обработка сообщений чанков */
+	if (c->rout->type == RESULT_CHUNKS) {
+		Fep__ResultChunk msg = FEP__RESULT_CHUNK__INIT;
+		char guid[GUID_MAX + 1];
+		char hash[HASH_MAX + 1];
+		size_t hash_len;
+		if (!spq_f_getChunks_it(&c->rout->v.c)) {
+			/* итерироваться больше некуда, потому подчищаем */
+			rout_free(c);
+			return true;
+		}
+		guid2string(&c->rout->v.c.chunk, guid, sizeof(guid));
+		hash_len = hex2bin(c->rout->v.c.hash, strlen(c->rout->v.c.hash),
+				hash, sizeof(hash));
+		msg.chunk_guid = guid;
+		msg.chunk_no = c->rout->v.c.row;
+		msg.chunk_max = c->rout->v.c.max;
+		msg.chunk_hash.data = (uint8_t*)hash;
+		msg.chunk_hash.len = hash_len;
+		return send_message(c->cev, FEP__TYPE__tResultChunk, &msg);
+	} else if (c->rout->type == RESULT_REVISIONS) {
+		Fep__ResultRevision msg = FEP__RESULT_REVISION__INIT;
+		char guid[GUID_MAX + 1];
+		if (!spq_f_getRevisions_it(&c->rout->v.r)) {
+			rout_free(c);
+			return true;
+		}
+		guid2string(&c->rout->v.r.revision, guid, sizeof(guid));
+		msg.rev_no = c->rout->v.r.row;
+		msg.rev_max = c->rout->v.c.max;
+		msg.revision_guid = guid;
+		return send_message(c->cev, FEP__TYPE__tResultRevision, &msg);
+	}
 	return true;
 }
 
