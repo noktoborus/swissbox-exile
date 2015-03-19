@@ -293,6 +293,7 @@ message ResultRevision {
 	required uint64 id = 1 [default = 0];
 
 	required string revision_guid = 3;
+	required string parent_revision_guid = 4;
 	/* аналог к ResultChunk.chunk_no/ResultChunk.chunk_max */
 	required uint32 rev_no = 5;
 	required uint32 rev_max = 6;
