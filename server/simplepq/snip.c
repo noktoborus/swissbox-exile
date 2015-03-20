@@ -127,7 +127,7 @@ _spq_f_chunkFile(PGconn *pgc, char *username,
 {
 	PGresult *res;
 	char errstr[1024];
-	const char tb[] = "INSERT file_keys "
+	const char tb[] = "INSERT INTO file_keys"
 		"("
 		"	username,"
 		"	rootdir_guid,"
