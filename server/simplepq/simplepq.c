@@ -281,6 +281,9 @@ spq_create_tables()
 		"	hash_filename varchar(1024) NOT NULL, "
 		"	public_key varchar(4096) NOT NULL"
 		");",
+		"CREATE UNIQUE INDEX file_keys_urfr_idx "
+		"ON file_keys "
+		"	(lower(username), rootdir_guid, file_guid, revision_guid);",
 		NULL
 	};
 	char **p;
