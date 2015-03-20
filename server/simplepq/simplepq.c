@@ -283,7 +283,21 @@ spq_create_tables()
 		");",
 		"CREATE UNIQUE INDEX file_keys_urfr_idx "
 		"ON file_keys "
-		"	(lower(username), rootdir_guid, file_guid, revision_guid);",
+		"("
+		"	lower(username),"
+		"	rootdir_guid,"
+		"	file_guid,"
+		"	revision_guid"
+		");",
+		"CREATE UNIQUE INDEX file_records_urfcr_idx "
+		"ON file_records "
+		"("
+		"	lower(username),"
+		"	rootdir_guid,"
+		"	file_guid,"
+		"	revision_guid,"
+		"	chunk_guid"
+		");",
 		NULL
 	};
 	char **p;
