@@ -272,7 +272,7 @@ spq_create_tables()
 		");",
 		"CREATE TABLE file_keys"
 		"("
-		"	username varchar(1024) NOT NULL"
+		"	username varchar(1024) NOT NULL,"
 		"	rootdir_guid UUID NOT NULL, "
 		"	file_guid UUID NOT NULL, "
 		"	revision_guid UUID DEFAULT NULL, "
