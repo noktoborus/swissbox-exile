@@ -270,7 +270,7 @@ spq_create_tables()
 		"	\"offset\" integer NOT NULL DEFAULT 0, "
 		"	origin integer NOT NULL DEFAULT 0 "
 		");",
-		"CREATE TABLE file_keys"
+		"CREATE TABLE IF NOT EXISTS file_keys "
 		"("
 		"	username varchar(1024) NOT NULL,"
 		"	rootdir_guid UUID NOT NULL, "
