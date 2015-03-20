@@ -166,7 +166,7 @@ _spq_f_chunkFile(PGconn *pgc, char *username,
 	val[6] = hash_filename;
 	val[7] = pkey;
 
-	res = PQexecParams(pgc, tb, 6, NULL,
+	res = PQexecParams(pgc, tb, 8, NULL,
 			(const char *const*)val, length, format, 0);
 
 	if (PQresultStatus(res) != PGRES_COMMAND_OK) {
