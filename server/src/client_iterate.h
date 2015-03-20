@@ -58,6 +58,7 @@ typedef enum _result_send {
 struct result_send {
 	void *res;
 
+	uint64_t id;
 	result_send_t type;
 
 	union {

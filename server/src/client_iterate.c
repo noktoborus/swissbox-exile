@@ -153,6 +153,7 @@ _handle_query_revisions(struct client *c, unsigned type,
 		return send_error(c, msg->id, "Internal error 111", -1);
 	}
 	memcpy(&rs->v.r, &gr, sizeof(struct getRevisions));
+	rs->id = msg->id;
 	rs->type = RESULT_REVISIONS;
 	rs->free = (void(*)(void*))spq_f_getRevisions_free;
 	rs->next = c->rout;
@@ -186,6 +187,7 @@ _handle_query_chunks(struct client *c, unsigned type, Fep__QueryChunks *msg)
 		return send_error(c, msg->id, "Internal error 111", -1);
 	}
 	memcpy(&rs->v.c, &gc, sizeof(struct getChunks));
+	rs->id = msg->id;
 	rs->type = RESULT_CHUNKS;
 	rs->free = (void(*)(void*))spq_f_getChunks_free;
 	rs->next = c->rout;
@@ -637,9 +639,13 @@ file_check_update(struct client *c, struct wait_file *wf)
 				(void*)c->cev, (unsigned)wf->chunks_ok,
 				(unsigned)wf->chunks, (unsigned)wf->chunks_fail);
 #endif
+		/* все чанки сошлись, теперь можно сделать запись в бд
+		 * и разослать клиентам уведомления
+		 */
 		if (!wf->notified) {
 			wf->notified = _file_update_notify(c, wf);
 		}
+		/* ссылок больше нет, можно подчистить */
 		if (!wf->ref) {
 #if DEEPDEBUG
 			xsyslog(LOG_DEBUG, "client[%p] file fully loaded, notify = %s",
@@ -1070,11 +1076,12 @@ _client_iterate_result(struct client *c)
 		if (!spq_f_getChunks_it(&c->rout->v.c)) {
 			/* итерироваться больше некуда, потому подчищаем */
 			rout_free(c);
-			return true;
+			return send_ok(c, c->rout->id);
 		}
 		guid2string(&c->rout->v.c.chunk, guid, sizeof(guid));
 		hash_len = hex2bin(c->rout->v.c.hash, strlen(c->rout->v.c.hash),
 				hash, sizeof(hash));
+		msg.id = c->rout->id;
 		msg.chunk_guid = guid;
 		msg.chunk_no = c->rout->v.c.row;
 		msg.chunk_max = c->rout->v.c.max;
@@ -1087,13 +1094,14 @@ _client_iterate_result(struct client *c)
 		char parent[GUID_MAX + 1];
 		if (!spq_f_getRevisions_it(&c->rout->v.r)) {
 			rout_free(c);
-			return true;
+			return send_ok(c, c->rout->id);
 		}
 		if (c->rout->v.r.parent.not_null) {
 			guid2string(&c->rout->v.r.parent, parent, sizeof(guid));
 			msg.parent_revision_guid = parent;
 		}
 		guid2string(&c->rout->v.r.revision, guid, sizeof(guid));
+		msg.id = c->rout->id;
 		msg.rev_no = c->rout->v.r.row;
 		msg.rev_max = c->rout->v.c.max;
 		msg.revision_guid = guid;
