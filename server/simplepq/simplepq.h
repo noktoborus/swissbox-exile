@@ -23,9 +23,11 @@ bool spq_f_chunkNew(char *username, char *hash, char *path,
 		guid_t *rootdir, guid_t *revision, guid_t *chunk, guid_t *file,
 		uint32_t offset, uint32_t origin_len);
 
-bool spq_f_chunkFile(char *username,
+bool
+spq_f_chunkFile(char *username,
 		guid_t *rootdir, guid_t *revision, guid_t *file,
-		char *filename, guid_t *parent_revision);
+		guid_t *parent_revision,
+		char *enc_filename, char *hash_filename, char *pkey, size_t pkey_len);
 
 bool spq_f_getChunkPath(char *username,
 		guid_t *rootdir, guid_t *file, guid_t *chunk,

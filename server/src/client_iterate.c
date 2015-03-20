@@ -645,8 +645,10 @@ file_check_update(struct client *c, struct wait_file *wf)
 		if (!wf->notified) {
 			/* TODO */
 			wf->notified = spq_f_chunkFile(c->name,
-					&wf->rootdir, &wf->revision, &wf->file,
-					wf->hash_filename, NULL);
+					&wf->rootdir, &wf->file, &wf->revision,
+					&wf->parent_revision,
+					wf->enc_filename, wf->hash_filename,
+					wf->key, wf->key_len);
 			_file_update_notify(c, wf);
 		}
 		/* ссылок больше нет, можно подчистить */

@@ -264,20 +264,22 @@ spq_create_tables()
 		"	chunk_hash varchar(1024) NOT NULL, "
 		"	chunk_guid UUID NOT NULL, "
 		"	rootdir_guid UUID NOT NULL, "
+		"	file_guid UUID NOT NULL, "
 		"	revision_guid UUID NOT NULL, "
-		"	parent_revision_guid UUID DEFAULT NULL, "
-		"	chunk_path varchar(1024), "
-		"	file_guid UUID, "
-		"	filename varchar(1024) DEFAULT NULL, "
-		"	offset integer NOT NULL DEFAULT 0, "
+		"	chunk_path varchar(1024) NOT NULL, "
+		"	\"offset\" integer NOT NULL DEFAULT 0, "
 		"	origin integer NOT NULL DEFAULT 0 "
 		");",
 		"CREATE TABLE file_keys"
 		"("
+		"	username varchar(1024) NOT NULL"
 		"	rootdir_guid UUID NOT NULL, "
 		"	file_guid UUID NOT NULL, "
 		"	revision_guid UUID DEFAULT NULL, "
-		"	public_key bytea"
+		"	parent_revision_guid UUID DEFAULT NULL, "
+		"	enc_filename varchar(1024) NOT NULL, "
+		"	hash_filename varchar(1024) NOT NULL, "
+		"	public_key varchar(4096) NOT NULL"
 		");",
 		NULL
 	};
@@ -318,14 +320,22 @@ spq_f_chunkNew(char *username, char *hash, char *path,
 bool
 spq_f_chunkFile(char *username,
 		guid_t *rootdir, guid_t *revision, guid_t *file,
-		char *filename, guid_t *parent_revision)
+		guid_t *parent_revision,
+		char *enc_filename, char *hash_filename, char *pkey, size_t pkey_len)
 {
 	bool r = false;
 	struct spq *c;
-	if ((c = acquire_conn(&_spq)) != NULL) {
-		r = _spq_f_chunkFile(c->conn, username, rootdir, revision, file,
-				filename, parent_revision);
-		release_conn(&_spq, c);
+	size_t pkeyhex_sz = pkey_len * 2 + 1;
+	char *pkeyhex = calloc(1, pkeyhex_sz);
+	if (pkeyhex) {
+		bin2hex((uint8_t*)pkey, pkey_len, pkeyhex, pkeyhex_sz);
+		if ((c = acquire_conn(&_spq)) != NULL) {
+			r = _spq_f_chunkFile(c->conn, username, rootdir, revision, file,
+					parent_revision,
+					enc_filename, hash_filename, pkeyhex);
+			release_conn(&_spq, c);
+		}
+		free(pkeyhex);
 	}
 	return r;
 }
