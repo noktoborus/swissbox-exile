@@ -296,6 +296,7 @@ spq_create_tables()
 					PQresultErrorMessage(res));
 			syslog(LOG_INFO, errstr);
 		}
+		PQclear(res);
 	}
 
 	release_conn(&_spq, sc);
