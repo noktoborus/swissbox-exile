@@ -228,9 +228,10 @@ struct wait_file {
 
 	/* meta */
 	uint64_t id;
-	guid_t rootdir_guid;
-	guid_t file_guid;
-	guid_t revision_guid;
+	guid_t rootdir;
+	guid_t file;
+	guid_t revision;
+	guid_t parent_revision;
 
 	char *hash_filename;
 	char *enc_filename;

@@ -363,11 +363,11 @@ _handle_write_ask(struct client *c, unsigned type, Fep__WriteAsk *msg)
 	if (fid_ws) {
 		/* TODO: наполнить wf */
 		wf = fid_ws->data;
-		string2guid(msg->file_guid, strlen(msg->file_guid), &wf->file_guid);
+		string2guid(msg->file_guid, strlen(msg->file_guid), &wf->file);
 		string2guid(msg->revision_guid, strlen(msg->revision_guid),
-				&wf->revision_guid);
+				&wf->revision);
 		string2guid(msg->rootdir_guid, strlen(msg->rootdir_guid),
-				&wf->rootdir_guid);
+				&wf->rootdir);
 		wf->id = hash;
 		wait_id(c, &c->fid, hash, fid_ws);
 	}
@@ -592,9 +592,9 @@ _file_update_notify(struct client *c, struct wait_file *wf)
 		return false;
 	ffu->head.type = C_FILEUPDATE;
 
-	guid2string(&wf->rootdir_guid, ffu->rootdir_guid, GUID_MAX);
-	guid2string(&wf->file_guid, ffu->file_guid, GUID_MAX);
-	guid2string(&wf->revision_guid, ffu->revision_guid, GUID_MAX);
+	guid2string(&wf->rootdir, ffu->rootdir_guid, GUID_MAX);
+	guid2string(&wf->file, ffu->file_guid, GUID_MAX);
+	guid2string(&wf->revision, ffu->revision_guid, GUID_MAX);
 
 	if (key_sz) {
 		ffu->key = (char*)(ffu + 1);
@@ -643,7 +643,11 @@ file_check_update(struct client *c, struct wait_file *wf)
 		 * и разослать клиентам уведомления
 		 */
 		if (!wf->notified) {
-			wf->notified = _file_update_notify(c, wf);
+			/* TODO */
+			wf->notified = spq_f_chunkFile(c->name,
+					&wf->rootdir, &wf->revision, &wf->file,
+					wf->hash_filename, NULL);
+			_file_update_notify(c, wf);
 		}
 		/* ссылок больше нет, можно подчистить */
 		if (!wf->ref) {
@@ -679,10 +683,16 @@ _handle_file_update(struct client *c, unsigned type, Fep__FileUpdate *fu)
 		}
 		ws->data = ws + 1;
 		wf = ws->data;
-		string2guid(fu->file_guid, strlen(fu->file_guid), &wf->file_guid);
+		/* file_guid используется как id, потому назначается сразу
+		 * при создании структуры
+		 */
+		string2guid(fu->file_guid, strlen(fu->file_guid), &wf->file);
 	} else {
 		wf = ws->data;
 	}
+	if (fu->parent_revision_guid)
+		string2guid(fu->parent_revision_guid, strlen(fu->parent_revision_guid),
+				&wf->parent_revision);
 	if (fu->enc_filename && !wf->enc_filename)
 		wf->enc_filename = strdup(fu->enc_filename);
 	if (fu->hash_filename && !wf->hash_filename)
@@ -740,8 +750,8 @@ _handle_end(struct client *c, unsigned type, Fep__End *end)
 	if (!errmsg) {
 		/* чанк пришёл, теперь нужно обновить информацию в бд */
 		bin2hex(wx.hash, wx.hash_len, chunk_hash, sizeof(chunk_hash));
-		spq_f_chunkNew(c->name, chunk_hash, wx.path, &wx.wf->rootdir_guid,
-				&wx.wf->revision_guid, &wx.chunk_guid, &wx.wf->file_guid,
+		spq_f_chunkNew(c->name, chunk_hash, wx.path, &wx.wf->rootdir,
+				&wx.wf->revision, &wx.chunk_guid, &wx.wf->file,
 				end->offset, end->origin_len);
 		/* заодно проверяем готовность файла */
 		wx.wf->chunks_ok++;
