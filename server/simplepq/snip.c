@@ -69,7 +69,7 @@ _spq_f_chunkNew(PGconn *pgc, char *username, char *hash, char *path,
 		"	chunk_hash, "
 		"	chunk_path, "
 		"	\"offset\","
-		"	origin,"
+		"	origin"
 		") VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9);";
 	const int format[9] = {0, 0, 0, 0, 0, 0, 0, 0, 0};
 
