@@ -272,6 +272,7 @@ spq_create_tables()
 		");",
 		"CREATE TABLE IF NOT EXISTS file_keys "
 		"("
+		"	time timestamp with time zone NOT NULL DEFAULT now(), "
 		"	username varchar(1024) NOT NULL,"
 		"	rootdir_guid UUID NOT NULL, "
 		"	file_guid UUID NOT NULL, "

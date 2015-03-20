@@ -226,11 +226,13 @@ _spq_f_getRevisions_exec(PGconn *pgc,
 {
 	PGresult *res;
 	char errstr[1024];
-	const char *tbq = "SELECT revision_guid FROM file_records WHERE "
+	const char *tbq = "SELECT revision_guid FROM file_keys WHERE "
 		"username = $1, "
 		"rootdir_guid = $2, "
 		"file_guid = $3 "
-		"ORDER BY time DESC LIMIT $4";
+		"GROUP BY time,revision_guid "
+		"ORDER BY time DESC "
+		"LIMIT $4";
 	const int format[5] = {0, 0, 0, 0, 0};
 
 	char _rootdir_guid[GUID_MAX + 1];
