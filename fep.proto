@@ -47,12 +47,14 @@ option optimize_for = SPEED;
  S: ResultChunk (id = 100, chunk_no = 1, chunk_max = 3)
  S: ResultChunk (id = 100, chunk_no = 2, chunk_max = 3)
  S: ResultChunk (id = 100, chunk_no = 3, chunk_max = 3)
+ S: Ok (id = 100)
 
  Получение списка ревизий
  C: QueryRevisions (id = 100, depth = 3, offset = 0)
  S: ResultRevision (id = 100, rev_no = 1, rev_max = 3)
  S: ResultRevision (id = 100, rev_no = 2, rev_max = 3)
  S: ResultRevision (id = 100, rev_no = 3, rev_max = 3)
+ S: Ok (id = 100)
 
  Серверу не имеет значения, был ли доставлен файл до клиента,
  Потому завершающее сообщение отправляется с Id == 0 и не требует ответа 
