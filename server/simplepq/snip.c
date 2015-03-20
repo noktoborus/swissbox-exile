@@ -161,7 +161,7 @@ _spq_f_chunkFile(PGconn *pgc, char *username,
 	val[1] = _s_rootdir;
 	val[2] = _s_file;
 	val[3] = _s_revision;
-	val[4] = _s_parent;
+	val[4] = length[4] ? _s_parent : NULL;
 	val[5] = enc_filename;
 	val[6] = hash_filename;
 	val[7] = pkey;
