@@ -883,7 +883,11 @@ _send_message(struct sev_ctx *cev, unsigned type, void *msg, char *name)
 		return false;
 	}
 
-	/* уупаковывается сообщение */
+#if DEEPDEBUG
+	xsyslog(LOG_DEBUG, "client[%p] transmit header[type: %u, len: %"PRIuPTR"]",
+			(void*)cev, type, len);
+#endif
+	/* упаковывается сообщение */
 	handle[type].f_pack(msg, &buf[HEADER_OFFSET]);
 	if ((lval = sev_send(cev, buf, len)) != len) {
 		xsyslog(LOG_WARNING, "client[%p] send fail in %s", (void*)cev, name);
