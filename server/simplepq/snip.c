@@ -233,13 +233,13 @@ _spq_f_getRevisions_exec(PGconn *pgc,
 		"GROUP BY time,revision_guid "
 		"ORDER BY time DESC "
 		"LIMIT $4";
-	const int format[5] = {0, 0, 0, 0, 0};
+	const int format[4] = {0, 0, 0, 0};
 
 	char _rootdir_guid[GUID_MAX + 1];
 	char _file_guid[GUID_MAX + 1];
 
-	char *val[5];
-	int length[5];
+	char *val[4];
+	int length[4];
 
 	uint32_t ndepth = htons((uint32_t)depth);
 
@@ -253,7 +253,7 @@ _spq_f_getRevisions_exec(PGconn *pgc,
 	val[2] = _file_guid;
 	val[3] = (char*)&ndepth;
 
-	res = PQexecParams(pgc, tbq, 5, NULL,
+	res = PQexecParams(pgc, tbq, 4, NULL,
 			(const char *const*)val, length, format, 0);
 
 	if (PQresultStatus(res) != PGRES_COMMAND_OK) {
