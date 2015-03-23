@@ -19,7 +19,7 @@ _spq_f_getChunkPath(PGconn *pgc, char *username,
 		"username = $1 AND "
 		"rootdir_guid = $2 AND "
 		"file_guid = $2 AND "
-		"chunk_guid = $3";
+		"chunk_guid = $3;";
 	const int format[4] = {0, 0, 0, 0};
 
 	char _rootdir_guid[GUID_MAX + 1];
@@ -124,11 +124,12 @@ _spq_f_chunkNew(PGconn *pgc, char *username, char *hash, char *path,
 
 bool
 _spq_f_chunkFile(PGconn *pgc, char *username,
-		guid_t *rootdir, guid_t *revision, guid_t *file,
+		guid_t *rootdir, guid_t *file, guid_t *revision,
 		guid_t *parent_revision,
 		char *enc_filename, char *hash_filename, char *pkey)
 {
 	PGresult *res;
+	ExecStatusType pqs;
 	char errstr[1024];
 	const char tb[] = "INSERT INTO file_keys"
 		"("
@@ -140,7 +141,7 @@ _spq_f_chunkFile(PGconn *pgc, char *username,
 		"	enc_filename,"
 		"	hash_filename,"
 		"	public_key"
-		") VALUES ($1, $2, $3, $4, $5, $6, $7, $8)";
+		") VALUES ($1, $2, $3, $4, $5, $6, $7, $8);";
 	const int format[8] = {0, 0, 0, 0, 0, 0, 0, 0};
 
 	char _s_rootdir[GUID_MAX + 1];
@@ -171,8 +172,8 @@ _spq_f_chunkFile(PGconn *pgc, char *username,
 
 	res = PQexecParams(pgc, tb, 8, NULL,
 			(const char *const*)val, length, format, 0);
-
-	if (PQresultStatus(res) != PGRES_COMMAND_OK) {
+	pqs = PQresultStatus(res);
+	if (pqs != PGRES_COMMAND_OK || pqs != PGRES_EMPTY_QUERY) {
 		snprintf(errstr, sizeof(errstr), "spq: chunkFile exec error: %s",
 			PQresultErrorMessage(res));
 		syslog(LOG_INFO, errstr);
@@ -188,12 +189,13 @@ _spq_f_getChunks_exec(PGconn *pgc,
 		char *username, guid_t *rootdir, guid_t *file, guid_t *revision)
 {
 	PGresult *res;
+	ExecStatusType pqs;
 	char errstr[1024];
 	const char *tbq = "SELECT chunk_hash, chunk_guid FROM file_records WHERE "
 		"username = $1 AND "
 		"rootdir_guid = $2 AND "
 		"file_guid = $3 AND "
-		"revision_guid = $4";
+		"revision_guid = $4;";
 	const int format[4] = {0, 0, 0, 0};
 
 	char _rootdir_guid[GUID_MAX + 1];
@@ -215,7 +217,8 @@ _spq_f_getChunks_exec(PGconn *pgc,
 
 	res = PQexecParams(pgc, tbq, 4, NULL,
 			(const char *const*)val, length, format, 0);
-	if (PQresultStatus(res) != PGRES_COMMAND_OK) {
+	pqs = PQresultStatus(res);
+	if (pqs != PGRES_COMMAND_OK || pqs != PGRES_EMPTY_QUERY) {
 		snprintf(errstr, sizeof(errstr), "spq: getChunks exec error: %s",
 				PQresultErrorMessage(res));
 		syslog(LOG_INFO, errstr);
@@ -237,7 +240,7 @@ _spq_f_getRevisions_exec(PGconn *pgc,
 		"file_guid = $3 "
 		"GROUP BY time,revision_guid "
 		"ORDER BY time DESC "
-		"LIMIT $4";
+		"LIMIT $4;";
 	const int format[4] = {0, 0, 0, 0};
 
 	char _rootdir_guid[GUID_MAX + 1];

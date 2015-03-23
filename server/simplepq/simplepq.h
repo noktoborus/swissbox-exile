@@ -25,7 +25,7 @@ bool spq_f_chunkNew(char *username, char *hash, char *path,
 
 bool
 spq_f_chunkFile(char *username,
-		guid_t *rootdir, guid_t *revision, guid_t *file,
+		guid_t *rootdir, guid_t *file, guid_t *revision,
 		guid_t *parent_revision,
 		char *enc_filename, char *hash_filename, char *pkey, size_t pkey_len);
 

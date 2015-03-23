@@ -47,7 +47,7 @@ bool _spq_f_chunkNew(PGconn *pgc, char *username, char *hash, char *path,
  * внесение информации в БД для чанков по сообщению FileUpdate
  */
 bool _spq_f_chunkFile(PGconn *pgc, char *username,
-		guid_t *rootdir, guid_t *revision, guid_t *file,
+		guid_t *rootdir, guid_t *file, guid_t *revision,
 		guid_t *parent_revision,
 		char *enc_filename, char *hash_filename, char *pkey);
 
