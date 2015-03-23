@@ -474,8 +474,17 @@ spq_f_getRevisions_it(struct getRevisions *state)
 	if (state->row >= state->max)
 		return false;
 
+	/* revision_guid */
 	len = strlen((val = PQgetvalue((PGresult*)state->res, state->row, 0)));
 	string2guid(val, len, &state->revision);
+
+	/* parent_revision_guid */
+	if ((len = PQgetlength((PGresult*)state->res, state->row, 1)) != 0u) {
+		string2guid(PQgetvalue((PGresult*)state->res, state->row, 1), len,
+				&state->parent);
+	} else if (state->parent.not_null) {
+		string2guid(NULL, 0, &state->parent);
+	}
 
 	state->row++;
 	return true;

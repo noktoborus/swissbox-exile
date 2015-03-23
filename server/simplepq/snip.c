@@ -42,7 +42,7 @@ _spq_f_getChunkPath(PGconn *pgc, char *username,
 	res = PQexecParams(pgc, tb, 4, NULL,
 			(const char *const*)val, length, format, 0);
 
-	if (PQresultStatus(res) != PGRES_COMMAND_OK) {
+	if (PQresultStatus(res) != PGRES_TUPLES_OK) {
 		snprintf(errstr, sizeof(errstr), "spq: getChunkPath exec error: %s",
 			PQresultErrorMessage(res));
 		syslog(LOG_INFO, errstr);
@@ -218,7 +218,7 @@ _spq_f_getChunks_exec(PGconn *pgc,
 	res = PQexecParams(pgc, tbq, 4, NULL,
 			(const char *const*)val, length, format, 0);
 	pqs = PQresultStatus(res);
-	if (pqs != PGRES_COMMAND_OK && pqs != PGRES_EMPTY_QUERY) {
+	if (pqs != PGRES_COMMAND_OK && pqs != PGRES_TUPLES_OK) {
 		snprintf(errstr, sizeof(errstr), "spq: getChunks exec error: %s",
 				PQresultErrorMessage(res));
 		syslog(LOG_INFO, errstr);
@@ -235,11 +235,15 @@ _spq_f_getRevisions_exec(PGconn *pgc,
 	PGresult *res;
 	ExecStatusType pqs;
 	char errstr[1024];
-	const char *tbq = "SELECT revision_guid FROM file_keys WHERE "
+	/* TODO: запрос делает какую-то ерунду
+	 * нужно строить список по parent_revision_guid
+	 */
+	const char *tbq = "SELECT revision_guid, parent_revision_guid "
+		"FROM file_keys WHERE "
 		"username = $1 AND "
 		"rootdir_guid = $2 AND "
 		"file_guid = $3 "
-		"GROUP BY time,revision_guid "
+		"GROUP BY time,revision_guid,parent_revision_guid "
 		"ORDER BY time DESC "
 		"LIMIT $4;";
 	const int format[4] = {0, 0, 0, 0};
@@ -267,7 +271,7 @@ _spq_f_getRevisions_exec(PGconn *pgc,
 			(const char *const*)val, length, format, 0);
 
 	pqs = PQresultStatus(res);
-	if (pqs != PGRES_COMMAND_OK && pqs != PGRES_EMPTY_QUERY) {
+	if (pqs != PGRES_COMMAND_OK && pqs != PGRES_TUPLES_OK) {
 		snprintf(errstr, sizeof(errstr), "spq: getRevisions exec error: %s",
 				PQresultErrorMessage(res));
 		syslog(LOG_INFO, errstr);

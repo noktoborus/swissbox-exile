@@ -1137,7 +1137,7 @@ _client_iterate_result(struct client *c)
 		guid2string(&c->rout->v.r.revision, guid, sizeof(guid));
 		msg.id = c->rout->id;
 		msg.rev_no = c->rout->v.r.row;
-		msg.rev_max = c->rout->v.c.max;
+		msg.rev_max = c->rout->v.r.max;
 		msg.revision_guid = guid;
 		return send_message(c->cev, FEP__TYPE__tResultRevision, &msg);
 	}
