@@ -451,7 +451,7 @@ spq_f_getRevisions(char *username, guid_t *rootdir, guid_t *file,
 	}
 	c = (struct spq*)state->p;
 
-	if (state->res && (state->res = _spq_f_getRevisions_exec(c->conn,
+	if (!state->res && (state->res = _spq_f_getRevisions_exec(c->conn,
 					username, rootdir, file, depth)) == NULL) {
 		return false;
 	}
