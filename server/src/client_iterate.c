@@ -1126,8 +1126,9 @@ _client_iterate_result(struct client *c)
 		char guid[GUID_MAX + 1];
 		char parent[GUID_MAX + 1];
 		if (!spq_f_getRevisions_it(&c->rout->v.r)) {
+			uint64_t id = c->rout->id;
 			rout_free(c);
-			return send_ok(c, c->rout->id);
+			return send_ok(c, id);
 		}
 		if (c->rout->v.r.parent.not_null) {
 			guid2string(&c->rout->v.r.parent, parent, sizeof(guid));
