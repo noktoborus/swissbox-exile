@@ -34,7 +34,6 @@ bool spq_f_getChunkPath(char *username,
 		char *path, size_t path_len);
 
 /* получение списка ревизий */
-/* TODO: важно реализовать */
 
 struct getRevisions {
 	void *p;

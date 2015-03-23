@@ -361,7 +361,6 @@ _handle_write_ask(struct client *c, unsigned type, Fep__WriteAsk *msg)
 #endif
 	wait_id(c, &c->sid, wrok.session_id, ws);
 	if (fid_ws) {
-		/* TODO: наполнить wf */
 		wf = fid_ws->data;
 		string2guid(msg->file_guid, strlen(msg->file_guid), &wf->file);
 		string2guid(msg->revision_guid, strlen(msg->revision_guid),
@@ -725,7 +724,6 @@ _handle_end(struct client *c, unsigned type, Fep__End *end)
 	char chunk_hash[HASHHEX_MAX + 1];
 	char *errmsg = NULL;
 
-	/* TODO: добавить в бд запись */
 	ws = query_id(c, &c->sid, end->session_id);
 	if (!ws) {
 #if DEEPDEBUG
