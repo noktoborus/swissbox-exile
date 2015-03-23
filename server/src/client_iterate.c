@@ -142,6 +142,8 @@ _handle_query_revisions(struct client *c, unsigned type,
 	string2guid(msg->rootdir_guid, strlen(msg->rootdir_guid), &rootdir);
 	string2guid(msg->file_guid, strlen(msg->file_guid), &file);
 
+	memset(&gr, 0, sizeof(getRevisions));
+
 	if (!spq_f_getRevisions(c->name, &rootdir, &file, msg->depth, &gr)) {
 		return send_error(c, msg->id, "Internal error 100", -1);
 	}
@@ -175,6 +177,8 @@ _handle_query_chunks(struct client *c, unsigned type, Fep__QueryChunks *msg)
 	string2guid(msg->rootdir_guid, strlen(msg->rootdir_guid), &rootdir);
 	string2guid(msg->file_guid, strlen(msg->file_guid), &file);
 	string2guid(msg->revision_guid, strlen(msg->revision_guid), &revision);
+
+	memset(&gc, 0, sizeof(struct getChunks));
 
 	if (!spq_f_getChunks(c->name, &rootdir, &file, &revision, &gc)) {
 		return send_error(c, msg->id, "Internal error 110", -1);
