@@ -29,6 +29,7 @@ list_alloc(struct listRoot *root, uint64_t id, void *data)
 		ln->next = root->next;
 		root->next->prev = ln;
 	}
+	root->count++;
 	root->next = ln;
 	ln->root = root;
 
@@ -59,6 +60,7 @@ list_free_node(struct listNode *node, void(*data_free)(void*))
 		return false;
 
 	if (node->root) {
+		node->root->count--;
 		if (node->root->next == node) {
 			node->root->next = node->next;
 		}
@@ -74,6 +76,8 @@ list_free_node(struct listNode *node, void(*data_free)(void*))
 		data_free(node->data);
 	}
 
+	/* для пущести */
+	memset(node, 0, sizeof(struct listNode));
 	free(node);
 	return true;
 }

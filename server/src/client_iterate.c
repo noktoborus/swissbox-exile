@@ -1034,9 +1034,24 @@ client_destroy(struct client *c)
 	if (!c)
 		return;
 	/* чистка очередей */
-	while (list_free_root(&c->mid, &mid_free));
-	while (list_free_root(&c->sid, (void(*)(void*))&sid_free));
-	while (list_free_root(&c->fid, (void(*)(void*))&fid_free));
+	while (list_free_root(&c->mid, &mid_free)) {
+#if DEEPDEBUG
+		xsyslog(LOG_DEBUG, "client[%p] remain %"PRIuPTR" mid",
+				(void*)c, c->mid.count);
+#endif
+	};
+	while (list_free_root(&c->sid, (void(*)(void*))&sid_free)) {
+#if DEEPDEBUG
+		xsyslog(LOG_DEBUG, "client[%p] remain %"PRIuPTR" sid",
+				(void*)c, c->sid.count);
+#endif
+	};
+	while (list_free_root(&c->fid, (void(*)(void*))&fid_free)) {
+#if DEEPDEBUG
+		xsyslog(LOG_DEBUG, "client[%p] remain %"PRIuPTR" fid",
+				(void*)c, c->fid.count);
+#endif
+	};
 
 	while (cout_free(c));
 	while (rout_free(c));
