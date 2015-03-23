@@ -246,17 +246,18 @@ _spq_f_getRevisions_exec(PGconn *pgc,
 	char *val[4];
 	int length[4];
 
-	uint32_t ndepth = htons((uint32_t)depth);
+	char ndepth[16];
+	snprintf(ndepth, sizeof(ndepth), "%"PRIu32, depth);
 
 	length[0] = strlen(username);
 	length[1] = guid2string(rootdir, _rootdir_guid, sizeof(_rootdir_guid));
 	length[2] = guid2string(file, _file_guid, sizeof(_file_guid));
-	length[3] = sizeof(uint32_t);
+	length[3] = strlen(ndepth);
 
 	val[0] = username;
 	val[1] = _rootdir_guid;
 	val[2] = _file_guid;
-	val[3] = (char*)&ndepth;
+	val[3] = ndepth;
 
 	res = PQexecParams(pgc, tbq, 4, NULL,
 			(const char *const*)val, length, format, 0);
