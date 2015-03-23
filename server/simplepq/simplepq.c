@@ -349,7 +349,7 @@ spq_f_chunkFile(char *username,
 	if (pkeyhex) {
 		bin2hex((uint8_t*)pkey, pkey_len, pkeyhex, pkeyhex_sz);
 		if ((c = acquire_conn(&_spq)) != NULL) {
-			r = _spq_f_chunkFile(c->conn, username, rootdir, revision, file,
+			r = _spq_f_chunkFile(c->conn, username, rootdir, file, revision,
 					parent_revision,
 					enc_filename, hash_filename, pkeyhex);
 			release_conn(&_spq, c);

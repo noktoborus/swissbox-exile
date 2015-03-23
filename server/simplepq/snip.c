@@ -173,7 +173,7 @@ _spq_f_chunkFile(PGconn *pgc, char *username,
 	res = PQexecParams(pgc, tb, 8, NULL,
 			(const char *const*)val, length, format, 0);
 	pqs = PQresultStatus(res);
-	if (pqs != PGRES_COMMAND_OK || pqs != PGRES_EMPTY_QUERY) {
+	if (pqs != PGRES_COMMAND_OK && pqs != PGRES_EMPTY_QUERY) {
 		snprintf(errstr, sizeof(errstr), "spq: chunkFile exec error: %s",
 			PQresultErrorMessage(res));
 		syslog(LOG_INFO, errstr);
@@ -218,7 +218,7 @@ _spq_f_getChunks_exec(PGconn *pgc,
 	res = PQexecParams(pgc, tbq, 4, NULL,
 			(const char *const*)val, length, format, 0);
 	pqs = PQresultStatus(res);
-	if (pqs != PGRES_COMMAND_OK || pqs != PGRES_EMPTY_QUERY) {
+	if (pqs != PGRES_COMMAND_OK && pqs != PGRES_EMPTY_QUERY) {
 		snprintf(errstr, sizeof(errstr), "spq: getChunks exec error: %s",
 				PQresultErrorMessage(res));
 		syslog(LOG_INFO, errstr);
@@ -233,6 +233,7 @@ _spq_f_getRevisions_exec(PGconn *pgc,
 		char *username, guid_t *rootdir, guid_t *file, unsigned depth)
 {
 	PGresult *res;
+	ExecStatusType pqs;
 	char errstr[1024];
 	const char *tbq = "SELECT revision_guid FROM file_keys WHERE "
 		"username = $1 AND "
@@ -265,8 +266,9 @@ _spq_f_getRevisions_exec(PGconn *pgc,
 	res = PQexecParams(pgc, tbq, 4, NULL,
 			(const char *const*)val, length, format, 0);
 
-	if (PQresultStatus(res) != PGRES_COMMAND_OK) {
-		snprintf(errstr, sizeof(errstr), "spq: getChunks exec error: %s",
+	pqs = PQresultStatus(res);
+	if (pqs != PGRES_COMMAND_OK && pqs != PGRES_EMPTY_QUERY) {
+		snprintf(errstr, sizeof(errstr), "spq: getRevisions exec error: %s",
 				PQresultErrorMessage(res));
 		syslog(LOG_INFO, errstr);
 		PQclear(res);
