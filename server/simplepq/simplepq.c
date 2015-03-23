@@ -65,9 +65,9 @@ acquire_conn(struct spq_root *spq)
 			pthread_cond_signal(&spq->cond);
 		} else {
 			c = spq->acquire.sc;
+			c->mark_active = true;
 			spq->acquire.sc = NULL;
 		}
-		/* TODO: mark_active = true */
 		pthread_mutex_unlock(&spq->mutex);
 	}
 	return c;
@@ -446,7 +446,7 @@ spq_f_getRevisions(char *username, guid_t *rootdir, guid_t *file,
 {
 	struct spq *c;
 
-	if (!state->p && (state->p = acquire_conn(&_spq)) != NULL) {
+	if (!state->p && (state->p = acquire_conn(&_spq)) == NULL) {
 		return false;
 	}
 	c = (struct spq*)state->p;
