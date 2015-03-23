@@ -428,6 +428,8 @@ spq_f_getChunks(char *username,
 	/* если ресурса нет -- делаем запрос */
 	if (!state->res && (state->res = _spq_f_getChunks_exec(c->conn, username,
 				rootdir, file, revision)) == NULL) {
+		release_conn(&_spq, c);
+		memset(state, 0u, sizeof(struct getChunks));
 		return false;
 	}
 	res = (PGresult*)state->res;
@@ -453,6 +455,8 @@ spq_f_getRevisions(char *username, guid_t *rootdir, guid_t *file,
 
 	if (!state->res && (state->res = _spq_f_getRevisions_exec(c->conn,
 					username, rootdir, file, depth)) == NULL) {
+		release_conn(&_spq, c);
+		memset(state, 0u, sizeof(struct getRevisions));
 		return false;
 	}
 

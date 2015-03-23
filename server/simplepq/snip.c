@@ -16,7 +16,10 @@ _spq_f_getChunkPath(PGconn *pgc, char *username,
 	PGresult *res;
 	char errstr[1024];
 	const char *tb = "SELECT path FROM file_records WHERE"
-		"username = $1, rootdir_guid = $2, file_guid = $2, chunk_guid = $3";
+		"username = $1 AND "
+		"rootdir_guid = $2 AND "
+		"file_guid = $2 AND "
+		"chunk_guid = $3";
 	const int format[4] = {0, 0, 0, 0};
 
 	char _rootdir_guid[GUID_MAX + 1];
@@ -187,8 +190,10 @@ _spq_f_getChunks_exec(PGconn *pgc,
 	PGresult *res;
 	char errstr[1024];
 	const char *tbq = "SELECT chunk_hash, chunk_guid FROM file_records WHERE "
-		"username = $1, "
-		"rootdir_guid = $2, file_guid = $3, revision_guid = $4";
+		"username = $1 AND "
+		"rootdir_guid = $2 AND "
+		"file_guid = $3 AND "
+		"revision_guid = $4";
 	const int format[4] = {0, 0, 0, 0};
 
 	char _rootdir_guid[GUID_MAX + 1];
@@ -227,8 +232,8 @@ _spq_f_getRevisions_exec(PGconn *pgc,
 	PGresult *res;
 	char errstr[1024];
 	const char *tbq = "SELECT revision_guid FROM file_keys WHERE "
-		"username = $1, "
-		"rootdir_guid = $2, "
+		"username = $1 AND "
+		"rootdir_guid = $2 AND "
 		"file_guid = $3 "
 		"GROUP BY time,revision_guid "
 		"ORDER BY time DESC "
