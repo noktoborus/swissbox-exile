@@ -15,6 +15,13 @@ list_alloc(struct listRoot *root, uint64_t id, void *data)
 	if (!root)
 		return false;
 
+	if (list_find(root, id)) {
+#if DEEPDEBUG
+		xsyslog(LOG_DEBUG, "list: attemp to add exists id: %"PRIu64, id);
+#endif
+		return false;
+	}
+
 	ln = calloc(1, sizeof(struct listNode));
 	if (!ln) {
 		xsyslog(LOG_WARNING, "list: memory fail for id %"PRIu64": %s",

@@ -502,14 +502,14 @@ wait_store_t*
 touch_id(struct client *c, struct listRoot *list, uint64_t id)
 {
 	struct listNode *ln;
+	ln = list_find(list, id);
 #if DEEPDEBUG
-	xsyslog(LOG_DEBUG, "client[%p] list touch_id(%s, %"PRIu64")",
-			(void*)c->cev, list_name(c, list), id);
+	xsyslog(LOG_DEBUG, "client[%p] list touch_id(%s, %"PRIu64") -> %s",
+			(void*)c->cev, list_name(c, list), id, ln ? "found" : "not found");
 #endif
-	if (!(ln = list_find(list, id)))
-		return NULL;
-
-	return (wait_store_t*)ln->data;
+	if (ln)
+		return (wait_store_t*)ln->data;
+	return NULL;
 }
 
 /* всякая ерунда */
@@ -669,10 +669,14 @@ _handle_file_update(struct client *c, unsigned type, Fep__FileUpdate *fu)
 	uint64_t hash;
 	wait_store_t *ws;
 	struct wait_file *wf;
+	bool ws_touched;
 
 	hash = guid2hash(fu->file_guid);
 
-	ws = touch_id(c, &c->fid, hash);
+	/* ws_touched нужен для избежания попадания второй записи об одном файле
+	 * в список
+	 */
+	ws_touched = ((ws = touch_id(c, &c->fid, hash)) != NULL);
 	/* если записи нет, нужно создать новую */
 
 	if (!ws) {
@@ -710,7 +714,7 @@ _handle_file_update(struct client *c, unsigned type, Fep__FileUpdate *fu)
 			fu->file_guid, fu->revision_guid, wf->key_len);
 #endif
 	wf->chunks = fu->chunks;
-	if (!file_check_update(c, wf)) {
+	if (!file_check_update(c, wf) && !ws_touched) {
 		wait_id(c, &c->fid, hash, ws);
 	}
 	return send_ok(c, fu->id);
@@ -1034,24 +1038,24 @@ client_destroy(struct client *c)
 	if (!c)
 		return;
 	/* чистка очередей */
-	while (list_free_root(&c->mid, &mid_free)) {
+	do {
 #if DEEPDEBUG
 		xsyslog(LOG_DEBUG, "client[%p] remain %"PRIuPTR" mid",
 				(void*)c, c->mid.count);
 #endif
-	};
-	while (list_free_root(&c->sid, (void(*)(void*))&sid_free)) {
+	} while (list_free_root(&c->mid, &mid_free));
+	do {
 #if DEEPDEBUG
 		xsyslog(LOG_DEBUG, "client[%p] remain %"PRIuPTR" sid",
 				(void*)c, c->sid.count);
 #endif
-	};
-	while (list_free_root(&c->fid, (void(*)(void*))&fid_free)) {
+	} while (list_free_root(&c->sid, (void(*)(void*))&sid_free));
+	do {
 #if DEEPDEBUG
 		xsyslog(LOG_DEBUG, "client[%p] remain %"PRIuPTR" fid",
 				(void*)c, c->fid.count);
 #endif
-	};
+	} while (list_free_root(&c->fid, (void(*)(void*))&fid_free));
 
 	while (cout_free(c));
 	while (rout_free(c));
