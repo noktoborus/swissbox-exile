@@ -182,7 +182,16 @@ def proto(s, c):
         send_message(s, msg)
         while recv_message(s)[0] != 4:
             pass
-
+    if c == "read":
+        msg = FEP.ReadAsk()
+        msg.id = 223
+        msg.session_id = 2
+        msg.rootdir_guid = '1d2b1ce9-b3ab-40d3-86ec-3b771be9efcb'
+        msg.file_guid = '5cfa6545-32b5-4b04-b3d0-70ecbab9c545'
+        msg.chunk_guid = '45076c44-d617-42a0-a938-d0c121dde5c4'
+        send_message(s, msg)
+        while recv_message(s)[0] !=  11:
+            pass
     # TODO:
 
 def connect(host, command):
