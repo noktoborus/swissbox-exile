@@ -192,8 +192,8 @@ sev_send(void *ctx, const unsigned char *buf, size_t len)
 		struct timeval tv;
 		FD_ZERO(&fdw);
 		FD_SET(ptx->fd, &fdw);
-		tv.tv_sec = ptx->send_timeout;
-		tv.tv_usec = 0;
+		tv.tv_sec = 0;
+		tv.tv_usec = 300;
 
 		if (select(ptx->fd + 1, NULL, &fdw, NULL, &tv) > 0) {
 			if (!(re = write(ptx->fd, (void*)buf, len)))
@@ -217,8 +217,8 @@ sev_recv(void *ctx, unsigned char *buf, size_t len)
 		struct timeval tv;
 		FD_ZERO(&fdr);
 		FD_SET(ptx->fd, &fdr);
-		tv.tv_sec = ptx->recv_timeout;
-		tv.tv_usec = 0;
+		tv.tv_sec = 0;
+		tv.tv_usec = 300;
 
 		if (select(ptx->fd + 1, &fdr, NULL, NULL, &tv) > 0) {
 			if (!(re = read(ptx->fd, (void*)buf, len)))
