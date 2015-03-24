@@ -15,7 +15,7 @@ _spq_f_getChunkPath(PGconn *pgc, char *username,
 {
 	PGresult *res;
 	char errstr[1024];
-	const char *tb = "SELECT path FROM file_records WHERE "
+	const char *tb = "SELECT chunk_path FROM file_records WHERE "
 		"username = $1 AND "
 		"rootdir_guid = $2 AND "
 		"file_guid = $2 AND "
