@@ -155,7 +155,7 @@ _handle_query_revisions(struct client *c, unsigned type,
 		return send_error(c, msg->id, "Internal error 111", -1);
 	}
 	memcpy(&rs->v.r, &gr, sizeof(struct getRevisions));
-	rs->id = msg->id;
+	rs->id = msg->session_id;
 	rs->type = RESULT_REVISIONS;
 	rs->free = (void(*)(void*))spq_f_getRevisions_free;
 	rs->next = c->rout;
@@ -191,7 +191,7 @@ _handle_query_chunks(struct client *c, unsigned type, Fep__QueryChunks *msg)
 		return send_error(c, msg->id, "Internal error 111", -1);
 	}
 	memcpy(&rs->v.c, &gc, sizeof(struct getChunks));
-	rs->id = msg->id;
+	rs->id = msg->session_id;
 	rs->type = RESULT_CHUNKS;
 	rs->free = (void(*)(void*))spq_f_getChunks_free;
 	rs->next = c->rout;
@@ -1116,14 +1116,14 @@ _client_iterate_result(struct client *c)
 		size_t hash_len;
 		if (!spq_f_getChunks_it(&c->rout->v.c)) {
 			/* итерироваться больше некуда, потому подчищаем */
-			uint64_t id = c->rout->id;
 			rout_free(c);
-			return send_ok(c, id);
+			return true;
 		}
 		guid2string(&c->rout->v.c.chunk, guid, sizeof(guid));
 		hash_len = hex2bin(c->rout->v.c.hash, strlen(c->rout->v.c.hash),
 				hash, sizeof(hash));
-		msg.id = c->rout->id;
+		msg.id = generate_id(c);
+		msg.session_id = c->rout->id;
 		msg.chunk_guid = guid;
 		msg.chunk_no = c->rout->v.c.row;
 		msg.chunk_max = c->rout->v.c.max;
@@ -1135,16 +1135,16 @@ _client_iterate_result(struct client *c)
 		char guid[GUID_MAX + 1];
 		char parent[GUID_MAX + 1];
 		if (!spq_f_getRevisions_it(&c->rout->v.r)) {
-			uint64_t id = c->rout->id;
 			rout_free(c);
-			return send_ok(c, id);
+			return true;
 		}
 		if (c->rout->v.r.parent.not_null) {
 			guid2string(&c->rout->v.r.parent, parent, sizeof(guid));
 			msg.parent_revision_guid = parent;
 		}
 		guid2string(&c->rout->v.r.revision, guid, sizeof(guid));
-		msg.id = c->rout->id;
+		msg.id = generate_id(c);
+		msg.session_id = c->rout->id;
 		msg.rev_no = c->rout->v.r.row;
 		msg.rev_max = c->rout->v.r.max;
 		msg.revision_guid = guid;
