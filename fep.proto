@@ -40,7 +40,11 @@ option optimize_for = SPEED;
  S: Ok (id = 1002)
 
  Последовательность чтения:
- TODO: не готово
+ C: ReadAsk (id = 2051, session_id = 331)
+ S: xfer (id = 440, session_id = 331)
+ S: xfer (id = 441, session_id = 331)
+ ...
+ S: End (id = 445, session_id = 331)
 
  Получение количества чанков:
  C: QueryChunks (id = 100, session_id = 200)
@@ -49,10 +53,10 @@ option optimize_for = SPEED;
  S: ResultChunk (id = 103, session_id = 200, chunk_no = 3, chunk_max = 3)
 
  Получение списка ревизий
- C: QueryRevisions (id = 101, session_id = 201, depth = 3, offset = 0)
- S: ResultRevision (id = 102, session_id = 201, rev_no = 1, rev_max = 3)
- S: ResultRevision (id = 103, session_id = 201, rev_no = 2, rev_max = 3)
- S: ResultRevision (id = 104, session_id = 201, rev_no = 3, rev_max = 3)
+ C: QueryRevisions (id = 107, session_id = 201, depth = 3, offset = 0)
+ S: ResultRevision (id = 108, session_id = 201, rev_no = 1, rev_max = 3)
+ S: ResultRevision (id = 109, session_id = 201, rev_no = 2, rev_max = 3)
+ S: ResultRevision (id = 110, session_id = 201, rev_no = 3, rev_max = 3)
 
 */
 
