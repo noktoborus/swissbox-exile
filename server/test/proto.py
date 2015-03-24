@@ -95,7 +95,7 @@ def proto_bootstrap(s):
                 msg.id = msgt[2].id
                 msg.authType = FEP.tUserToken
                 msg.domain = "it-grad.ru"
-                msg.username = str(__import__("uuid").uuid1())
+                msg.username = "some-user-name"#str(__import__("uuid").uuid1())
                 msg.authToken = "1"
                 send_message(s, msg)
             elif msgt[1] == "tOk":
@@ -172,6 +172,16 @@ def proto(s, c):
         recv_message(s)
     if c == "wait":
         recv_message(s)
+    if c == "chunk":
+        __import__("pdb").set_trace()
+        msg = FEP.QueryChunks()
+        msg.id = 22
+        msg.rootdir_guid =  "a0cf497f-8d04-437b-ade1-1c542a2c0e8b"
+        msg.file_guid =     "810a931d-379c-465c-8cc7-c8ab5c8a643e"
+        msg.revision_guid = "a298cb11-1f0e-4b1e-9577-c50ff8766dbc"
+        send_message(s, msg)
+        while recv_message(s)[0] != 4:
+            pass
 
     # TODO:
 
