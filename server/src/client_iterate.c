@@ -1375,7 +1375,7 @@ client_iterate(struct sev_ctx *cev, bool last, void **p)
 	/* нужно выставить флаг быстрого пропуска,
 	 * если есть файлы в очереди
 	 */
-	if (c->cout) {
+	if (c->cout || c->rout) {
 		cev->action |= SEV_ACTION_FASTTEST;
 	}
 	/* переходим на следующую итерацию */
