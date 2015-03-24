@@ -1112,8 +1112,9 @@ _client_iterate_result(struct client *c)
 		size_t hash_len;
 		if (!spq_f_getChunks_it(&c->rout->v.c)) {
 			/* итерироваться больше некуда, потому подчищаем */
+			uint64_t id = c->rout->id;
 			rout_free(c);
-			return send_ok(c, c->rout->id);
+			return send_ok(c, id);
 		}
 		guid2string(&c->rout->v.c.chunk, guid, sizeof(guid));
 		hash_len = hex2bin(c->rout->v.c.hash, strlen(c->rout->v.c.hash),
