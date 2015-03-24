@@ -195,7 +195,7 @@ _handle_query_chunks(struct client *c, unsigned type, Fep__QueryChunks *msg)
 	rs->type = RESULT_CHUNKS;
 	rs->free = (void(*)(void*))spq_f_getChunks_free;
 	rs->next = c->rout;
-	c->rout = rs->next;
+	c->rout = rs;
 	return true;
 }
 
