@@ -16,6 +16,7 @@
 #define HASHHEX_MAX SHA256HEX_MAX
 #define HASH_MAX SHA256_MAX
 
+uint32_t hash_pjw(char *str, size_t size);
 size_t hex2bin(const char *hex, size_t hex_len, char *binary, size_t bin_len);
 size_t bin2hex(uint8_t *binary, size_t bin_len, char *string, size_t str_len);
 

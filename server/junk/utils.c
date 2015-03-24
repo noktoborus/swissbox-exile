@@ -6,6 +6,24 @@
 #include <stdio.h>
 #include "utils.h"
 
+
+uint32_t
+hash_pjw(char *str, size_t size)
+{
+	register uint32_t hash = 0u;
+	register uint32_t test = 0u;
+	register size_t i = 0u;
+
+	for (; i < size; i++) {
+		hash = (hash << 4) + (uint8_t)(*str);
+
+		if ((test = hash & 0xf0000000) != 0) {
+			hash = ((hash ^ (test >> 24)) & (0xfffffff));
+		}
+	}
+	return hash;
+}
+
 size_t
 hex2bin(const char *hex, size_t hex_len, char *binary, size_t bin_len)
 {

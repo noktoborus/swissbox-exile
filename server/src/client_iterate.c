@@ -89,25 +89,6 @@ sid_free(wait_store_t *ws)
 	free(ws);
 }
 
-uint64_t
-guid2hash(const char *key)
-{
-	register uint64_t h = 0u;
-	register uint64_t hl, hr;
-
-	while (*key) {
-		if (*key == '{' || *key == '}' || *key == '-') {
-			key++;
-			continue;
-		}
-		h += *key;
-		hl = 0x5c5c5 ^ (h & 0xfff00000) >> 30;
-		hr = (h & 0x000fffff);
-		h = hl ^ hr ^ *(key++);
-	}
-	return h;
-}
-
 static inline bool
 is_legal_guid(char *guid)
 {
@@ -328,7 +309,7 @@ _handle_write_ask(struct client *c, unsigned type, Fep__WriteAsk *msg)
 		/* в этом блоке структура wx только настраивается,
 			упаковка происходит дальше */
 		bool fid_in; /* логический костыль */
-		hash = guid2hash(msg->file_guid);
+		hash = hash_pjw(msg->file_guid, strlen(msg->file_guid));
 		fid_in = ((fid_ws = touch_id(c, &c->fid, hash)) != NULL);
 
 		if (!fid_ws) {
@@ -689,7 +670,7 @@ _handle_file_update(struct client *c, unsigned type, Fep__FileUpdate *fu)
 	struct wait_file *wf;
 	bool ws_touched;
 
-	hash = guid2hash(fu->file_guid);
+	hash = hash_pjw(fu->file_guid, strlen(fu->file_guid));
 
 	/* ws_touched нужен для избежания попадания второй записи об одном файле
 	 * в список
