@@ -160,6 +160,11 @@ _handle_query_revisions(struct client *c, unsigned type,
 	rs->free = (void(*)(void*))spq_f_getRevisions_free;
 	rs->next = c->rout;
 	c->rout = rs;
+#if DEEPDEBUG
+	xsyslog(LOG_DEBUG, "client[%p] -> QueryRevisions id = %"PRIu64
+			" sid = %"PRIu32,
+			(void*)c->cev, msg->id, msg->session_id);
+#endif
 	return true;
 }
 
@@ -239,11 +244,16 @@ _handle_read_ask(struct client *c, unsigned type, Fep__ReadAsk *msg)
 	}
 
 	chs->fd = fd;
+	chs->session_id = msg->session_id;
 	chs->size = st.st_size;
 	chs->next = c->cout;
 	chs->origin_len = origin;
 	chs->file_offset = offset;
 	c->cout = chs;
+#if DEEPDEBUG
+	xsyslog(LOG_DEBUG, "client[%p] -> ReadAsk id = %"PRIu64", sid = %"PRIu32,
+			(void*)c->cev, msg->id, msg->session_id);
+#endif
 
 	return true;
 }
@@ -1129,6 +1139,12 @@ _client_iterate_result(struct client *c)
 		msg.chunk_max = c->rout->v.c.max;
 		msg.chunk_hash.data = (uint8_t*)hash;
 		msg.chunk_hash.len = hash_len;
+#if DEEPDEBUG
+		xsyslog(LOG_DEBUG, "client[%p] <- ResultChunk id = %"PRIu64
+				" sid = %"PRIu32" #%"PRIu32"/%"PRIu32,
+				(void*)c->cev, msg.id, msg.session_id,
+				msg.chunk_no, msg.chunk_max);
+#endif
 		return send_message(c->cev, FEP__TYPE__tResultChunk, &msg);
 	} else if (c->rout->type == RESULT_REVISIONS) {
 		Fep__ResultRevision msg = FEP__RESULT_REVISION__INIT;
@@ -1148,6 +1164,12 @@ _client_iterate_result(struct client *c)
 		msg.rev_no = c->rout->v.r.row;
 		msg.rev_max = c->rout->v.r.max;
 		msg.revision_guid = guid;
+#if DEEPDEBUG
+		xsyslog(LOG_DEBUG, "client[%p] <- ResultRevision id = %"PRIu64
+				" sid = %"PRIu32" #%"PRIu32"/%"PRIu32,
+				(void*)c->cev, msg.id, msg.session_id,
+				msg.rev_no, msg.rev_max);
+#endif
 		return send_message(c->cev, FEP__TYPE__tResultRevision, &msg);
 	}
 	return true;
@@ -1185,6 +1207,10 @@ _client_iterate_chunk(struct client *c)
 		msg.offset = c->cout->file_offset;
 		msg.origin_len = c->cout->origin_len;
 		cout_free(c);
+#if DEEPDEBUG
+		xsyslog(LOG_DEBUG, "client[%p] <- End id = %"PRIu64" sid = %"PRIu32,
+				(void*)c->cev, msg.id, msg.session_id);
+#endif
 		return send_message(c->cev, FEP__TYPE__tEnd, &msg);
 	} else {
 		/* чтение файла */
@@ -1211,6 +1237,11 @@ _client_iterate_chunk(struct client *c)
 			xfer_msg.offset = readsz;
 			xfer_msg.data.data = (uint8_t*)c->cout_buffer;
 			xfer_msg.data.len = transed;
+#if DEEPDEBUG
+			xsyslog(LOG_DEBUG, "client[%p] <- xfer id = %"PRIu64
+					" sid = %"PRIu32,
+					(void*)c->cev, xfer_msg.id, xfer_msg.session_id);
+#endif
 			return send_message(c->cev, FEP__TYPE__txfer, &xfer_msg);
 		}
 	}
