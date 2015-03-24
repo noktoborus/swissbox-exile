@@ -18,8 +18,8 @@ _spq_f_getChunkPath(PGconn *pgc, char *username,
 	const char *tb = "SELECT chunk_path FROM file_records WHERE "
 		"username = $1 AND "
 		"rootdir_guid = $2 AND "
-		"file_guid = $2 AND "
-		"chunk_guid = $3;";
+		"file_guid = $3 AND "
+		"chunk_guid = $4;";
 	const int format[4] = {0, 0, 0, 0};
 
 	char _rootdir_guid[GUID_MAX + 1];
