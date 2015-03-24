@@ -43,21 +43,16 @@ option optimize_for = SPEED;
  TODO: не готово
 
  Получение количества чанков:
- C: QueryChunks (id = 100)
- S: ResultChunk (id = 100, chunk_no = 1, chunk_max = 3)
- S: ResultChunk (id = 100, chunk_no = 2, chunk_max = 3)
- S: ResultChunk (id = 100, chunk_no = 3, chunk_max = 3)
- S: Ok (id = 100)
+ C: QueryChunks (id = 100, session_id = 200)
+ S: ResultChunk (id = 101, session_id = 200, chunk_no = 1, chunk_max = 3)
+ S: ResultChunk (id = 102, session_id = 200, chunk_no = 2, chunk_max = 3)
+ S: ResultChunk (id = 103, session_id = 200, chunk_no = 3, chunk_max = 3)
 
  Получение списка ревизий
- C: QueryRevisions (id = 100, depth = 3, offset = 0)
- S: ResultRevision (id = 100, rev_no = 1, rev_max = 3)
- S: ResultRevision (id = 100, rev_no = 2, rev_max = 3)
- S: ResultRevision (id = 100, rev_no = 3, rev_max = 3)
- S: Ok (id = 100)
-
- Серверу не имеет значения, был ли доставлен файл до клиента,
- Потому завершающее сообщение отправляется с Id == 0 и не требует ответа 
+ C: QueryRevisions (id = 101, session_id = 201, depth = 3, offset = 0)
+ S: ResultRevision (id = 102, session_id = 201, rev_no = 1, rev_max = 3)
+ S: ResultRevision (id = 103, session_id = 201, rev_no = 2, rev_max = 3)
+ S: ResultRevision (id = 104, session_id = 201, rev_no = 3, rev_max = 3)
 
 */
 
@@ -285,6 +280,8 @@ message ReadAsk {
 message QueryRevisions {
 	required uint64 id = 1 [default = 0];
 
+	required uint32 session_id = 2;
+
 	required string rootdir_guid = 3;
 	required string file_guid = 4;
 
@@ -293,6 +290,8 @@ message QueryRevisions {
 
 message ResultRevision {
 	required uint64 id = 1 [default = 0];
+
+	required uint32 session_id = 2;
 
 	required string revision_guid = 3;
 	optional string parent_revision_guid = 4;
@@ -305,6 +304,8 @@ message ResultRevision {
 message QueryChunks {
 	required uint64 id = 1 [default = 1];
 
+	required uint32 session_id = 2;
+
 	required string rootdir_guid = 3;
 	required string file_guid = 4;
 	required string revision_guid = 5;
@@ -313,6 +314,8 @@ message QueryChunks {
 /* ответ на QueryChunks */
 message ResultChunk {
 	required uint64 id = 1 [default = 1];
+
+	required uint32 session_id = 2;
 
 	required string chunk_guid = 5;
 	/* общее количество подобных сообщений и номер текущего сообщения  */
