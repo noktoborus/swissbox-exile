@@ -213,13 +213,15 @@ _handle_read_ask(struct client *c, unsigned type, Fep__ReadAsk *msg)
 	char path[PATH_MAX];
 	struct chunk_send *chs;
 	struct stat st;
+	size_t offset;
+	size_t origin;
 
 	string2guid(msg->rootdir_guid, strlen(msg->rootdir_guid), &rootdir);
 	string2guid(msg->file_guid, strlen(msg->file_guid), &file);
 	string2guid(msg->chunk_guid, strlen(msg->chunk_guid), &chunk);
 
 	if (!spq_f_getChunkPath(c->name, &rootdir, &file, &chunk,
-				path, sizeof(path))) {
+				path, sizeof(path), &offset, &origin)) {
 		return send_error(c, msg->id, "Internal error 120", -1);
 	}
 
@@ -239,6 +241,8 @@ _handle_read_ask(struct client *c, unsigned type, Fep__ReadAsk *msg)
 	chs->fd = fd;
 	chs->size = st.st_size;
 	chs->next = c->cout;
+	chs->origin_len = origin;
+	chs->file_offset = offset;
 	c->cout = chs;
 
 	return true;
@@ -1152,7 +1156,6 @@ _client_iterate_result(struct client *c)
 bool static inline
 _client_iterate_chunk(struct client *c)
 {
-	Fep__Xfer xfer_msg = FEP__XFER__INIT;
 	ssize_t transed;
 	size_t readsz;
 
@@ -1171,37 +1174,47 @@ _client_iterate_chunk(struct client *c)
 				return true;
 		} else {
 			c->cout_bfsz = c->options.send_buffer;
+			c->cout_buffer = p;
 		}
 	}
 	/* если прочитали всё что можно -- шлём End и деаллочимся */
 	if (c->cout->sent == c->cout->size) {
-		/* TODO: отослать End */
+		Fep__End msg = FEP__END__INIT;
+		msg.id = generate_id(c);
+		msg.session_id = c->cout->session_id;
+		msg.offset = c->cout->file_offset;
+		msg.origin_len = c->cout->origin_len;
 		cout_free(c);
-	}
-	/* чтение файла */
-	readsz = MIN(c->cout_bfsz, c->cout->size - c->cout->sent);
-	transed = read(c->cout->fd, c->cout_buffer, readsz);
-	if (transed <= 0) {
-		if (transed == -1) {
-			xsyslog(LOG_INFO, "client[%p] read failed: %s",
-					(void*)c->cev, strerror(errno));
+		return send_message(c->cev, FEP__TYPE__tEnd, &msg);
+	} else {
+		/* чтение файла */
+		readsz = MIN(c->cout_bfsz, c->cout->size - c->cout->sent);
+		transed = read(c->cout->fd, c->cout_buffer, readsz);
+		if (transed <= 0) {
+			if (transed == -1) {
+				xsyslog(LOG_INFO, "client[%p] read failed: %s",
+						(void*)c->cev, strerror(errno));
+			} else {
+				xsyslog(LOG_INFO, "client[%p] read wtf: %s",
+						(void*)c->cev, strerror(errno));
+			}
+		} else {
+			/* сохранение позиции,
+			 * её нужно передать клиенту
+			 * и обновляем данные
+			 */
+			Fep__Xfer xfer_msg = FEP__XFER__INIT;
+			c->cout->sent += (size_t)readsz;
+			/* отправка чанкодаты */
+			xfer_msg.id = generate_id(c);
+			xfer_msg.session_id = c->cout->session_id;
+			xfer_msg.offset = readsz;
+			xfer_msg.data.data = (uint8_t*)c->cout_buffer;
+			xfer_msg.data.len = transed;
+			return send_message(c->cev, FEP__TYPE__txfer, &xfer_msg);
 		}
-		cout_free(c);
-		return true;
 	}
-	/* сохранение позиции,
-	 * её нужно передать клиенту
-	 * и обновляем данные
-	 */
-	readsz = c->cout->sent;
-	c->cout->sent += (size_t)readsz;
-	/* отправка чанкодаты */
-	xfer_msg.id = generate_id(c);
-	xfer_msg.session_id = c->cout->session_id;
-	xfer_msg.offset = readsz;
-	xfer_msg.data.data = (uint8_t*)c->cout_buffer;
-	xfer_msg.data.len = transed;
-	return send_message(c->cev, FEP__TYPE__txfer, &xfer_msg);
+	return true;
 }
 
 bool static inline

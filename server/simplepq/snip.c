@@ -11,11 +11,12 @@
 bool
 _spq_f_getChunkPath(PGconn *pgc, char *username,
 		guid_t *rootdir, guid_t *file, guid_t *chunk,
-		char *path, size_t path_len)
+		char *path, size_t path_len, size_t *offset, size_t *origin)
 {
 	PGresult *res;
 	char errstr[1024];
-	const char *tb = "SELECT chunk_path FROM file_records WHERE "
+	const char *tb = "SELECT chunk_path, \"offset\", origin "
+		"FROM file_records WHERE "
 		"username = $1 AND "
 		"rootdir_guid = $2 AND "
 		"file_guid = $3 AND "
@@ -28,6 +29,9 @@ _spq_f_getChunkPath(PGconn *pgc, char *username,
 
 	char *val[4];
 	int length[4];
+
+	char *value;
+	size_t value_len;
 
 	length[0] = strlen(username);
 	length[1] = guid2string(rootdir, _rootdir_guid, sizeof(_rootdir_guid));
@@ -49,6 +53,19 @@ _spq_f_getChunkPath(PGconn *pgc, char *username,
 		PQclear(res);
 		return false;
 	}
+
+	value = PQgetvalue(res, 0, 0);
+	value_len = PQgetlength(res, 0, 0);
+
+	/* декрементируем длину, что бы можно было втиснуть венчающий \0 */
+	path_len--;
+	memcpy(path, value, MIN(value_len, path_len));
+	path[MIN(value_len, path_len)] = '\0';
+
+	if (offset && PQgetlength(res, 0, 1))
+		*offset = strtoul(PQgetvalue(res, 0, 1), NULL, 10);
+	if (origin && PQgetlength(res, 0, 2))
+		*origin = strtoul(PQgetvalue(res, 0, 2), NULL, 10);
 
 	PQclear(res);
 	return true;

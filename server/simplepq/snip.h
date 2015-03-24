@@ -24,7 +24,7 @@
 bool
 _spq_f_getChunkPath(PGconn *pgc, char *username,
 		guid_t *rootdir, guid_t *file, guid_t *chunk,
-		char *path, size_t path_len);
+		char *path, size_t path_len, size_t *offset, size_t *origin);
 
 /*
  * внесение информации по загруженному чанку

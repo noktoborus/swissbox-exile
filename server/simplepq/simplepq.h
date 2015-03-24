@@ -31,7 +31,7 @@ spq_f_chunkFile(char *username,
 
 bool spq_f_getChunkPath(char *username,
 		guid_t *rootdir, guid_t *file, guid_t *chunk,
-		char *path, size_t path_len);
+		char *path, size_t path_len, size_t *offset, size_t *origin);
 
 /* получение списка ревизий */
 
