@@ -33,7 +33,6 @@ option optimize_for = SPEED;
  C: xfer (session_id = 2344)
  ...
  C: End (session_id = 2344)
- S: Ok (id = 1001)
  C: WriteAsk...
  ...
  C: FileUpdate (id = 1002)
@@ -41,6 +40,7 @@ option optimize_for = SPEED;
 
  Последовательность чтения:
  C: ReadAsk (id = 2051, session_id = 331)
+ S: Ok (id = 2051)
  S: xfer (id = 440, session_id = 331)
  S: xfer (id = 441, session_id = 331)
  ...
@@ -48,12 +48,14 @@ option optimize_for = SPEED;
 
  Получение количества чанков:
  C: QueryChunks (id = 100, session_id = 200)
+ S: Ok (id = 100)
  S: ResultChunk (id = 101, session_id = 200, chunk_no = 1, chunk_max = 3)
  S: ResultChunk (id = 102, session_id = 200, chunk_no = 2, chunk_max = 3)
  S: ResultChunk (id = 103, session_id = 200, chunk_no = 3, chunk_max = 3)
 
  Получение списка ревизий
  C: QueryRevisions (id = 107, session_id = 201, depth = 3, offset = 0)
+ S: Ok (id = 107)
  S: ResultRevision (id = 108, session_id = 201, rev_no = 1, rev_max = 3)
  S: ResultRevision (id = 109, session_id = 201, rev_no = 2, rev_max = 3)
  S: ResultRevision (id = 110, session_id = 201, rev_no = 3, rev_max = 3)
