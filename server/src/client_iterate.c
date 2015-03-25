@@ -23,7 +23,6 @@ TYPICAL_HANDLE_F(Fep__Error, error, &c->mid)
 TYPICAL_HANDLE_F(Fep__Pending, pending, &c->mid)
 TYPICAL_HANDLE_F(Fep__WriteOk, write_ok, &c->mid)
 
-NOTIMP_HANDLE_F(Fep__RenameChunk, rename_chunk)
 NOTIMP_HANDLE_F(Fep__ResultChunk, result_chunk)
 NOTIMP_HANDLE_F(Fep__ResultRevision, result_revision)
 
@@ -106,6 +105,14 @@ is_legal_guid(char *guid)
 			return false;
 	}
 
+	return true;
+}
+
+bool
+_handle_rename_chunk(struct client *c, unsigned type,
+		Fep__RenameChunk *msg)
+{
+	/* TODO */
 	return true;
 }
 
@@ -1206,22 +1213,23 @@ _client_iterate_chunk(struct client *c)
 						(void*)c->cev, strerror(errno));
 			}
 		} else {
+			Fep__Xfer xfer_msg = FEP__XFER__INIT;
+			/* отправка чанкодаты */
+			xfer_msg.id = generate_id(c);
+			xfer_msg.session_id = c->cout->session_id;
+			xfer_msg.offset = c->cout->sent;
+			xfer_msg.data.data = (uint8_t*)c->cout_buffer;
+			xfer_msg.data.len = transed;
 			/* сохранение позиции,
 			 * её нужно передать клиенту
 			 * и обновляем данные
 			 */
-			Fep__Xfer xfer_msg = FEP__XFER__INIT;
 			c->cout->sent += (size_t)readsz;
-			/* отправка чанкодаты */
-			xfer_msg.id = generate_id(c);
-			xfer_msg.session_id = c->cout->session_id;
-			xfer_msg.offset = readsz;
-			xfer_msg.data.data = (uint8_t*)c->cout_buffer;
-			xfer_msg.data.len = transed;
 #if DEEPDEBUG
 			xsyslog(LOG_DEBUG, "client[%p] <- xfer id = %"PRIu64
-					" sid = %"PRIu32,
-					(void*)c->cev, xfer_msg.id, xfer_msg.session_id);
+					" sid = %"PRIu32", offset=%"PRIu64", len = %"PRIu64,
+					(void*)c->cev, xfer_msg.id, xfer_msg.session_id,
+					xfer_msg.offset, xfer_msg.data.len);
 #endif
 			return send_message(c->cev, FEP__TYPE__txfer, &xfer_msg);
 		}
