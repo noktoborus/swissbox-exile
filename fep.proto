@@ -331,7 +331,7 @@ message ResultChunk {
 	required bytes chunk_hash = 10;
 }
 
-/* */
+/* используется для переноса чанка из другой ревизии в указанную */
 message RenameChunk {
 	required uint64 id = 1 [default = 0];
 	required string rootdir_guid = 2;
@@ -339,6 +339,7 @@ message RenameChunk {
 	required string chunk_guid = 4;
 	/* целевой гуид */
 	required string to_chunk_guid = 5; 
+	required string to_revision_guid = 6;
 }
 
 /* извещения
