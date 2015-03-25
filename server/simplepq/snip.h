@@ -9,6 +9,13 @@
 #include <stdbool.h>
 #include <libpq-fe.h>
 
+/*
+ * копирует в бд запись чанка из другой ревизии
+ */
+bool
+_spq_f_chunkRename(PGconn *pgc, char *username,
+		guid_t *rootdir, guid_t *file, guid_t *chunk,
+		guid_t *chunk_new, guid_t *revision_new);
 
 /*
  * получение адреса чанка

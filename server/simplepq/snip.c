@@ -9,6 +9,73 @@
 #include <syslog.h>
 
 bool
+_spq_f_chunkRename(PGconn *pgc, char *username,
+		guid_t *rootdir, guid_t *file, guid_t *chunk,
+		guid_t *chunk_new, guid_t *revision_new)
+{
+	PGresult *res;
+	ExecStatusType pqs;
+	char errstr[1024];
+	const char *tb = "INSERT INTO file_records "
+		"SELECT "
+		"	time,"
+		"	username,"
+		"	chunk_hash,"
+		"	$5,"
+		"	rootdir_guid,"
+		"	file_guid,"
+		"	$6,"
+		"	chunk_path,"
+		"	\"offset\","
+		"	origin "
+		"FROM file_records "
+		"WHERE "
+		"	username = '$1' AND"
+		"	rootdir_guid = '$2' AND"
+		"	file_guid = '$3' AND"
+		"	chunk_guid =  '$4';";
+	const int format[6] = {0, 0, 0, 0, 0, 0};
+
+	char _rootdir_guid[GUID_MAX + 1];
+	char _chunk_guid[GUID_MAX + 1];
+	char _file_guid[GUID_MAX + 1];
+	char _chunk_new_guid[GUID_MAX + 1];
+	char _revision_new_guid[GUID_MAX + 1];
+
+	char *val[6];
+	int length[6];
+
+	length[0] = strlen(username);
+	length[1] = guid2string(rootdir, _rootdir_guid, sizeof(_rootdir_guid));
+	length[2] = guid2string(file, _file_guid, sizeof(_file_guid));
+	length[3] = guid2string(chunk, _chunk_guid, sizeof(_chunk_guid));
+	length[4] = guid2string(chunk_new,
+			_chunk_new_guid, sizeof(_chunk_new_guid));
+	length[5] = guid2string(revision_new,
+			_revision_new_guid, sizeof(_revision_new_guid));
+
+	val[0] = username;
+	val[1] = _rootdir_guid;
+	val[2] = _file_guid;
+	val[3] = _chunk_guid;
+	val[4] = _chunk_new_guid;
+	val[5] = _revision_new_guid;
+
+	res = PQexecParams(pgc, tb, 6, NULL,
+			(const char *const*)val, length, format, 0);
+	pqs = PQresultStatus(res);
+	if (pqs != PGRES_COMMAND_OK && pqs != PGRES_EMPTY_QUERY) {
+		snprintf(errstr, sizeof(errstr), "spq: chunkRename exec error: %s",
+				PQresultErrorMessage(res));
+			syslog(LOG_INFO, errstr);
+			PQclear(res);
+			return false;
+	}
+	PQclear(res);
+	return true;
+}
+
+bool
 _spq_f_getChunkPath(PGconn *pgc, char *username,
 		guid_t *rootdir, guid_t *file, guid_t *chunk,
 		char *path, size_t path_len, size_t *offset, size_t *origin)
