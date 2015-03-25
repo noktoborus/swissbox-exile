@@ -146,7 +146,7 @@ _handle_query_revisions(struct client *c, unsigned type,
 			" sid = %"PRIu32,
 			(void*)c->cev, msg->id, msg->session_id);
 #endif
-	return true;
+	return send_ok(c, msg->id);
 }
 
 bool
@@ -182,7 +182,7 @@ _handle_query_chunks(struct client *c, unsigned type, Fep__QueryChunks *msg)
 	rs->free = (void(*)(void*))spq_f_getChunks_free;
 	rs->next = c->rout;
 	c->rout = rs;
-	return true;
+	return send_ok(c, msg->id);
 }
 
 bool
@@ -236,7 +236,7 @@ _handle_read_ask(struct client *c, unsigned type, Fep__ReadAsk *msg)
 			(void*)c->cev, msg->id, msg->session_id);
 #endif
 
-	return true;
+	return send_ok(c, msg->id);
 }
 
 bool
