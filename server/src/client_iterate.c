@@ -1032,7 +1032,7 @@ client_load(struct client *c)
 		return false;
 	}
 	c->options.send_buffer = 9660;
-	return true;
+	return send_ping(c);
 }
 
 static inline void
