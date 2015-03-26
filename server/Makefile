@@ -25,6 +25,7 @@ runtest: ${BIN} proto/fep_pb2.py
 
 ${BIN}: .buildflags ${SOURCES}
 	${CC} -o ${BIN} ${CFLAGS} ${SOURCES} ${LIBS} `cat .buildflags`
+	echo "build ok"
 
 .buildflags: buildtools/findev.sh buildtools/findpq.sh\
 	buildtools/findprotobuf-c.sh
