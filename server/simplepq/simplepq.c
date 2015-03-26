@@ -13,6 +13,7 @@
 #include <time.h>
 #include <libpq-fe.h>
 #include <pthread.h>
+#include <sys/time.h>
 
 #if __linux__
 # include <linux/limits.h>
@@ -27,6 +28,8 @@
 struct spq {
 	PGconn *conn;
 
+	struct timeval lc; /* последняя проверка статуса */
+	uint32_t errhash;
 	bool mark_active;
 
 	struct spq *next;
@@ -88,6 +91,7 @@ static void*
 _thread_mgm(struct spq_root *spq)
 {
 	char errstr[1024];
+	struct timeval tvc;
 	struct timespec ts;
 	struct spq *sc;
 	unsigned spq_c; /* счётчик активных коннекшенов */
@@ -100,6 +104,7 @@ _thread_mgm(struct spq_root *spq)
 	pthread_mutex_unlock(&spq->mutex);
 	/* глубже */
 	while (true) {
+		gettimeofday(&tvc, NULL);
 		spq_c = 0u;
 		pthread_mutex_lock(&spq->mutex);
 		/* проверка статуса и выполнение переподключений */
@@ -116,13 +121,28 @@ _thread_mgm(struct spq_root *spq)
 				 * 3. подключение сбоило (!= CONNECTION_OK)
 				 */
 				if (sc->conn != NULL) {
-					snprintf(errstr, sizeof(errstr) - 1, "spq: [%p] error: %s",
-							(void*)sc, PQerrorMessage(sc->conn));
-					syslog(LOG_INFO, errstr);
+					uint32_t errhash;
+					char *errmsg;
+					errmsg = PQerrorMessage(sc->conn);
+					errhash = hash_pjw(errmsg, strlen(errmsg));
+					/* обновляем хеш ошибки, если не совпадает и
+					 * печатаем в лог
+					 */
+					if (errhash != sc->errhash) {
+						sc->errhash = errhash;
+						snprintf(errstr, sizeof(errstr) - 1,
+								"spq: [%p] error: %s",
+								(void*)sc, errmsg);
+						syslog(LOG_INFO, errstr);
+					}
 					PQfinish(sc->conn);
 				}
 				sc->conn = PQconnectdb(spq->pgstring);
 				PQsetErrorVerbosity(sc->conn, PQERRORS_TERSE);
+			} else if (sc->conn && pgstatus == CONNECTION_OK && sc->errhash) {
+				/* сообщаем что успешно подключились и подчищаем хеш */
+				sc->errhash = 0u;
+				syslog(LOG_INFO, "spq: [%p] connected", (void*)sc);
 			} else if ((sc->conn && pgstatus == CONNECTION_BAD)
 					|| (spq_c > spq->pool && !sc->mark_active)) {
 				/*
@@ -147,6 +167,13 @@ _thread_mgm(struct spq_root *spq)
 				 */
 				if (!sc)
 					break;
+			} else if (tvc.tv_sec - sc->lc.tv_sec > 10) {
+				/* еже-десятисекундная проверка соеденения
+				 * на самом деле не очень ок, потому что зафлуживает бд
+				 * TODO: добавить в конфигурашку
+				 */
+				PQclear(PQexec(sc->conn, "SELECT;"));
+				memcpy(&sc->lc.tv_sec, &tvc.tv_sec, sizeof(struct timeval));
 			}
 		}
 		if (spq_c == 0u && spq->pool == 0u) {
@@ -160,6 +187,10 @@ _thread_mgm(struct spq_root *spq)
 				snprintf(errstr, sizeof(errstr) - 1,
 						"spq: [%p] new connection", (void*)sc);
 				syslog(LOG_INFO, errstr);
+				/* назначем какое-нибудь безумное значение
+				 * что бы получить красивенье "... connected" в логе
+				 */
+				sc->errhash = (uint32_t)-1;
 				sc->next = spq->first;
 				if (sc->next)
 					sc->next->prev = sc;
@@ -181,7 +212,8 @@ _thread_mgm(struct spq_root *spq)
 		/* проверка всяких состояний,
 		 */
 		clock_gettime(CLOCK_REALTIME, &ts);
-		ts.tv_nsec += 3000u;
+		ts.tv_sec += 1u;
+		ts.tv_nsec += 30u;
 		/* TODO: выполнять проверку до timedwait и после */
 		pthread_cond_timedwait(&spq->cond, &spq->mutex, &ts);
 		if (spq->end) {
