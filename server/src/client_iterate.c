@@ -109,14 +109,6 @@ is_legal_guid(char *guid)
 }
 
 bool
-_handle_rename_chunk(struct client *c, unsigned type,
-		Fep__RenameChunk *msg)
-{
-	/* TODO */
-	return true;
-}
-
-bool
 _handle_query_revisions(struct client *c, unsigned type,
 		Fep__QueryRevisions *msg)
 {
@@ -316,7 +308,7 @@ _handle_write_ask(struct client *c, unsigned type, Fep__WriteAsk *msg)
 		/* в этом блоке структура wx только настраивается,
 			упаковка происходит дальше */
 		bool fid_in; /* логический костыль */
-		hash = hash_pjw(msg->file_guid, strlen(msg->file_guid));
+		hash = MAKE_FHASH(msg->rootdir_guid, msg->file_guid);
 		fid_in = ((fid_ws = touch_id(c, &c->fid, hash)) != NULL);
 
 		if (!fid_ws) {
@@ -677,7 +669,7 @@ _handle_file_update(struct client *c, unsigned type, Fep__FileUpdate *fu)
 	struct wait_file *wf;
 	bool ws_touched;
 
-	hash = hash_pjw(fu->file_guid, strlen(fu->file_guid));
+	hash = MAKE_FHASH(fu->rootdir_guid, fu->file_guid);
 
 	/* ws_touched нужен для избежания попадания второй записи об одном файле
 	 * в список
@@ -724,6 +716,48 @@ _handle_file_update(struct client *c, unsigned type, Fep__FileUpdate *fu)
 		wait_id(c, &c->fid, hash, ws);
 	}
 	return send_ok(c, fu->id);
+}
+
+bool
+_handle_rename_chunk(struct client *c, unsigned type, Fep__RenameChunk *msg)
+{
+	uint64_t hash;
+	struct wait_store *ws;
+	struct wait_file *wf;
+	char *errmsg = NULL;
+	guid_t rootdir;
+	guid_t file;
+	guid_t chunk;
+	guid_t revision_new;
+	guid_t chunk_new;
+
+	string2guid(msg->rootdir_guid, strlen(msg->rootdir_guid), &rootdir);
+	string2guid(msg->file_guid, strlen(msg->file_guid), &file);
+	string2guid(msg->chunk_guid, strlen(msg->chunk_guid), &chunk);
+	string2guid(msg->to_revision_guid, strlen(msg->to_revision_guid),
+			&revision_new);
+	string2guid(msg->to_chunk_guid, strlen(msg->to_chunk_guid), &chunk_new);
+
+	/* получение хеша и поиск структуры в списке */
+	hash = MAKE_FHASH(msg->rootdir_guid, msg->file_guid);
+	if ((ws = touch_id(c, &c->fid, hash)) != NULL) {
+		return send_error(c, msg->id, "Unexpected chunk rename", -1);
+	}
+	wf = ws->data;
+
+	/* манипуляция данными в бд */
+	if (!spq_f_chunkRename(c->name, &rootdir, &file, &chunk,
+				&chunk_new, &revision_new)) {
+		wf->chunks_fail++;
+		errmsg = "Internal error 600";
+	} else {
+		wf->chunks_ok++;
+		file_check_update(c, wf);
+	}
+
+	if (errmsg)
+		return send_error(c, msg->id, errmsg, -1);
+	return send_ok(c, msg->id);
 }
 
 bool

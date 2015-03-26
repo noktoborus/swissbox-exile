@@ -305,5 +305,9 @@ bool wait_id(struct client *c, struct listRoot *list, uint64_t id, wait_store_t 
 #define INVALID_HANDLE_S(type, name) \
 	{type, (handle_t)_handle_invalid, NULL, NULL, NULL, NULL}
 
+#define MAKE_FHASH(rootdir, file) \
+	( ((uint64_t)hash_pjw(rootdir, strlen(rootdir))) << 32 \
+	 | ((uint64_t)hash_pjw(file, strlen(file))) )
+
 #endif /* _SRC_CLIENT_ITERATE_1423393202_H_ */
 
