@@ -18,7 +18,7 @@ XF=$(tempfile)
 	cat ${XF}
 	exit 0
 ) 2>/dev/null || (
-	echo "libpq not found" >&2
+	echo "libprotobuf-c not found" >&2
 	exit 1
 )
 
