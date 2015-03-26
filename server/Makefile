@@ -2,7 +2,7 @@
 # file: Makefile
 LIBS=`pkg-config --libs --cflags libev pthread-stubs libprotobuf-c libpq`
 LIBS+=-pthread
-CFLAGS=-ggdb2 -D_GNU_SOURCE -D_POSIX_C_SOURCE -D_BSD_SOURCE -Wall -pedantic -std=c99 -I.
+CFLAGS=-ggdb2 -D_GNU_SOURCE -D_POSIX_C_SOURCE -D_BSD_SOURCE -D_DEFAULT_SOURCE -Wall -pedantic -std=c99 -I.
 CFLAGS+=${EF}
 BIN=bin/server
 SRC=src/
