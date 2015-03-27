@@ -744,7 +744,11 @@ _handle_rename_chunk(struct client *c, unsigned type, Fep__RenameChunk *msg)
 		return send_error(c, msg->id, "Unexpected chunk rename", -1);
 	}
 	wf = ws->data;
-
+#if DEEPDEBUG
+	xsyslog(LOG_DEBUG, "rename chunk: rootdir: %s, file: %s, chunk %s -> "
+			"chunk %s, rev %s", msg->rootdir_guid, msg->file_guid,
+			msg->chunk_guid, msg->to_chunk_guid, msg->to_revision_guid);
+#endif
 	/* манипуляция данными в бд */
 	if (!spq_f_chunkRename(c->name, &rootdir, &file, &chunk,
 				&chunk_new, &revision_new)) {
