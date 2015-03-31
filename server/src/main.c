@@ -25,6 +25,8 @@
 static unsigned int sev_ctx_seq = 0u;
 
 bool client_iterate(struct sev_ctx *, bool, void **);
+void alarm_cb(struct ev_loop *loop, ev_async *w, int revents);
+void client_cb(struct ev_loop *loop, ev_io *w, int revents);
 
 void *
 client_thread(void *ctx)
@@ -48,16 +50,20 @@ client_thread(void *ctx)
 					(void*)cev, (void*)cev->thread);
 			break;
 		}
-		/* если выставлен флаг быстрого прохода,
+		/* если выставлен флаг быстрого прохода или есть необработанные
+		 * данные в буфере чтения,
 		 * то не засыпаем, снимаем флаг, делаем проверку и возвращаемся
 		 * в цикл клиента
 		 */
 		if (cev->action & SEV_ACTION_FASTTEST) {
 			cev->action &= ~SEV_ACTION_FASTTEST;
+		} else if (cev->action & SEV_ACTION_DATA) {
+			/* если образовались данные нужно побыстрей их прокинуть дальше */
 		} else {
 		/* шоп не жрало цпу, делаем слипы до евента */
 			clock_gettime(CLOCK_REALTIME, &tv);
 			pthread_mutex_lock(&cev->utex);
+			tv.tv_sec += 1;
 			tv.tv_nsec += 300;
 			pthread_cond_timedwait(&cev->ond, &cev->utex, &tv);
 		}
@@ -98,6 +104,9 @@ client_free(struct sev_ctx *cev)
 	pthread_cond_destroy(&cev->ond);
 	pthread_mutex_destroy(&cev->utex);
 
+	ev_async_stop(cev->evloop, (struct ev_async*)&cev->async);
+	ev_io_stop(cev->evloop, (struct ev_io*)&cev->io);
+
 	if (cev->fd != -1) {
 		shutdown(cev->fd, SHUT_RDWR);
 #if DEEPDEBUG
@@ -106,6 +115,32 @@ client_free(struct sev_ctx *cev)
 		close(cev->fd);
 		cev->fd = -1;
 	}
+	/* выгребание буферов */
+	if (cev->recv.buf) {
+		free(cev->recv.buf);
+		cev->recv.buf = NULL;
+		cev->recv.size = 0u;
+#if DEEPDEBUG
+		if (cev->send.len)
+			xsyslog(LOG_DEBUG, "client[%p] hash non-empty recv buffer "
+					"(%"PRIuPTR" bytes)",
+					(void*)cev, cev->send.len);
+#endif
+		pthread_mutex_destroy(&cev->recv.lock);
+	}
+	if (cev->send.buf) {
+		free(cev->send.buf);
+		cev->send.buf = NULL;
+		cev->send.size = 0u;
+#if DEEPDEBUG
+		if (cev->send.len)
+			xsyslog(LOG_DEBUG, "client[%p] hash non-empty send buffer "
+					"(%"PRIuPTR" bytes)",
+					(void*)cev, cev->send.len);
+#endif
+		pthread_mutex_destroy(&cev->send.lock);
+	}
+	/* освобождение структуры клиента */
 	{
 		struct sev_ctx *ocev = NULL;
 		if (cev->prev) {
@@ -126,7 +161,6 @@ static inline struct sev_ctx *
 client_alloc(struct ev_loop *loop, int fd, struct sev_ctx *next)
 {
 	struct sev_ctx *cev;
-	struct main *pain = (struct main*)ev_userdata(loop);
 	cev = calloc(1, sizeof(struct sev_ctx));
 	if (!cev) {
 		xsyslog(LOG_WARNING, "client init(fd#%d) memory fail: %s",
@@ -138,11 +172,37 @@ client_alloc(struct ev_loop *loop, int fd, struct sev_ctx *next)
 	xsyslog(LOG_INFO, "client init(%p, fd#%d) serial: %u",
 			(void*)cev, fd, ++sev_ctx_seq);
 	memset(cev, 0, sizeof(struct sev_ctx));
+	/* сигналирование и поллинг
+	 * сделать это нужно как можно раньше, похоже
+	 * что если это делать после создания потока, в libev что-то ломается
+	 */
+	cev->async.cev = cev;
+	ev_async_init((struct ev_async*)&cev->async, alarm_cb);
+	ev_async_start(loop, (struct ev_async*)&cev->async);
+
+	cev->io.cev = cev;
+	ev_io_init((struct ev_io*)&cev->io, client_cb, fd, EV_NONE);
+	ev_io_start(loop, (struct ev_io*)&cev->io);
+
+	/* память под буфера */
+	cev->recv.buf = calloc(1, SEV_RECV_BUF);
+	cev->send.buf = calloc(1, SEV_SEND_BUF);
+	cev->recv.size = SEV_RECV_BUF;
+	cev->send.size = SEV_SEND_BUF;
+	/* не получилось */
+	if (!cev->recv.buf || !cev->send.buf) {
+		xsyslog(LOG_WARNING, "client init(%p, fd#%d) "
+				"alloc recv/send buffer failed",
+				(void*)cev, fd);
+		client_free(cev);
+		return NULL;
+	}
+	pthread_mutex_init(&cev->recv.lock, NULL);
+	pthread_mutex_init(&cev->send.lock, NULL);
 	pthread_cond_init(&cev->ond, NULL);
 	pthread_mutex_init(&cev->utex, NULL);
 
 	cev->serial = sev_ctx_seq;
-
 	/* лок для того, что бы тред не попытался прочитать/писать в сокет
 	 * до того, как ev_io будет проинициализировано
 	 */
@@ -174,7 +234,6 @@ client_alloc(struct ev_loop *loop, int fd, struct sev_ctx *next)
 		/* инициализация вторичных значений */
 		cev->fd = fd;
 		cev->evloop = loop;
-		cev->alarm = &pain->alarm;
 	}
 	pthread_mutex_unlock(&cev->utex);
 	return cev;
@@ -208,27 +267,53 @@ sev_send(void *ctx, const unsigned char *buf, size_t len)
 
 /* analog to sev_send */
 int
-sev_recv(void *ctx, unsigned char *buf, size_t len)
+sev_recv(void *ctx, unsigned char *buf, size_t size)
 {
-	struct sev_ctx *ptx = (struct sev_ctx*)ctx;
-	ssize_t re = 0;
-	if (ptx->recv_timeout) {
-		fd_set fdr;
-		struct timeval tv;
-		FD_ZERO(&fdr);
-		FD_SET(ptx->fd, &fdr);
-		tv.tv_sec = 0;
-		tv.tv_usec = 300;
+	struct sev_ctx *cev = (struct sev_ctx*)ctx;
+	int re = 0;
+	size_t len = 0u;
 
-		if (select(ptx->fd + 1, &fdr, NULL, NULL, &tv) > 0) {
-			if (!(re = read(ptx->fd, (void*)buf, len)))
-				re = -1;
-		}
+	pthread_mutex_lock(&cev->recv.lock);
+	if (cev->recv.eof) {
+		re = -1;
 	} else {
-		if (!(re = read(ptx->fd, (void*)buf, len)))
-			re = -1;
+		len = MIN(size, cev->recv.len);
+		if (len > 0u) {
+			/* копируем буфер и снова переносим оставшийся кусок с memmove
+			 * FIXME: пристроить ring buffer
+			 */
+			memcpy(buf, cev->recv.buf, len);
+			if ((cev->recv.len -= len) != 0u) {
+				if (!memmove(cev->recv.buf,
+							&cev->recv.buf[len], cev->recv.len)) {
+					/* протокол поехал, клиентский поток это заметит
+					 * и должен завершить общение, но известить об этом нужно
+					 */
+					xsyslog(LOG_WARNING,
+							"client[%p] got memory error at read: %s",
+							(void*)cev, strerror(errno));
+				}
+			} else {
+				/* нужно сбросить флажок что есть данные */
+				cev->action &= ~SEV_ACTION_DATA;
+#if DEEPDEBUG
+				memset(cev->recv.buf, 0, cev->recv.size);
+#endif
+			}
+		}
 	}
-	return (int)re;
+
+	if (len == 0u) {
+		/* буфер пустой, нужно попросить ещё, если мы не в очереди */
+		if (!(cev->io.e.io.events & EV_READ)) {
+			pthread_mutex_lock(&cev->utex);
+			cev->action |= SEV_ACTION_READ;
+			ev_async_send(cev->evloop, (struct ev_async*)&cev->async);
+			pthread_mutex_unlock(&cev->utex);
+		}
+	}
+	pthread_mutex_unlock(&cev->recv.lock);
+	return (re == -1) ? re : (int)len;
 }
 
 void
@@ -405,16 +490,158 @@ server_free(struct ev_loop *loop, struct sev_main *sev)
 }
 
 void
+signal_ignore_cb(struct ev_loop *loop, ev_signal *w, int revents)
+{
+}
+
+void
 signal_cb(struct ev_loop *loop, ev_signal *w, int revents)
 {
 	xsyslog(LOG_INFO, "break");
 	ev_break(loop, EVBREAK_ALL);
 }
 
+/* славливаем сигнал от клиента,
+ * помещаем его в очередь/извлекаем из очереди
+ */
 void
 alarm_cb(struct ev_loop *loop, ev_async *w, int revents)
 {
+	struct sev_ctx *cev;
+	struct ev_io *evio;
+	int actions = 0;
 
+	cev = ((struct evptr*)w)->cev;
+
+	pthread_mutex_lock(&cev->utex);
+	evio = (struct ev_io*)&cev->io;
+	if (cev->action & SEV_ACTION_READ) {
+		cev->action &= ~SEV_ACTION_READ;
+		if (evio->events & EV_READ) {
+			/* ерунда какая-то */
+			xsyslog(LOG_INFO, "client[%p] wtf: already in read queue",
+					(void*)cev);
+
+		} else {
+			actions |= EV_READ;
+		}
+	}
+	if (cev->action & SEV_ACTION_WRITE) {
+		cev->action &= ~SEV_ACTION_WRITE;
+		if (evio->events & EV_WRITE) {
+			xsyslog(LOG_INFO, "client[%p} wtf: already in write queue",
+					(void*)cev);
+		} else {
+			actions |= EV_WRITE;
+		}
+	}
+	pthread_mutex_unlock(&cev->utex);
+	/* назначение событий */
+	if (actions) {
+		ev_io_stop(loop, evio);
+		ev_io_set(evio, evio->fd, evio->events | actions);
+		ev_io_start(loop, evio);
+	}
+}
+
+static inline void
+_client_cb_read(struct ev_loop *loop, struct ev_io *w, struct sev_ctx *cev)
+{
+	register size_t len;
+	register ssize_t lval = 0;
+
+	pthread_mutex_lock(&cev->recv.lock);
+	/* лочим, подбираем размер, анлочим */
+	len = cev->recv.size - cev->recv.len;
+	if (len > 0u) {
+		lval = read(w->fd, &cev->recv.buf[cev->recv.len], len);
+		if (lval <= 0) {
+			/* если получили ошибку или нисколько из сокета,
+			 * значит завершаемся
+			 */
+			cev->recv.eof = true;
+		} else {
+			/* иначе дёргаем счётчик полученных байт */
+			cev->recv.len += lval;
+		}
+	}
+	if (lval <= 0) {
+		/* если записывать некуда (lval == 0 && len == 0)
+		 * или read() ушёл с ошибкой
+		 * то прекращаем обработку на чтение данного ивента
+		 */
+		ev_io_stop(loop, w);
+		ev_io_set(w, w->fd, w->events & ~EV_READ);
+		ev_io_start(loop, w);
+	}
+	/* нужно дёрнуть тред клиента
+	 * и поставить флажок что информация прибыла
+	 */
+	pthread_mutex_lock(&cev->utex);
+	if (lval > 0)
+		cev->action |= SEV_ACTION_DATA;
+	pthread_cond_broadcast(&cev->ond);
+	pthread_mutex_unlock(&cev->utex);
+	pthread_mutex_unlock(&cev->recv.lock);
+}
+
+static inline void
+_client_cb_write(struct ev_loop *loop, struct ev_io *w, struct sev_ctx *cev)
+{
+	register ssize_t lval = 0;
+	/* нужно делать trylock, но тогда это приведёт к сильному
+	 * отжиранию процеесорного времени, если обработка буфера
+	 * задержится в потоке-клиенте
+	 * а так может тормознуться весь процесс чтения
+	 *
+	 * можно сделать на двух буферах, как поток клиента читает из своего буфера
+	 * сервер пишет во второй буфер, после чего они сменяются.
+	 * Но тогда непонятно что будет с очерёдностью получаемой информации
+	 */
+	pthread_mutex_lock(&cev->send.lock);
+	if (cev->send.len == 0u) {
+		lval = write(w->fd, cev->send.buf, cev->send.len);
+		if (lval <= 0) {
+			/* ошибка при записи, выход */
+			cev->send.eof = true;
+		} else {
+			/* перемещаем данные в начало буфера
+			 * FIXME: использовать memmove жирно, пристроить ring buffer
+			 */
+			cev->send.len -= lval;
+			if (!memmove(cev->send.buf, &cev->send.buf[lval], cev->send.len)) {
+				/* что делать в этом случае не совсем понятно,
+				 * но протокол поехал и клиент об этом известит
+				 */
+				xsyslog(LOG_WARNING,
+						"client[%p] got memory error at write: %s",
+						(void*)cev, strerror(errno));
+			}
+		}
+	}
+
+	/* двойная провека на случай,
+	 * если после записи в буфере ничего не останется
+	 */
+	if (cev->send.len == 0u || lval <= 0) {
+		/* отправлять нечего или произошла ошибка, вынимаем из очереди */
+		ev_io_stop(loop, w);
+		ev_io_set(w, w->fd, w->events & ~EV_WRITE);
+		ev_io_start(loop, w);
+	}
+	pthread_mutex_unlock(&cev->send.lock);
+}
+
+void
+client_cb(struct ev_loop *loop, struct ev_io *w, int revents)
+{
+	struct sev_ctx *cev;
+	cev = ((struct evptr*)w)->cev;
+
+	if (revents & EV_READ)
+		_client_cb_read(loop, w, cev);
+	if (revents & EV_WRITE)
+		_client_cb_write(loop, w, cev);
 }
 
 void
@@ -472,12 +699,11 @@ main(int argc, char *argv[])
 		memset(&pain, 0, sizeof(struct main));
 		ev_signal_init(&pain.sigint, signal_cb, SIGINT);
 		ev_signal_start(loop, &pain.sigint);
+		ev_signal_init(&pain.sigpipe, signal_ignore_cb, SIGPIPE);
+		ev_signal_start(loop, &pain.sigpipe);
 		/* таймер на чистку всяких устаревших структур и прочего */
 		ev_timer_init(&pain.watcher, timeout_cb, 1., 15.);
 		ev_timer_start(loop, &pain.watcher);
-		/* хреновинка для прерывания лупа */
-		ev_async_init(&pain.alarm, alarm_cb);
-		ev_async_start(loop, &pain.alarm);
 		/* TODO: мультисокет */
 		if (server_alloc(&pain, "0.0.0.0:5151")) {
 			ev_set_userdata(loop, (void*)&pain);
@@ -490,7 +716,6 @@ main(int argc, char *argv[])
 		/* чистка клиентских сокетов */
 		ev_signal_stop(loop, &pain.sigint);
 		ev_timer_stop(loop, &pain.watcher);
-		ev_async_stop(loop, &pain.alarm);
 		ev_loop_destroy(loop);
 	}
 	fdb_close();

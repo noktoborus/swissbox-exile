@@ -864,8 +864,8 @@ _handle_ping(struct client *c, unsigned type, Fep__Ping *ping)
 bool
 _handle_invalid(struct client *c, unsigned type, void *msg)
 {
-	send_error(c, 0, "Unknown packet", c->count_error);
-	if (c->count_error <= 0)
+	if (send_error(c, 0, "Unknown packet", c->count_error)
+			|| c->count_error <= 0)
 		return false;
 	else
 		return true;
@@ -972,6 +972,10 @@ handle_header(unsigned char *buf, size_t size, struct client *c)
 		if (size < HEADER_OFFSET) {
 			return HEADER_MORE;
 		} else {
+			/* шестой байт должен быть нулём */
+			if (buf[5] != '\0') {
+				return HEADER_INVALID;
+			}
 			/* два байта на тип */
 			memcpy(&c->h_type, buf, 2);
 			/* и три байта на длину */
@@ -981,14 +985,16 @@ handle_header(unsigned char *buf, size_t size, struct client *c)
 			c->h_len = ntohl(c->h_len << 8);
 #if DEEPDEBUG
 			xsyslog(LOG_DEBUG, "client[%p] got header[type: %u, len: %u]: "
-					"%02x %02x %02x %02x %02x %02x",
+					"%02x %02x %02x %02x %02x %02x "
+					"(in %"PRIuPTR" bytes)",
 					(void*)c->cev, c->h_type, c->h_len,
-					buf[0], buf[1], buf[2], buf[3], buf[4], buf[5]);
+					buf[0], buf[1], buf[2], buf[3], buf[4], buf[5],
+					size);
 #endif
 			/* бесполезная проверка на длину пакета */
-			if (c->h_len > 1 << 24) {
+			if (c->h_len > 1 << 24 || c->h_len == 0) {
 				xsyslog(LOG_WARNING, "client[%p] header[type: %u, len: %u]: "
-						"length can't be great then %d",
+						"length can't be great then %d and equal zero",
 						(void*)c->cev, c->h_type, c->h_len,
 						1 << 24);
 				c->h_type = 0u;
@@ -1001,6 +1007,7 @@ handle_header(unsigned char *buf, size_t size, struct client *c)
 						"invalid type",
 						(void*)c->cev, c->h_type, c->h_len);
 				c->h_type = 0u;
+				c->h_len = 0u;
 				/*
 				 * отмену можно не делать, только выставить хандлер в ноль
 				 * и известить в логе, в хандлере можно позвать начальника
@@ -1049,11 +1056,13 @@ handle_header(unsigned char *buf, size_t size, struct client *c)
 				}
 			}
 		}
-		/* сброс типа сообщения */
-		c->h_type = 0u;
-		if (!exit)
+		/* сброс типа сообщения, если всё нормально
+		 * иначе нужно прокинуть наверх на чём мы встали
+		 */
+		if (!exit) {
+			c->h_type = 0u;
 			return (int)(c->h_len + HEADER_OFFSET);
-		else
+		} else
 			return HEADER_STOP;
 	}
 	return HEADER_INVALID;
@@ -1329,12 +1338,27 @@ static inline bool
 _client_iterate_handle(struct client *c)
 {
 	register int lval;
+	register size_t blen;
+
+	if ((blen = c->blen) == 0u) {
+		/* предварительное чтение из сокета, если данных в буфере нет */
+		if (!_client_iterate_read(c)) {
+			return false;
+		} else if (c->blen == blen) {
+			/* если размер буфера не изменился, то смысла выполнять весь
+			 * следующий код нет, выходим заранее
+			 */
+			return true;
+		}
+	}
+
 	lval = handle_header(c->buffer, c->blen, c);
 	/* смещаем хвост в начало буфера */
 	if (lval > 0) {
 		if (lval < c->blen) {
 			/* если вдруг обвалится memove, то восстанавливать, вощем-то,
 			 * нечего, потому просто валимся
+			 * FIXME: и снова ring buffer
 			 */
 			if (!memmove(c->buffer, &c->buffer[lval], c->blen - lval)) {
 				xsyslog(LOG_WARNING, "client[%p] memmove() fail: %s",
@@ -1347,19 +1371,23 @@ _client_iterate_handle(struct client *c)
 		}
 	} else if (lval == HEADER_INVALID) {
 		xsyslog(LOG_WARNING, "client[%p] mismatch protocol:"
-				"%x %x %x %x %x %x", (void*)c->cev,
+				"%02x %02x %02x %02x %02x %02x", (void*)c->cev,
 				c->buffer[0], c->buffer[1], c->buffer[2],
 				c->buffer[3], c->buffer[4], c->buffer[5]);
 		return false;
 	} else if (lval == HEADER_STOP) {
+		/* словили остановку -- сообщаем в лог и выходим */
 		xsyslog(LOG_WARNING, "client[%p] stop chat with "
 				"header[type: %u, len: %u]",
 				(void*)c->cev, c->h_type, c->h_len);
+		return false;
 	} else if (lval == HEADER_MORE) {
+		/* если просит больше, нужно взять */
 		if (!_client_iterate_read(c))
 			return false;
 	}
 	if (c->count_error <= 0) {
+		/* слишком много странного произошло в сессию, дропаем подключение */
 		xsyslog(LOG_INFO, "client[%p] to many errors", (void*)c->cev);
 		return false;
 	}
@@ -1444,9 +1472,9 @@ client_iterate(struct sev_ctx *cev, bool last, void **p)
 	}
 
 	/* нужно выставить флаг быстрого пропуска,
-	 * если есть файлы в очереди
+	 * если есть файлы в очереди или необработанная дата
 	 */
-	if (c->cout || c->rout) {
+	if (c->cout || c->rout || c->blen) {
 		cev->action |= SEV_ACTION_FASTTEST;
 	}
 	/* переходим на следующую итерацию */

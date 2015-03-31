@@ -12,15 +12,46 @@
 #include <stdbool.h>
 #include <pthread.h>
 
+struct evptr {
+	union {
+		struct ev_io io;
+		struct ev_async async;
+	} e;
+	struct sev_ctx *cev;
+};
+
+/* по 1МБ на буфер */
+#define SEV_RECV_BUF 1024 * 1024
+#define SEV_SEND_BUF 1024 * 1024
+
 #define SEV_ACTION_READ 1
 #define SEV_ACTION_WRITE 2
 #define SEV_ACTION_EXIT 4
 #define SEV_ACTION_FASTTEST 8
+#define SEV_ACTION_DATA 16
 struct sev_ctx
 {
 	/* io */
 	struct ev_loop *evloop;
-	struct ev_async *alarm;
+	struct evptr io;
+	struct evptr async;
+
+	struct { /* буфер чтения */
+		pthread_mutex_t lock;
+		uint8_t *buf;
+		size_t size; /* размер буфера */
+		size_t len; /* длина данных в буфере */
+		bool eof;
+	} recv;
+
+	struct { /* буфер записи */
+		pthread_mutex_t lock;
+		uint8_t *buf;
+		size_t size;
+		size_t len;
+		bool eof;
+	} send;
+
 	uint8_t action;
 	pthread_mutex_t utex;
 	pthread_cond_t ond;
@@ -59,6 +90,7 @@ struct sev_main
 struct main
 {
 	ev_signal sigint;
+	ev_signal sigpipe;
 	ev_timer watcher;
 	ev_async alarm;
 	/* server list */
