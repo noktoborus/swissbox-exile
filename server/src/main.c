@@ -243,7 +243,7 @@ client_alloc(struct ev_loop *loop, int fd, struct sev_ctx *next)
 int
 sev_send(void *ctx, const unsigned char *buf, size_t len)
 {
-	/* TODO: сделать что-нибудь если данные в сокет ушли не полностью. */
+	/* TODO: переписать по образу sev_recv() */
 	struct sev_ctx *ptx = (struct sev_ctx*)ctx;
 	ssize_t re = 0;
 	if (ptx->send_timeout) {
