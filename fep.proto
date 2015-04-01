@@ -176,6 +176,27 @@ message Cancel {
 	optional string message = 2;
 }
 
+/*
+	Обновление меты файла, хеши имени,
+*/
+message FileMeta {
+	required uint64 id = 1 [default = 0];
+
+	/* идентификация файла по трём полям */
+	required string rootdir_guid = 3;
+	required string file_guid = 4;
+	required string revision_guid = 5;
+
+	/* опциональные значения
+	 если обновляется только одно поле из (enc_filename, hash_filename)
+	 возвращается Error
+	 */
+	optional string enc_filename = 50;
+	optional string hash_filename = 51;
+	optional string directory_guid = 53;
+}
+
+
 /* обновление файла
  присылается сервером клиенту или клиентом серверу в случае обновления
  ревизии файла
@@ -198,6 +219,7 @@ message FileUpdate {
 	optional string enc_filename = 50;
 	optional string hash_filename = 51;
 	optional bytes key = 52;
+	optional string directory_guid = 53;
 }
 
 /*
