@@ -209,7 +209,7 @@ _spq_f_chunkNew(PGconn *pgc, char *username, char *hash, char *path,
 bool
 _spq_f_chunkFile(PGconn *pgc, char *username,
 		guid_t *rootdir, guid_t *file, guid_t *revision,
-		guid_t *parent_revision,
+		guid_t *parent_revision, guid_t *dir,
 		char *enc_filename, char *hash_filename, char *pkey)
 {
 	PGresult *res;
@@ -222,39 +222,43 @@ _spq_f_chunkFile(PGconn *pgc, char *username,
 		"	file_guid,"
 		"	revision_guid,"
 		"	parent_revision_guid,"
+		"	directory_guid,"
 		"	enc_filename,"
 		"	hash_filename,"
 		"	public_key"
-		") VALUES ($1, $2, $3, $4, $5, $6, $7, $8);";
-	const int format[8] = {0, 0, 0, 0, 0, 0, 0, 0};
+		") VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9);";
+	const int format[9] = {0, 0, 0, 0, 0, 0, 0, 0, 0};
 
 	char _s_rootdir[GUID_MAX + 1];
 	char _s_file[GUID_MAX + 1];
 	char _s_revision[GUID_MAX + 1];
 	char _s_parent[GUID_MAX + 1];
+	char _s_dir[GUID_MAX + 1];
 
-	char *val[8];
-	int length[8];
+	char *val[9];
+	int length[9];
 
 	length[0] = strlen(username);
 	length[1] = guid2string(rootdir, _s_rootdir, sizeof(_s_rootdir));
 	length[2] = guid2string(file, _s_file, sizeof(_s_file));
 	length[3] = guid2string(revision, _s_revision, sizeof(_s_revision));
 	length[4] = guid2string(parent_revision, _s_parent, sizeof(_s_parent));
-	length[5] = strlen(enc_filename);
-	length[6] = strlen(hash_filename);
-	length[7] = strlen(pkey);
+	length[5] = guid2string(dir, _s_dir, sizeof(_s_dir));
+	length[6] = strlen(enc_filename);
+	length[7] = strlen(hash_filename);
+	length[8] = strlen(pkey);
 
 	val[0] = username;
 	val[1] = _s_rootdir;
 	val[2] = _s_file;
 	val[3] = _s_revision;
 	val[4] = length[4] ? _s_parent : NULL;
-	val[5] = enc_filename;
-	val[6] = hash_filename;
-	val[7] = pkey;
+	val[5] = length[5] ? _s_dir : NULL;
+	val[6] = enc_filename;
+	val[7] = hash_filename;
+	val[8] = pkey;
 
-	res = PQexecParams(pgc, tb, 8, NULL,
+	res = PQexecParams(pgc, tb, 9, NULL,
 			(const char *const*)val, length, format, 0);
 	pqs = PQresultStatus(res);
 	if (pqs != PGRES_COMMAND_OK && pqs != PGRES_EMPTY_QUERY) {

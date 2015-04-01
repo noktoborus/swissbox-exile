@@ -646,7 +646,7 @@ file_check_update(struct client *c, struct wait_file *wf)
 			/* TODO */
 			wf->notified = spq_f_chunkFile(c->name,
 					&wf->rootdir, &wf->file, &wf->revision,
-					&wf->parent_revision,
+					&wf->parent_revision, &wf->directory,
 					wf->enc_filename, wf->hash_filename,
 					wf->key, wf->key_len);
 			_file_update_notify(c, wf);
@@ -699,6 +699,9 @@ _handle_file_update(struct client *c, unsigned type, Fep__FileUpdate *fu)
 	if (fu->parent_revision_guid)
 		string2guid(fu->parent_revision_guid, strlen(fu->parent_revision_guid),
 				&wf->parent_revision);
+	if (fu->directory_guid)
+		string2guid(fu->directory_guid, strlen(fu->directory_guid),
+				&wf->directory);
 	if (fu->enc_filename && !wf->enc_filename)
 		wf->enc_filename = strdup(fu->enc_filename);
 	if (fu->hash_filename && !wf->hash_filename)

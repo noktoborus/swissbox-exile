@@ -55,7 +55,7 @@ bool _spq_f_chunkNew(PGconn *pgc, char *username, char *hash, char *path,
  */
 bool _spq_f_chunkFile(PGconn *pgc, char *username,
 		guid_t *rootdir, guid_t *file, guid_t *revision,
-		guid_t *parent_revision,
+		guid_t *parent_revision, guid_t *dir,
 		char *enc_filename, char *hash_filename, char *pkey);
 
 /*

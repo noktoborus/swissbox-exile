@@ -309,6 +309,7 @@ spq_create_tables()
 		"	rootdir_guid UUID NOT NULL, "
 		"	file_guid UUID NOT NULL, "
 		"	revision_guid UUID DEFAULT NULL, "
+		"	directory_guid UUID NOT NULL, "
 		"	parent_revision_guid UUID DEFAULT NULL, "
 		"	enc_filename varchar(1024) NOT NULL, "
 		"	hash_filename varchar(1024) NOT NULL, "
@@ -386,7 +387,7 @@ spq_f_chunkNew(char *username, char *hash, char *path,
 bool
 spq_f_chunkFile(char *username,
 		guid_t *rootdir, guid_t *file, guid_t *revision,
-		guid_t *parent_revision,
+		guid_t *parent_revision, guid_t *dir,
 		char *enc_filename, char *hash_filename, char *pkey, size_t pkey_len)
 {
 	bool r = false;
@@ -397,7 +398,7 @@ spq_f_chunkFile(char *username,
 		bin2hex((uint8_t*)pkey, pkey_len, pkeyhex, pkeyhex_sz);
 		if ((c = acquire_conn(&_spq)) != NULL) {
 			r = _spq_f_chunkFile(c->conn, username, rootdir, file, revision,
-					parent_revision,
+					parent_revision, dir,
 					enc_filename, hash_filename, pkeyhex);
 			release_conn(&_spq, c);
 		}

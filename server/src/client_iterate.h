@@ -232,6 +232,7 @@ struct wait_file {
 	guid_t file;
 	guid_t revision;
 	guid_t parent_revision;
+	guid_t directory;
 
 	char *hash_filename;
 	char *enc_filename;
