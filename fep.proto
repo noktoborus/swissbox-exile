@@ -375,7 +375,7 @@ message RenameChunk {
 	сообщение о озменениях в структуре каталогов
  */
 message Directory {
-	required uint64_t id = 1;
+	required uint64 id = 1;
 	required string rootdir_guid = 2;
 	/* гуид директории */
 	required string guid = 3;
