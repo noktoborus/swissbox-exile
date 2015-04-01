@@ -6,7 +6,7 @@ CFLAGS+=${EF}
 BIN=bin/server
 SRC=src/
 FAKEDB=fakedb/fakedb.c
-SIMPLEPQ=simplepq/simplepq.c simplepq/snip.c
+SIMPLEPQ=simplepq/simplepq.c
 JUNK=junk/guid.c junk/utils.c
 
 SOURCES=${SRC}/main.c ${SRC}/client_iterate.c proto/fep.pb-c.c\
