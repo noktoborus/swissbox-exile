@@ -121,10 +121,10 @@ client_free(struct sev_ctx *cev)
 		cev->recv.buf = NULL;
 		cev->recv.size = 0u;
 #if DEEPDEBUG
-		if (cev->send.len)
+		if (cev->recv.len)
 			xsyslog(LOG_DEBUG, "client[%p] hash non-empty recv buffer "
 					"(%"PRIuPTR" bytes)",
-					(void*)cev, cev->send.len);
+					(void*)cev, cev->recv.len);
 #endif
 		pthread_mutex_destroy(&cev->recv.lock);
 	}
@@ -241,28 +241,35 @@ client_alloc(struct ev_loop *loop, int fd, struct sev_ctx *next)
 
 /* call in thread */
 int
-sev_send(void *ctx, const unsigned char *buf, size_t len)
+sev_send(void *ctx, const unsigned char *buf, size_t size)
 {
-	/* TODO: переписать по образу sev_recv() */
-	struct sev_ctx *ptx = (struct sev_ctx*)ctx;
-	ssize_t re = 0;
-	if (ptx->send_timeout) {
-		fd_set fdw;
-		struct timeval tv;
-		FD_ZERO(&fdw);
-		FD_SET(ptx->fd, &fdw);
-		tv.tv_sec = 0;
-		tv.tv_usec = 300;
+	struct sev_ctx *cev = (struct sev_ctx*)ctx;
+	register size_t len;
 
-		if (select(ptx->fd + 1, NULL, &fdw, NULL, &tv) > 0) {
-			if (!(re = write(ptx->fd, (void*)buf, len)))
-				re = -1;
-		}
-	} else {
-		if (!(re = write(ptx->fd, (void*)buf, len)))
-			re = -1;
+	pthread_mutex_lock(&cev->send.lock);
+	/* выходим сразу если ошибка */
+	if (cev->send.eof) {
+		pthread_mutex_unlock(&cev->send.lock);
+		return -1;
 	}
-	return (int)re;
+
+	/* подсчёт объёмов копирования
+	 * данные должны вместиться в буфер отправки
+	 */
+	len = cev->send.size - cev->send.len;
+	len = MIN(size, len);
+	if (len) {
+		memcpy(&cev->send.buf[cev->send.len], buf, len);
+		cev->send.len += len;
+		if (!(((struct ev_io*)&cev->io)->events & EV_WRITE)) {
+			pthread_mutex_lock(&cev->utex);
+			cev->action |= SEV_ACTION_WRITE;
+			pthread_mutex_unlock(&cev->utex);
+			ev_async_send(cev->evloop, (struct ev_async*)&cev->async);
+		}
+	}
+	pthread_mutex_unlock(&cev->send.lock);
+	return (int)len;
 }
 
 /* analog to sev_send */
@@ -308,8 +315,8 @@ sev_recv(void *ctx, unsigned char *buf, size_t size)
 		if (!(cev->io.e.io.events & EV_READ)) {
 			pthread_mutex_lock(&cev->utex);
 			cev->action |= SEV_ACTION_READ;
-			ev_async_send(cev->evloop, (struct ev_async*)&cev->async);
 			pthread_mutex_unlock(&cev->utex);
+			ev_async_send(cev->evloop, (struct ev_async*)&cev->async);
 		}
 	}
 	pthread_mutex_unlock(&cev->recv.lock);
@@ -529,7 +536,7 @@ alarm_cb(struct ev_loop *loop, ev_async *w, int revents)
 	if (cev->action & SEV_ACTION_WRITE) {
 		cev->action &= ~SEV_ACTION_WRITE;
 		if (evio->events & EV_WRITE) {
-			xsyslog(LOG_INFO, "client[%p} wtf: already in write queue",
+			xsyslog(LOG_INFO, "client[%p] wtf: already in write queue",
 					(void*)cev);
 		} else {
 			actions |= EV_WRITE;
@@ -599,7 +606,7 @@ _client_cb_write(struct ev_loop *loop, struct ev_io *w, struct sev_ctx *cev)
 	 * Но тогда непонятно что будет с очерёдностью получаемой информации
 	 */
 	pthread_mutex_lock(&cev->send.lock);
-	if (cev->send.len == 0u) {
+	if (cev->send.len != 0u) {
 		lval = write(w->fd, cev->send.buf, cev->send.len);
 		if (lval <= 0) {
 			/* ошибка при записи, выход */
