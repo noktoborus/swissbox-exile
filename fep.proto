@@ -220,7 +220,7 @@ message FileUpdate {
 	optional string enc_filename = 50;
 	optional string hash_filename = 51;
 	optional bytes key = 52;
-	optional string directory_guid = 53;
+	required string directory_guid = 53;
 }
 
 /*
