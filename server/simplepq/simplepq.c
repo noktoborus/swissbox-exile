@@ -678,6 +678,24 @@ spq_create_tables()
 		"	enc_filename varchar(1024) NOT NULL, "
 		"	hash_filename varchar(1024) NOT NULL, "
 		"	public_key varchar(4096) NOT NULL"
+		");", /* таблица directory_tree должна заполняться автоматически
+				 по триггеру в таблице directory_log
+				 содержит текущий список каталогов
+				 */
+		"CREATE TABLE IF NOT EXISTS directory_tree "
+		"("
+		"	username varchar(1024) NOT NULL,"
+		"	rootdir_guid UUID NOT NULL,"
+		"	directory_guid UUID NOT NULL,"
+		"	path varchar(4096) NOT NULL"
+		");",
+		"CREATE TABLE IF NOT EXISTS directory_log "
+		"("
+		"	time timestsamp with time zone NOT NULL DEFAULT now(),"
+		"	username varchar(1024) NOT NULL,"
+		"	rootdir_guid UUID NOT NULL,"
+		"	directory_guid UUID NOT NULL,"
+		"	path varchar(4096) DEFAULT NULL"
 		");",
 		"CREATE UNIQUE INDEX file_keys_urfr_idx "
 		"ON file_keys "
