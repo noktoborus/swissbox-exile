@@ -82,6 +82,7 @@ enum Type {
 	tQueryRevisions = 17;
 	tResultRevision = 18;
 	tDirectory = 19;
+	tFileMeta = 20;
 }
 
 /*
