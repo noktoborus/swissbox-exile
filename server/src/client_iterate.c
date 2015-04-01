@@ -26,6 +26,9 @@ TYPICAL_HANDLE_F(Fep__WriteOk, write_ok, &c->mid)
 NOTIMP_HANDLE_F(Fep__ResultChunk, result_chunk)
 NOTIMP_HANDLE_F(Fep__ResultRevision, result_revision)
 
+NOTIMP_HANDLE_F(Fep__Directory, directory)
+NOTIMP_HANDLE_F(Fep__FileMeta, file_meta)
+
 static struct result_send*
 rout_free(struct client *c)
 {
@@ -892,6 +895,8 @@ static struct handle handle[] =
 	TYPICAL_HANDLE_S(FEP__TYPE__tResultChunk, result_chunk), /* 16 */
 	TYPICAL_HANDLE_S(FEP__TYPE__tQueryRevisions, query_revisions), /* 17 */
 	TYPICAL_HANDLE_S(FEP__TYPE__tResultRevision, result_revision), /* 18 */
+	TYPICAL_HANDLE_S(FEP__TYPE__tDirectory, directory), /* 19 */
+	TYPICAL_HANDLE_S(FEP__TYPE__tFileMeta, file_meta), /* 20 */
 };
 
 bool
