@@ -68,6 +68,13 @@ bool spq_f_getRevisions_it(struct getRevisions *state);
 /* отчистка результатов spq_f_getRevisions */
 void spq_f_getRevisions_free(struct getRevisions *state);
 
+/* лог директорий */
+struct getLogDir {
+	void *p;
+	void *res;
+};
+
+
 /* получение списка чанков (итератор по списку) */
 
 struct getChunks {
