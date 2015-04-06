@@ -72,6 +72,14 @@ void spq_f_getRevisions_free(struct getRevisions *state);
 struct getLogDir {
 	void *p;
 	void *res;
+
+	uint64_t checkpoint;
+	guid_t rootdir;
+	guid_t directory;
+	char path[PATH_MAX];
+
+	unsigned row;
+	unsigned max;
 };
 
 

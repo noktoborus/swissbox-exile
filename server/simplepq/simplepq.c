@@ -15,12 +15,6 @@
 #include <pthread.h>
 #include <sys/time.h>
 
-#if __linux__
-# include <linux/limits.h>
-#else
-# include <limits.h>
-#endif
-
 #ifndef MIN
 # define MIN(x, y) ((x) > (y) ? (y) : (x))
 #endif
@@ -761,4 +755,5 @@ spq_f_logDirPush(char *username, guid_t *rootdir, guid_t *directory, char *path)
 
 #include "complex/getRevisions.c"
 #include "complex/getChunks.c"
+#include "complex/logDir.c"
 
