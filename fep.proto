@@ -26,11 +26,15 @@ option optimize_for = SPEED;
  до момента отправки WantSync клинтом сообщения об обновлении не отсылаются
  C: WantSync
  S: DirectoryUpdate
- S: (DirectoryUdpdate)
+ S: (DirectoryUpdate)
  S: ...
  S: FileUpdate
  S: (FileUpdate)
  ...
+
+ Создание/удаление/переименование директории:
+ C: DirectoryUpdate
+ S: OkUpdate
 
  Последовательность записи:
  C: WriteAsk (id = 1000)
@@ -42,7 +46,7 @@ option optimize_for = SPEED;
  C: WriteAsk...
  ...
  C: FileUpdate (id = 1002)
- S: Ok (id = 1002)
+ S: OkUpdate (id = 1002)
 
  Последовательность чтения:
  C: ReadAsk (id = 2051, session_id = 331)
@@ -232,6 +236,12 @@ message FileUpdate {
 
 	/* отправляется только сервером клиенту, содержит чекпоинт лога */
 	optional uint64 checkpoint = 100;
+
+	/* для ответа на WantSync */
+	optional uint64 session_id = 201;
+	/* количество и номер в пределах сессии */
+	optional uint32 no = 202;
+	optional uint32 max = 203;
 }
 
 /*
@@ -399,6 +409,12 @@ message DirectoryUpdate {
 
 	/* отправляется только сервером */
 	optional uint64 checkpoint = 100;
+
+	/* поля для ответа сервера на WantSync */
+	optional uint64 session_id = 201;
+	/* количество и номер в пределах сессии */
+	optional uint32 no = 202;
+	optional uint32 max = 203;
 }
 
 /* TODO:
@@ -419,6 +435,9 @@ message WantSync {
 	required uint64 checkpoint = 5;
 	/* при true перед логом отправляется текущее состояние */
 	required bool with_slice = 6;
+
+	/* номер сессии для DirectoryUpdate/FileUpdate */
+	required uint64 session_id = 10;
 }
 
 /*
