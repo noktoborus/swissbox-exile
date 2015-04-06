@@ -81,8 +81,10 @@ enum Type {
 	tResultChunk = 16;
 	tQueryRevisions = 17;
 	tResultRevision = 18;
-	tDirectory = 19;
+	tDirectoryUpdate = 19;
 	tFileMeta = 20;
+	tWantSync = 21;
+	tOkUpdate = 22;
 }
 
 /*
@@ -202,7 +204,7 @@ message FileMeta {
  присылается сервером клиенту или клиентом серверу в случае обновления
  ревизии файла
  Ответы:
-	Ok: Всё нормально, можно продолжать
+	OkUpdate: Всё нормально, можно продолжать
 	Error: отмена
  */
 message FileUpdate {
@@ -221,6 +223,9 @@ message FileUpdate {
 	optional string hash_filename = 51;
 	optional bytes key = 52;
 	required string directory_guid = 53;
+
+	/* отправляется только сервером клиенту, содержит чекпоинт лога */
+	optional uint64 checkpoint = 100;
 }
 
 /*
@@ -374,7 +379,7 @@ message RenameChunk {
 /*
 	сообщение о озменениях в структуре каталогов
  */
-message Directory {
+message DirectoryUpdate {
 	required uint64 id = 1;
 	required string rootdir_guid = 2;
 	/* гуид директории */
@@ -385,6 +390,9 @@ message Directory {
 	 если не указан -- директория удаляется
 	 */
 	optional string path = 4;
+
+	/* отправляется только сервером */
+	optional uint64 checkpoint = 100;
 }
 
 /* TODO:
@@ -392,6 +400,29 @@ message Directory {
    2. нотификация
    1. Мета (директории, хеши, всё такое)
  */
+
+/*
+	Хотет синка
+	нотификационное сообщение, в ответ Ok или Error
+	после чего пачками приходят сообщения Directory и FileUpdate
+	ответы: Ok, Error
+   */
+message WantSync {
+	required uint64 id = 1 [default = 0];
+	/* чекпоинт для лога */
+	required uint64 checkpoint = 5;
+	/* при true перед логом отправляется текущее состояние */
+	required bool with_slice = 6;
+}
+
+/*
+	положительный ответ для FileUpdate и DirectoryUpdate
+  */
+message OkUpdate {
+	required uint64 id = 1 [default = 0];
+	/* id состояния, в которое попала запись */
+	required uint64 checkpoint = 5;
+}
 
 /*
 TODO: добавить сообщение нотификации отдельных файлов
