@@ -26,7 +26,6 @@ TYPICAL_HANDLE_F(Fep__WriteOk, write_ok, &c->mid)
 NOTIMP_HANDLE_F(Fep__ResultChunk, result_chunk)
 NOTIMP_HANDLE_F(Fep__ResultRevision, result_revision)
 
-NOTIMP_HANDLE_F(Fep__Directory, directory)
 NOTIMP_HANDLE_F(Fep__FileMeta, file_meta)
 
 static struct result_send*
@@ -109,6 +108,15 @@ is_legal_guid(char *guid)
 	}
 
 	return true;
+}
+
+bool
+_handle_directory(struct client *c, unsigned type, Fep__Directory *msg)
+{
+	/*
+	 * тактика: отправить запись в бд
+	 */
+	return send_ok(c, msg->id);
 }
 
 bool

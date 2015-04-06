@@ -11,11 +11,6 @@
 #include "simplepq/simplepq.h"
 
 #include <stdint.h>
-#if __linux__
-# include <linux/limits.h>
-#else
-# include <limits.h>
-#endif
 
 #define BUFFER_ALLOC 1024
 #define BUFFER_MAX 65536

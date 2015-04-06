@@ -7,6 +7,20 @@
 #include <netinet/in.h>
 #include <stdint.h>
 
+#if __linux__
+# include <linux/limits.h>
+#else
+# include <limits.h>
+#endif
+
+#ifndef PATH_MAX
+# ifdef MAX_PATH
+#  define PATH_MAX MAX_PATH
+# else
+#  define PATH_MAX 4096
+# endif
+#endif
+
 #ifndef MIN
 # define MIN(x, y) ((x) > (y) ? (y) : (x))
 #endif
