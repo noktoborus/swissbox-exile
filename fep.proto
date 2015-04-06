@@ -23,8 +23,14 @@ option optimize_for = SPEED;
  S: [Ok|Error|Pending]
 
  Последовательность инициализации:
- C: ReqInit
+ до момента отправки WantSync клинтом сообщения об обновлении не отсылаются
+ C: WantSync
+ S: DirectoryUpdate
+ S: (DirectoryUdpdate)
  S: ...
+ S: FileUpdate
+ S: (FileUpdate)
+ ...
 
  Последовательность записи:
  C: WriteAsk (id = 1000)
