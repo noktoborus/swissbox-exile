@@ -247,7 +247,7 @@ _spq_f_chunkNew(PGconn *pgc, char *username, char *hash, char *path,
 }
 
 
-static inline bool
+static inline uint64_t
 _spq_f_chunkFile(PGconn *pgc, char *username,
 		guid_t *rootdir, guid_t *file, guid_t *revision,
 		guid_t *parent_revision, guid_t *dir,
@@ -267,7 +267,8 @@ _spq_f_chunkFile(PGconn *pgc, char *username,
 		"	enc_filename,"
 		"	hash_filename,"
 		"	public_key"
-		") VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9);";
+		") VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)"
+		"RETURNING trunc(extract(epoch from time));";
 	const int format[9] = {0, 0, 0, 0, 0, 0, 0, 0, 0};
 
 	char _s_rootdir[GUID_MAX + 1];
@@ -278,6 +279,8 @@ _spq_f_chunkFile(PGconn *pgc, char *username,
 
 	char *val[9];
 	int length[9];
+
+	uint64_t checkpoint = 0u;
 
 	length[0] = strlen(username);
 	length[1] = guid2string(rootdir, _s_rootdir, sizeof(_s_rootdir));
@@ -302,15 +305,16 @@ _spq_f_chunkFile(PGconn *pgc, char *username,
 	res = PQexecParams(pgc, tb, 9, NULL,
 			(const char *const*)val, length, format, 0);
 	pqs = PQresultStatus(res);
-	if (pqs != PGRES_COMMAND_OK && pqs != PGRES_EMPTY_QUERY) {
+	if (pqs != PGRES_TUPLES_OK) {
 		snprintf(errstr, sizeof(errstr), "spq: chunkFile exec error: %s",
 			PQresultErrorMessage(res));
 		syslog(LOG_INFO, errstr);
-		PQclear(res);
-		return false;
+	} else if (PQgetlength(res, 0, 0)) {
+		checkpoint = strtoul(PQgetvalue(res, 0, 0), NULL, 10);
 	}
+
 	PQclear(res);
-	return true;
+	return checkpoint;
 }
 
 /* поиск и захват ближайшего доступного ресурса в пуле */
@@ -661,13 +665,13 @@ spq_f_chunkNew(char *username, char *hash, char *path,
 	return r;
 }
 
-bool
+uint64_t
 spq_f_chunkFile(char *username,
 		guid_t *rootdir, guid_t *file, guid_t *revision,
 		guid_t *parent_revision, guid_t *dir,
-		char *enc_filename, char *hash_filename, char *pkey, size_t pkey_len)
+		char *enc_filename, char *hash_filename, uint8_t *pkey, size_t pkey_len)
 {
-	bool r = false;
+	uint64_t r = 0u;
 	struct spq *c;
 	size_t pkeyhex_sz = pkey_len * 2 + 1;
 	char *pkeyhex = calloc(1, pkeyhex_sz);
@@ -731,7 +735,7 @@ _spq_f_logDirPush(PGconn *pgc, char *username,
 			(const char *const*)val, length, format, 0);
 	pqs = PQresultStatus(res);
 	if (pqs != PGRES_COMMAND_OK && pqs != PGRES_EMPTY_QUERY) {
-		snprintf(errstr, sizeof(errstr), "spq: chunkRename exec error: %s",
+		snprintf(errstr, sizeof(errstr), "spq: logDirPush exec error: %s",
 					PQresultErrorMessage(res));
 				syslog(LOG_INFO, errstr);
 				PQclear(res);
@@ -741,10 +745,10 @@ _spq_f_logDirPush(PGconn *pgc, char *username,
 	return true;
 }
 
-bool
+uint64_t
 spq_f_logDirPush(char *username, guid_t *rootdir, guid_t *directory, char *path)
 {
-	bool r = false;
+	uint64_t r = 0;
 	struct spq *c;
 	if ((c = acquire_conn(&_spq)) != NULL) {
 		r = _spq_f_logDirPush(c->conn, username, rootdir, directory, path);

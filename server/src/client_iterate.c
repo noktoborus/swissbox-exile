@@ -27,6 +27,8 @@ NOTIMP_HANDLE_F(Fep__ResultChunk, result_chunk)
 NOTIMP_HANDLE_F(Fep__ResultRevision, result_revision)
 
 NOTIMP_HANDLE_F(Fep__FileMeta, file_meta)
+NOTIMP_HANDLE_F(Fep__WantSync, want_sync)
+NOTIMP_HANDLE_F(Fep__OkUpdate, ok_update)
 
 static struct result_send*
 rout_free(struct client *c)
@@ -65,16 +67,6 @@ mid_free(void *data)
 static void
 fid_free(wait_store_t *ws)
 {
-	struct wait_file *wf;
-	wf = ws->data;
-	if (wf) {
-		if (wf->enc_filename)
-			free(wf->enc_filename);
-		if (wf->hash_filename)
-			free(wf->hash_filename);
-		if (wf->key)
-			free(wf->key);
-	}
 	free(ws);
 }
 
@@ -111,12 +103,13 @@ is_legal_guid(char *guid)
 }
 
 bool
-_handle_directory(struct client *c, unsigned type, Fep__Directory *msg)
+_handle_directory_update(struct client *c, unsigned type,
+		Fep__DirectoryUpdate *msg)
 {
 	/*
 	 * тактика: отправить запись в бд
 	 */
-	return send_ok(c, msg->id);
+	return send_ok(c, msg->id, C_OK_SIMPLE);
 }
 
 bool
@@ -156,7 +149,7 @@ _handle_query_revisions(struct client *c, unsigned type,
 			" sid = %"PRIu32,
 			(void*)c->cev, msg->id, msg->session_id);
 #endif
-	return send_ok(c, msg->id);
+	return send_ok(c, msg->id, C_OK_SIMPLE);
 }
 
 bool
@@ -192,7 +185,7 @@ _handle_query_chunks(struct client *c, unsigned type, Fep__QueryChunks *msg)
 	rs->free = (void(*)(void*))spq_f_getChunks_free;
 	rs->next = c->rout;
 	c->rout = rs;
-	return send_ok(c, msg->id);
+	return send_ok(c, msg->id, C_OK_SIMPLE);
 }
 
 bool
@@ -246,7 +239,7 @@ _handle_read_ask(struct client *c, unsigned type, Fep__ReadAsk *msg)
 			(void*)c->cev, msg->id, msg->session_id);
 #endif
 
-	return send_ok(c, msg->id);
+	return send_ok(c, msg->id, C_OK_SIMPLE);
 }
 
 bool
@@ -447,12 +440,20 @@ sendlog_error(struct client *c, uint64_t id, char *message, int remain)
 }
 
 bool
-send_ok(struct client *c, uint64_t id)
+send_ok(struct client *c, uint64_t id, uint64_t checkpoint)
 {
-	Fep__Ok ok = FEP__OK__INIT;
+	if (checkpoint == C_OK_SIMPLE) {
+		Fep__Ok ok = FEP__OK__INIT;
 
-	ok.id = id;
-	return send_message(c->cev, FEP__TYPE__tOk, &ok);
+		ok.id = id;
+		return send_message(c->cev, FEP__TYPE__tOk, &ok);
+	} else {
+		Fep__OkUpdate oku = FEP__OK_UPDATE__INIT;
+
+		oku.id = id;
+		oku.checkpoint = checkpoint;
+		return send_message(c->cev, FEP__TYPE__tOkUpdate, &oku);
+	}
 }
 
 bool
@@ -578,68 +579,11 @@ _handle_xfer(struct client *c, unsigned type, Fep__Xfer *xfer)
 	return send_error(c, xfer->id, errmsg, -1);
 }
 
-static void
-_file_update_notify_free(struct fdb_fileUpdate *ffu)
-{
-	free(ffu);
-}
-
-static inline bool
-_file_update_notify(struct client *c, struct wait_file *wf)
-{
-	struct fdb_fileUpdate *ffu;
-	size_t hash_sz;
-	size_t enc_sz;
-	size_t key_sz;
-	Fep__FileUpdate fu = FEP__FILE_UPDATE__INIT;
-	hash_sz = wf->hash_filename ? strlen(wf->hash_filename) + 1 : 0u;
-	enc_sz = wf->enc_filename ? strlen(wf->enc_filename) + 1 : 0u;
-	key_sz = wf->key_len ? wf->key_len + 1 : 0u;
-	ffu = calloc(1, sizeof(struct fdb_fileUpdate) + enc_sz + key_sz + hash_sz);
-	if (!ffu)
-		return false;
-	ffu->head.type = C_FILEUPDATE;
-
-	guid2string(&wf->rootdir, ffu->rootdir_guid, GUID_MAX);
-	guid2string(&wf->file, ffu->file_guid, GUID_MAX);
-	guid2string(&wf->revision, ffu->revision_guid, GUID_MAX);
-
-	if (key_sz) {
-		ffu->key = (char*)(ffu + 1);
-		memcpy(ffu->key, wf->key, wf->key_len);
-		fu.key.data = (uint8_t*)ffu->key;
-		fu.key.len = wf->key_len;
-		fu.has_key = true;
-	}
-
-	if (hash_sz) {
-		ffu->hash_filename = ((char*)(ffu + 1)) + key_sz;
-		memcpy(ffu->hash_filename, wf->hash_filename, hash_sz);
-		fu.hash_filename = ffu->hash_filename;
-	}
-
-	if (enc_sz) {
-		ffu->enc_filename = ((char*)(ffu + 1)) + key_sz + hash_sz;
-		memcpy(ffu->enc_filename, wf->enc_filename, enc_sz);
-		fu.enc_filename = ffu->enc_filename;
-	}
-
-	fu.rootdir_guid = ffu->rootdir_guid;
-	fu.file_guid = ffu->file_guid;
-	fu.revision_guid = ffu->revision_guid;
-	fu.chunks = wf->chunks;
-
-	memcpy(&ffu->msg, &fu, sizeof(Fep__FileUpdate));
-	if (fdb_store(c->fdb, ffu, (void(*)(void*))_file_update_notify_free))
-		return true;
-	_file_update_notify_free(ffu);
-	return false;
-}
-
 bool
-file_check_update(struct client *c, struct wait_file *wf)
+file_check_complete(struct client *c, struct wait_file *wf)
 {
 	void *d;
+	bool retval = false;
 	/* TODO: разослать уведомление */
 	if (wf->chunks == wf->chunks_ok) {
 #if DEEPDEBUG
@@ -647,89 +591,81 @@ file_check_update(struct client *c, struct wait_file *wf)
 				(void*)c->cev, (unsigned)wf->chunks_ok,
 				(unsigned)wf->chunks, (unsigned)wf->chunks_fail);
 #endif
-		/* все чанки сошлись, теперь можно сделать запись в бд
-		 * и разослать клиентам уведомления
+		/* все чанки сошлись, теперь можно разослать клиентам уведомления
 		 */
-		if (!wf->notified) {
-			/* TODO */
-			wf->notified = spq_f_chunkFile(c->name,
-					&wf->rootdir, &wf->file, &wf->revision,
-					&wf->parent_revision, &wf->directory,
-					wf->enc_filename, wf->hash_filename,
-					wf->key, wf->key_len);
-			_file_update_notify(c, wf);
-		}
-		/* ссылок больше нет, можно подчистить */
-		if (!wf->ref) {
+		/* TODO: _file_update_notify(c, wf); */
+		retval = true;
 #if DEEPDEBUG
-			xsyslog(LOG_DEBUG, "client[%p] file fully loaded, notify = %s",
-					(void*)c->cev, wf->notified ? "true" : "false");
+		if (wf->ref) {
+			xsyslog(LOG_DEBUG, "client[%p] file has ref links: %u",
+					(void*)c->cev, wf->ref);
+		}
 #endif
-			if ((d = query_id(c, &c->fid, wf->id)) != NULL)
-				fid_free(d);
-		}		return true;
 	}
-	return false;
+	/* ссылок больше нет, можно подчистить */
+	if (!wf->ref) {
+#if DEEPDEBUG
+		xsyslog(LOG_DEBUG, "client[%p] file fully loaded",
+				(void*)c->cev);
+#endif
+		if ((d = query_id(c, &c->fid, wf->id)) != NULL)
+			fid_free(d);
+	}
+
+	return retval;
 }
 
 bool
 _handle_file_update(struct client *c, unsigned type, Fep__FileUpdate *fu)
 {
+	/* TODO: удаление файлов */
 	uint64_t hash;
 	wait_store_t *ws;
 	struct wait_file *wf;
-	bool ws_touched;
 
 	hash = MAKE_FHASH(fu->rootdir_guid, fu->file_guid);
 
 	/* ws_touched нужен для избежания попадания второй записи об одном файле
 	 * в список
 	 */
-	ws_touched = ((ws = touch_id(c, &c->fid, hash)) != NULL);
+	ws = touch_id(c, &c->fid, hash);
 	/* если записи нет, нужно создать новую */
 
 	if (!ws) {
-		ws = calloc(1, sizeof(wait_store_t) + sizeof (struct wait_file));
-		if (!ws) {
-			xsyslog(LOG_INFO, "client[%p] memory fail in fileUpdate: %s",
-					(void*)c->cev, strerror(errno));
-			return send_error(c, fu->id, "Infernal error", -1);
-		}
-		ws->data = ws + 1;
-		wf = ws->data;
-		/* file_guid используется как id, потому назначается сразу
-		 * при создании структуры
-		 */
-		string2guid(fu->file_guid, strlen(fu->file_guid), &wf->file);
+		return send_error(c, fu->id, "Unexpected FileUpdate", -1);
 	} else {
 		wf = ws->data;
 	}
-	if (fu->parent_revision_guid)
-		string2guid(fu->parent_revision_guid, strlen(fu->parent_revision_guid),
-				&wf->parent_revision);
-	if (fu->directory_guid)
-		string2guid(fu->directory_guid, strlen(fu->directory_guid),
-				&wf->directory);
-	if (fu->enc_filename && !wf->enc_filename)
-		wf->enc_filename = strdup(fu->enc_filename);
-	if (fu->hash_filename && !wf->hash_filename)
-		wf->hash_filename = strdup(fu->hash_filename);
-	if (fu->key.len && !wf->key) {
-		wf->key = calloc(1, fu->key.len);
-		wf->key_len = fu->key.len;
-		memcpy(wf->key, fu->key.data, wf->key_len);
-	}
+	/*
+	 * TODO: учесть что FileUpdate может прийти без ключей
+	 * сейчас ключи добавляются к каждой новой записи файла,
+	 * но все ревизии имеют один ключ, привязанный к файлу
+	 * вынести в отдельную таблицу записи ключей для файлов нужно
+	 *
+	 */
+
 #if DEEPDEBUG
 	xsyslog(LOG_DEBUG, "enc_filename: \"%s\", hash_filename: \"%s\", "
 			"file_guid: \"%s\", revision_guid: \"%s\", key_len: %"PRIuPTR,
 			fu->enc_filename, fu->hash_filename,
-			fu->file_guid, fu->revision_guid, wf->key_len);
+			fu->file_guid, fu->revision_guid, fu->key.len);
 #endif
-	wf->chunks = fu->chunks;
-	if (!file_check_update(c, wf) && !ws_touched) {
-		wait_id(c, &c->fid, hash, ws);
+	/* TODO */
+	if (file_check_complete(c, wf)) {
+		register size_t len;
+		uint64_t checkpoint;
+		guid_t dir;
+		guid_t parent;
+		len = fu->parent_revision_guid ? strlen(fu->parent_revision_guid) : 0u;
+		string2guid(fu->directory_guid, strlen(fu->directory_guid), &dir);
+		string2guid(fu->parent_revision_guid, len, &parent);
+		checkpoint = spq_f_chunkFile(c->name, &wf->rootdir,
+				&wf->file, &wf->revision, &parent, &dir, fu->enc_filename,
+				fu->hash_filename, fu->key.data, fu->key.len);
+		return send_ok(c, fu->id, checkpoint);
+	} else {
+		return send_error(c, fu->id, "not enought chunks", -1);
 	}
-	return send_ok(c, fu->id);
 }
 
 bool
@@ -770,12 +706,11 @@ _handle_rename_chunk(struct client *c, unsigned type, Fep__RenameChunk *msg)
 		errmsg = "Internal error 600";
 	} else {
 		wf->chunks_ok++;
-		file_check_update(c, wf);
 	}
 
 	if (errmsg)
 		return send_error(c, msg->id, errmsg, -1);
-	return send_ok(c, msg->id);
+	return send_ok(c, msg->id, C_OK_SIMPLE);
 }
 
 bool
@@ -817,8 +752,8 @@ _handle_end(struct client *c, unsigned type, Fep__End *end)
 				end->offset, end->origin_len);
 		/* заодно проверяем готовность файла */
 		wx.wf->chunks_ok++;
-		file_check_update(c, wx.wf);
-		return send_ok(c, end->id);
+		file_check_complete(c, wx.wf);
+		return send_ok(c, end->id, C_OK_SIMPLE);
 	}
 	/* чанк не нужен, клиент перетащит его заного */
 	wx.wf->chunks_fail++;
@@ -906,8 +841,10 @@ static struct handle handle[] =
 	TYPICAL_HANDLE_S(FEP__TYPE__tResultChunk, result_chunk), /* 16 */
 	TYPICAL_HANDLE_S(FEP__TYPE__tQueryRevisions, query_revisions), /* 17 */
 	TYPICAL_HANDLE_S(FEP__TYPE__tResultRevision, result_revision), /* 18 */
-	TYPICAL_HANDLE_S(FEP__TYPE__tDirectory, directory), /* 19 */
+	TYPICAL_HANDLE_S(FEP__TYPE__tDirectoryUpdate, directory_update), /* 19 */
 	TYPICAL_HANDLE_S(FEP__TYPE__tFileMeta, file_meta), /* 20 */
+	TYPICAL_HANDLE_S(FEP__TYPE__tWantSync, want_sync), /* 21 */
+	TYPICAL_HANDLE_S(FEP__TYPE__tOkUpdate, ok_update), /* 22 */
 };
 
 bool

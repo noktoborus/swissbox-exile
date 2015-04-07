@@ -176,8 +176,12 @@ uint64_t generate_id(struct client*);
 bool send_error(struct client *c, uint64_t id, char *message, int remain);
 /* то же что и send_error, но с отправкой в лог */
 bool sendlog_error(struct client *c, uint64_t id, char *message, int remain);
-/* всё нормально */
-bool send_ok(struct client *c, uint64_t id);
+#define C_OK_SIMPLE ((uint64_t)-1)
+/* всё нормально
+ * если checkpoint = C_OK_SIMPLE, отправляется сообщение ok,
+ *  в ином случае сообщение OkUpdate
+ */
+bool send_ok(struct client *c, uint64_t id, uint64_t checkpoint);
 /* всё нормально, только ждите */
 bool send_pending(struct client *c, uint64_t id);
 
@@ -219,7 +223,7 @@ struct wait_file {
 	unsigned chunks_ok;
 	unsigned chunks_fail;
 
-	size_t ref; /* количество ссылок из wait_xfer */
+	unsigned ref; /* количество ссылок из wait_xfer */
 
 	/* meta */
 	uint64_t id;
@@ -228,11 +232,6 @@ struct wait_file {
 	guid_t revision;
 	guid_t parent_revision;
 	guid_t directory;
-
-	char *hash_filename;
-	char *enc_filename;
-	char *key;
-	size_t key_len;
 };
 
 /* получение привязанных к id данных */

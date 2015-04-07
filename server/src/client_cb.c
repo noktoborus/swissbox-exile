@@ -73,6 +73,6 @@ c_auth_cb(struct client *c, uint64_t id, unsigned int msgtype, void *msg, void *
 		send_error(c, id, "Can't load user info", 0);
 		return false;
 	}
-	return send_ok(c, id);
+	return send_ok(c, id, C_OK_SIMPLE);
 }
 
