@@ -30,6 +30,85 @@ NOTIMP_HANDLE_F(Fep__FileMeta, file_meta)
 NOTIMP_HANDLE_F(Fep__WantSync, want_sync)
 NOTIMP_HANDLE_F(Fep__OkUpdate, ok_update)
 
+struct client_cum {
+	uint32_t namehash;
+	pthread_mutex_t lock;
+	unsigned ref; /* подсчёт ссылок */
+
+	uint64_t new_checkpoint;
+
+	/* к этим областям нужно обращаться только
+	 * после блокировки корня (clients_cum.lock)
+	 */
+	struct client_cum *next;
+	struct client_cum *prev;
+};
+
+static struct clients_cum {
+	bool inited;
+	struct client_cum *first;
+	pthread_mutex_t lock;
+} clients_cum;
+
+static void
+client_cum_free(struct client_cum *ccum)
+{
+	unsigned ref;
+	if (!ccum)
+		return;
+	/* считаем ссылки */
+	pthread_mutex_lock(&ccum->lock);
+	ref = (--ccum->ref);
+	pthread_mutex_unlock(&ccum->lock);
+
+	/* не нужно ничего чистить, если на структуру ещё ссылаются */
+	if (ref)
+		return;
+
+	pthread_mutex_lock(&clients_cum.lock);
+	if (ccum == clients_cum.first)
+		clients_cum.first = ccum->next ? ccum->next : ccum->prev;
+	if (ccum->next)
+		ccum->next = ccum->prev;
+	if (ccum->prev)
+		ccum->prev = ccum->next;
+
+	free(ccum);
+	pthread_mutex_unlock(&clients_cum.lock);
+}
+
+static struct client_cum*
+client_cum_create(uint32_t namehash)
+{
+	struct client_cum *ccum = NULL;
+
+	if (!pthread_mutex_lock(&clients_cum.lock))
+		return NULL;
+
+	for (ccum = clients_cum.first; ccum; ccum = ccum->next) {
+		if (ccum->namehash == namehash)
+			break;
+	}
+
+	if (!ccum) {
+		ccum = calloc(1, sizeof(struct client_cum));
+		if (!ccum) {
+			xsyslog(LOG_WARNING, "memory fail when communication with over");
+		} else {
+			ccum->namehash = namehash;
+			if ((ccum->next = clients_cum.first) != NULL)
+				ccum->next->prev = ccum;
+			clients_cum.first = ccum;
+		}
+	}
+
+	pthread_mutex_unlock(&clients_cum.lock);
+	/* нужно отметиться */
+	ccum->ref++;
+
+	return ccum;
+}
+
 static struct result_send*
 rout_free(struct client *c)
 {
