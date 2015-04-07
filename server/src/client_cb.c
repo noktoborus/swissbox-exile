@@ -65,6 +65,7 @@ c_auth_cb(struct client *c, uint64_t id, unsigned int msgtype, void *msg, void *
 		return lval;
 	}
 	c->state++;
+	c->status.auth_ok = true;
 
 	strcpy(c->name, amsg->username);
 	xsyslog(LOG_INFO, "client[%p] authorized as %s", (void*)c->cev, c->name);

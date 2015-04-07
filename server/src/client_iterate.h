@@ -81,6 +81,8 @@ struct chunk_send {
 	struct chunk_send *next;
 };
 
+struct client_cum;
+
 #define C_NAMELEN 128
 struct client {
 	unsigned char *buffer;
@@ -89,6 +91,13 @@ struct client {
 
 	char name[C_NAMELEN];
 
+	struct client_cum *cum;
+	uint64_t checkpoint;
+
+	struct {
+		bool auth_ok; /* аунтифицировались */
+		bool log_active; /* активация отправки FileUpdate/DirectoryUpdate*/
+	} status;
 	/* всякая хрень */
 	bool timed;
 	/*

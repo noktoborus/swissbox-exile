@@ -27,7 +27,6 @@ NOTIMP_HANDLE_F(Fep__ResultChunk, result_chunk)
 NOTIMP_HANDLE_F(Fep__ResultRevision, result_revision)
 
 NOTIMP_HANDLE_F(Fep__FileMeta, file_meta)
-NOTIMP_HANDLE_F(Fep__WantSync, want_sync)
 NOTIMP_HANDLE_F(Fep__OkUpdate, ok_update)
 
 struct client_cum {
@@ -268,6 +267,22 @@ _handle_query_chunks(struct client *c, unsigned type, Fep__QueryChunks *msg)
 }
 
 bool
+_handle_want_sync(struct client *c, unsigned type, Fep__WantSync *msg)
+{
+	if (!c->status.auth_ok)
+		return send_error(c, msg->id, "Unauthorized", -1);
+
+	/* после запроса состояния можно и запустить экспресс-нотификацию */
+	if (!c->cum) {
+		c->cum = client_cum_create(hash_pjw(c->name, strlen(c->name)));
+	}
+	c->checkpoint = msg->checkpoint;
+	/* TODO */
+
+	return send_error(c, msg->id, "Not implemented", -1);
+}
+
+bool
 _handle_read_ask(struct client *c, unsigned type, Fep__ReadAsk *msg)
 {
 	/*
@@ -283,6 +298,9 @@ _handle_read_ask(struct client *c, unsigned type, Fep__ReadAsk *msg)
 	struct stat st;
 	size_t offset;
 	size_t origin;
+
+	if (!c->status.auth_ok)
+		return send_error(c, msg->id, "Unauthorized", -1);
 
 	string2guid(msg->rootdir_guid, strlen(msg->rootdir_guid), &rootdir);
 	string2guid(msg->file_guid, strlen(msg->file_guid), &file);
@@ -333,6 +351,9 @@ _handle_write_ask(struct client *c, unsigned type, Fep__WriteAsk *msg)
 	struct wait_store *fid_ws;
 	struct wait_file *wf;
 	Fep__WriteOk wrok = FEP__WRITE_OK__INIT;
+
+	if (!c->status.auth_ok)
+		return send_error(c, msg->id, "Unauthorized", -1);
 
 	if (msg->size == 0u) {
 		errmsg = "Zero-size chunk? PFF";
@@ -701,6 +722,9 @@ _handle_file_update(struct client *c, unsigned type, Fep__FileUpdate *fu)
 	uint64_t hash;
 	wait_store_t *ws;
 	struct wait_file *wf;
+
+	if (!c->status.auth_ok)
+		return send_error(c, fu->id, "Unauthorized", -1);
 
 	hash = MAKE_FHASH(fu->rootdir_guid, fu->file_guid);
 
@@ -1152,6 +1176,8 @@ client_destroy(struct client *c)
 	/* ? */
 	fdb_uncursor(c->fdb);
 
+	client_cum_free(c->cum);
+
 	/* буфера */
 	if (c->cout_buffer)
 		free(c->cout_buffer);
@@ -1508,6 +1534,16 @@ client_iterate(struct sev_ctx *cev, bool last, void **p)
 	 */
 	if (c->cout || c->rout || c->blen) {
 		cev->action |= SEV_ACTION_FASTTEST;
+	} else if (c->cum && c->status.log_active) {
+		/* если нет никаких "срочных" действий, можно проверить сообщения
+		 * от других тредов
+		 */
+		pthread_mutex_lock(&c->cum->lock);
+		/* если чекпоинт "уехал", то нам тоже нужно двигаться вперёд */
+		if (c->cum->new_checkpoint > c->checkpoint) {
+
+		}
+		pthread_mutex_unlock(&c->cum->lock);
 	}
 	/* переходим на следующую итерацию */
 	return true;
