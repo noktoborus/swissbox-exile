@@ -230,12 +230,14 @@ message FileUpdate {
 	/* может быть пустым если файл новый */
 	optional string parent_revision_guid = 6;
 	/* новое количество чанков в файле
-	   при удалении отсылается значение = 0 */
-	required uint32 chunks = 10;
-	/* дополнительные поля */
+	   при удалении отсылается значение = 0,
+	  при переименовании chunks не указан, используется только
+	  поля enc_filename и hash_filename
+	 */
+	optional uint32 chunks = 10;
 	optional string enc_filename = 50;
-	optional string hash_filename = 51;
 	optional bytes key = 52;
+
 	required string directory_guid = 53;
 
 	/* отправляется только сервером клиенту, содержит чекпоинт лога */
