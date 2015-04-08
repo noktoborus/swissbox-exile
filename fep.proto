@@ -151,6 +151,10 @@ message Auth {
 	optional string password = 6;
 	optional bytes key = 7;
 	required ReqAuthType authType = 8;
+
+	/* идентификация устройства */
+	required uint64 device_id = 4;
+
 }
 
 /* общие ответы
@@ -431,14 +435,6 @@ message DirectoryUpdate {
    */
 message WantSync {
 	required uint64 id = 1 [default = 0];
-	/*
-	   идентификация устройства.
-		Зачем именно в WantSync? Затем, что бы можно было остановить
-		синхронизацию (отдельным сообщением)
-		и начать её заного, представившись другим устройством.
-		Идеально было бы определять устройства по слепку ключа шифрования
-	 */
-	required uint64 device_id = 4;
 	/* чекпоинт для лога */
 	required uint64 checkpoint = 5;
 	/* при true перед логом отправляется текущее состояние */
