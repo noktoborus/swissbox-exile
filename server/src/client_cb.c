@@ -66,6 +66,7 @@ c_auth_cb(struct client *c, uint64_t id, unsigned int msgtype, void *msg, void *
 	}
 	c->state++;
 	c->status.auth_ok = true;
+	c->device_id = amsg->device_id;
 
 	strcpy(c->name, amsg->username);
 	xsyslog(LOG_INFO, "client[%p] authorized as %s", (void*)c->cev, c->name);

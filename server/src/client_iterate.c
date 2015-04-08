@@ -276,10 +276,39 @@ _handle_want_sync(struct client *c, unsigned type, Fep__WantSync *msg)
 	if (!c->cum) {
 		c->cum = client_cum_create(hash_pjw(c->name, strlen(c->name)));
 	}
-	c->checkpoint = msg->checkpoint;
-	/* TODO */
 
-	return send_error(c, msg->id, "Not implemented", -1);
+	c->checkpoint = msg->checkpoint;
+	/* список обновления файлов */
+	{
+		struct getLogFile gs;
+
+		memset(&gs, 0, sizeof(struct getLogFile));
+		/* TODO */
+	}
+
+	/* генерация списка последних обновлений директорий */
+	{
+		struct getLogDir gs;
+		struct result_send *rs;
+
+		memset(&gs, 0, sizeof(struct getLogDir));
+		if (!spq_f_logDir(c->name, c->checkpoint, c->device_id, &gs))
+			return send_error(c, msg->id, "Internal error 900", -1);
+
+		rs = calloc(1, sizeof(struct result_send));
+		if (!rs) {
+			spq_f_logDir_free(&gs);
+			return send_error(c, msg->id, "Internal error 901", -1);
+		}
+		memcpy(&rs->v, &gs, sizeof(struct getLogDir));
+		rs->id = msg->session_id;
+		rs->type = RESULT_LOGDIR;
+		rs->free = (void(*)(void*))spq_f_logDir_free;
+		rs->next = c->rout;
+		c->rout = rs;
+	}
+
+	return send_ok(c, msg->id, C_OK_SIMPLE);
 }
 
 bool
@@ -1264,6 +1293,25 @@ _client_iterate_result(struct client *c)
 				msg.rev_no, msg.rev_max);
 #endif
 		return send_message(c->cev, FEP__TYPE__tResultRevision, &msg);
+	} else if (c->rout->type == RESULT_LOGDIR) {
+		Fep__DirectoryUpdate msg = FEP__DIRECTORY_UPDATE__INIT;
+		char guid[GUID_MAX + 1];
+		char rootdir[GUID_MAX + 1];
+
+		if (!spq_f_logDir_it(&c->rout->v.d)) {
+			rout_free(c);
+			return true;
+		}
+
+		guid2string(&c->rout->v.d.directory, guid, sizeof(guid));
+		guid2string(&c->rout->v.d.rootdir, rootdir, sizeof(rootdir));
+		msg.rootdir_guid = rootdir;
+		msg.guid = guid;
+		msg.session_id = c->rout->id;
+		msg.checkpoint = c->rout->v.d.checkpoint;
+		msg.no = c->rout->v.d.row;
+		msg.max = c->rout->v.d.max;
+		/* TODO */
 	}
 	return true;
 }

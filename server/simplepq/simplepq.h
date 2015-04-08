@@ -37,6 +37,11 @@ bool spq_f_getChunkPath(char *username,
 		guid_t *rootdir, guid_t *file, guid_t *chunk,
 		char *path, size_t path_len, size_t *offset, size_t *origin);
 
+struct getLogFile {
+	void *p;
+	void *res;
+};
+
 /* получение списка ревизий */
 
 struct getRevisions {
@@ -82,6 +87,13 @@ struct getLogDir {
 	unsigned max;
 };
 
+bool
+spq_f_logDir(char *username, uint64_t checkpoint, uint64_t deviceid,
+		struct getLogDir *state);
+bool
+spq_f_logDir_it(struct getLogDir *state);
+void
+spq_f_logDir_free(struct getLogDir *state);
 
 /* получение списка чанков (итератор по списку) */
 

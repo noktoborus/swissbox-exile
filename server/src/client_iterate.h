@@ -48,6 +48,8 @@ struct fdb_fileUpdate {
 typedef enum _result_send {
 	RESULT_CHUNKS = 1,
 	RESULT_REVISIONS = 2,
+	RESULT_LOGDIR = 3,
+	RESULT_LOGFILE = 4,
 } result_send_t;
 
 struct result_send {
@@ -59,6 +61,8 @@ struct result_send {
 	union {
 		struct getChunks c;
 		struct getRevisions r;
+		struct getLogDir d;
+		struct getLogFile f;
 	} v;
 
 	void (*free)(void*);
@@ -93,6 +97,7 @@ struct client {
 
 	struct client_cum *cum;
 	uint64_t checkpoint;
+	uint64_t device_id;
 
 	struct {
 		bool auth_ok; /* аунтифицировались */

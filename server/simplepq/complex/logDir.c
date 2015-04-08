@@ -3,28 +3,37 @@
  */
 
 static inline PGresult*
-_spq_f_logDir_exec(PGconn *pgc, char *username, uint64_t checkpoint)
+_spq_f_logDir_exec(PGconn *pgc, char *username, uint64_t checkpoint,
+		uint64_t deviceid)
 {
 	PGresult *res;
 	ExecStatusType pqs;
 	char errstr[1024];
-	const char *tb = "SELECT time, rootdir_guid, directory_guid, path "
+	const char *tb = "SELECT"
+		"	trunc(extract(epoch from time)),"
+		"	rootdir_guid,"
+		"	directory_guid,"
+		"	path "
 		"FROM directory_log WHERE "
-		"username = $1 AND time > $2;";
-	const int format[2] = {0, 0};
+		"username = $1 AND time > to_timestamp($2) AND deviceid != $3 "
+		"ORDER BY time ASC;";
+	const int format[3] = {0, 0, 0};
 
 	char _unixtime[sizeof(uint64_t) * 8 + 1];
+	char _deviceid[sizeof(uint64_t) * 8 + 1];
 
 	char *val[2];
 	int length[2];
 
 	length[0] = strlen(username);
 	length[1] = snprintf(_unixtime, sizeof(_unixtime), "%"PRIu64, checkpoint);
+	length[2] = snprintf(_deviceid, sizeof(_deviceid), "%"PRIu64, deviceid);
 
 	val[0] = username;
 	val[1] = _unixtime;
+	val[2] = _deviceid;
 
-	res = PQexecParams(pgc, tb, 2, NULL,
+	res = PQexecParams(pgc, tb, 3, NULL,
 			(const char *const*)val, length, format, 0);
 	pqs = PQresultStatus(res);
 	if (pqs != PGRES_COMMAND_OK && pqs != PGRES_TUPLES_OK) {
@@ -39,7 +48,8 @@ _spq_f_logDir_exec(PGconn *pgc, char *username, uint64_t checkpoint)
 }
 
 bool
-spq_f_logDir(char *username, uint64_t checkpoint, struct getLogDir *state)
+spq_f_logDir(char *username, uint64_t checkpoint, uint64_t deviceid,
+		struct getLogDir *state)
 {
 	struct spq *c;
 	if (!state->p && (state->p = acquire_conn(&_spq)) == NULL) {
@@ -48,7 +58,7 @@ spq_f_logDir(char *username, uint64_t checkpoint, struct getLogDir *state)
 	c = (struct spq*)state->p;
 
 	if (!state->res && (state->res = _spq_f_logDir_exec(c->conn,
-					username, checkpoint)) == NULL) {
+					username, deviceid, checkpoint)) == NULL) {
 		release_conn(&_spq, c);
 		memset(state, 0u, sizeof(struct getLogDir));
 		return false;

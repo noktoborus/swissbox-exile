@@ -590,11 +590,12 @@ spq_create_tables()
 		");",
 		"CREATE TABLE IF NOT EXISTS directory_log "
 		"("
-		"	time timestsamp with time zone NOT NULL DEFAULT now(),"
+		"	time timestamp with time zone NOT NULL DEFAULT now(),"
 		"	username varchar(1024) NOT NULL,"
 		"	rootdir_guid UUID NOT NULL,"
 		"	directory_guid UUID NOT NULL,"
-		"	path varchar(4096) DEFAULT NULL"
+		"	path varchar(4096) DEFAULT NULL,"
+		"	deviceid bigint NOT NULL"
 		");",
 		"CREATE UNIQUE INDEX file_keys_urfr_idx "
 		"ON file_keys "
