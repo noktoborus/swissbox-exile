@@ -288,22 +288,22 @@ _handle_want_sync(struct client *c, unsigned type, Fep__WantSync *msg)
 
 	/* генерация списка последних обновлений директорий */
 	{
-		struct getLogDir gs;
+		struct logDirFile gs;
 		struct result_send *rs;
 
-		memset(&gs, 0, sizeof(struct getLogDir));
-		if (!spq_f_logDir(c->name, c->checkpoint, c->device_id, &gs))
+		memset(&gs, 0, sizeof(struct logDirFile));
+		if (!spq_f_logDirFile(c->name, c->checkpoint, c->device_id, &gs))
 			return send_error(c, msg->id, "Internal error 900", -1);
 
 		rs = calloc(1, sizeof(struct result_send));
 		if (!rs) {
-			spq_f_logDir_free(&gs);
+			spq_f_logDirFile_free(&gs);
 			return send_error(c, msg->id, "Internal error 901", -1);
 		}
-		memcpy(&rs->v, &gs, sizeof(struct getLogDir));
+		memcpy(&rs->v, &gs, sizeof(struct logDirFile));
 		rs->id = msg->session_id;
 		rs->type = RESULT_LOGDIR;
-		rs->free = (void(*)(void*))spq_f_logDir_free;
+		rs->free = (void(*)(void*))spq_f_logDirFile_free;
 		rs->next = c->rout;
 		c->rout = rs;
 	}
@@ -777,10 +777,9 @@ _handle_file_update(struct client *c, unsigned type, Fep__FileUpdate *fu)
 	 */
 
 #if DEEPDEBUG
-	xsyslog(LOG_DEBUG, "enc_filename: \"%s\", hash_filename: \"%s\", "
+	xsyslog(LOG_DEBUG, "enc_filename: \"%s\", "
 			"file_guid: \"%s\", revision_guid: \"%s\", key_len: %"PRIuPTR,
-			fu->enc_filename, fu->hash_filename,
-			fu->file_guid, fu->revision_guid, fu->key.len);
+			fu->enc_filename, fu->file_guid, fu->revision_guid, fu->key.len);
 #endif
 	/* TODO */
 	if (file_check_complete(c, wf)) {
@@ -793,7 +792,7 @@ _handle_file_update(struct client *c, unsigned type, Fep__FileUpdate *fu)
 		string2guid(fu->parent_revision_guid, len, &parent);
 		checkpoint = spq_f_chunkFile(c->name, &wf->rootdir,
 				&wf->file, &wf->revision, &parent, &dir, fu->enc_filename,
-				fu->hash_filename, fu->key.data, fu->key.len);
+				c->device_id, fu->key.data, fu->key.len);
 		return send_ok(c, fu->id, checkpoint);
 	} else {
 		return send_error(c, fu->id, "not enought chunks", -1);
@@ -1298,19 +1297,19 @@ _client_iterate_result(struct client *c)
 		char guid[GUID_MAX + 1];
 		char rootdir[GUID_MAX + 1];
 
-		if (!spq_f_logDir_it(&c->rout->v.d)) {
+		if (!spq_f_logDirFile_it(&c->rout->v.df)) {
 			rout_free(c);
 			return true;
 		}
 
-		guid2string(&c->rout->v.d.directory, guid, sizeof(guid));
-		guid2string(&c->rout->v.d.rootdir, rootdir, sizeof(rootdir));
+		guid2string(&c->rout->v.df.directory, guid, sizeof(guid));
+		guid2string(&c->rout->v.df.rootdir, rootdir, sizeof(rootdir));
 		msg.rootdir_guid = rootdir;
 		msg.guid = guid;
 		msg.session_id = c->rout->id;
-		msg.checkpoint = c->rout->v.d.checkpoint;
-		msg.no = c->rout->v.d.row;
-		msg.max = c->rout->v.d.max;
+		msg.checkpoint = c->rout->v.df.checkpoint;
+		msg.no = c->rout->v.df.row;
+		msg.max = c->rout->v.df.max;
 		/* TODO */
 	}
 	return true;

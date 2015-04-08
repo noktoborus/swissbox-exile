@@ -31,7 +31,7 @@ uint64_t
 spq_f_chunkFile(char *username,
 		guid_t *rootdir, guid_t *file, guid_t *revision,
 		guid_t *parent_revision, guid_t *dir,
-		char *enc_filename, char *hash_filename, uint8_t *pkey, size_t pkey_len);
+		char *enc_filename, uint64_t deviceid, uint8_t *pkey, size_t pkey_len);
 
 bool spq_f_getChunkPath(char *username,
 		guid_t *rootdir, guid_t *file, guid_t *chunk,
@@ -73,8 +73,8 @@ bool spq_f_getRevisions_it(struct getRevisions *state);
 /* отчистка результатов spq_f_getRevisions */
 void spq_f_getRevisions_free(struct getRevisions *state);
 
-/* лог директорий */
-struct getLogDir {
+/* лог директофайлов */
+struct logDirFile {
 	void *p;
 	void *res;
 
@@ -88,12 +88,12 @@ struct getLogDir {
 };
 
 bool
-spq_f_logDir(char *username, uint64_t checkpoint, uint64_t deviceid,
-		struct getLogDir *state);
+spq_f_logDirFile(char *username, uint64_t checkpoint, uint64_t deviceid,
+		struct logDirFile *state);
 bool
-spq_f_logDir_it(struct getLogDir *state);
+spq_f_logDirFile_it(struct logDirFile *state);
 void
-spq_f_logDir_free(struct getLogDir *state);
+spq_f_logDirFile_free(struct logDirFile *state);
 
 /* получение списка чанков (итератор по списку) */
 

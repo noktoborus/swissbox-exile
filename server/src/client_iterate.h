@@ -61,8 +61,7 @@ struct result_send {
 	union {
 		struct getChunks c;
 		struct getRevisions r;
-		struct getLogDir d;
-		struct getLogFile f;
+		struct logDirFile df;
 	} v;
 
 	void (*free)(void*);

@@ -251,7 +251,7 @@ static inline uint64_t
 _spq_f_chunkFile(PGconn *pgc, char *username,
 		guid_t *rootdir, guid_t *file, guid_t *revision,
 		guid_t *parent_revision, guid_t *dir,
-		char *enc_filename, char *hash_filename, char *pkey)
+		char *enc_filename, uint64_t deviceid, char *pkey)
 {
 	PGresult *res;
 	ExecStatusType pqs;
@@ -265,7 +265,7 @@ _spq_f_chunkFile(PGconn *pgc, char *username,
 		"	parent_revision_guid,"
 		"	directory_guid,"
 		"	enc_filename,"
-		"	hash_filename,"
+		"	deviceid,"
 		"	public_key"
 		") VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)"
 		"RETURNING trunc(extract(epoch from time));";
@@ -276,6 +276,7 @@ _spq_f_chunkFile(PGconn *pgc, char *username,
 	char _s_revision[GUID_MAX + 1];
 	char _s_parent[GUID_MAX + 1];
 	char _s_dir[GUID_MAX + 1];
+	char _deviceid[sizeof(uint64_t) * 8 + 1];
 
 	char *val[9];
 	int length[9];
@@ -289,7 +290,7 @@ _spq_f_chunkFile(PGconn *pgc, char *username,
 	length[4] = guid2string(parent_revision, _s_parent, sizeof(_s_parent));
 	length[5] = guid2string(dir, _s_dir, sizeof(_s_dir));
 	length[6] = strlen(enc_filename);
-	length[7] = strlen(hash_filename);
+	length[7] = snprintf(_deviceid, sizeof(_deviceid), "%"PRIu64, deviceid);
 	length[8] = strlen(pkey);
 
 	val[0] = username;
@@ -299,7 +300,7 @@ _spq_f_chunkFile(PGconn *pgc, char *username,
 	val[4] = length[4] ? _s_parent : NULL;
 	val[5] = length[5] ? _s_dir : NULL;
 	val[6] = enc_filename;
-	val[7] = hash_filename;
+	val[7] = _deviceid;
 	val[8] = pkey;
 
 	res = PQexecParams(pgc, tb, 9, NULL,
@@ -575,7 +576,7 @@ spq_create_tables()
 		"	directory_guid UUID NOT NULL, "
 		"	parent_revision_guid UUID DEFAULT NULL, "
 		"	enc_filename varchar(1024) NOT NULL, "
-		"	hash_filename varchar(1024) NOT NULL, "
+		"	deviceid bigint NOT NULL, "
 		"	public_key varchar(4096) NOT NULL"
 		");", /* таблица directory_tree должна заполняться автоматически
 				 по триггеру в таблице directory_log
@@ -670,7 +671,7 @@ uint64_t
 spq_f_chunkFile(char *username,
 		guid_t *rootdir, guid_t *file, guid_t *revision,
 		guid_t *parent_revision, guid_t *dir,
-		char *enc_filename, char *hash_filename, uint8_t *pkey, size_t pkey_len)
+		char *enc_filename, uint64_t deviceid, uint8_t *pkey, size_t pkey_len)
 {
 	uint64_t r = 0u;
 	struct spq *c;
@@ -681,7 +682,7 @@ spq_f_chunkFile(char *username,
 		if ((c = acquire_conn(&_spq)) != NULL) {
 			r = _spq_f_chunkFile(c->conn, username, rootdir, file, revision,
 					parent_revision, dir,
-					enc_filename, hash_filename, pkeyhex);
+					enc_filename, deviceid, pkeyhex);
 			release_conn(&_spq, c);
 		}
 		free(pkeyhex);
@@ -760,5 +761,5 @@ spq_f_logDirPush(char *username, guid_t *rootdir, guid_t *directory, char *path)
 
 #include "complex/getRevisions.c"
 #include "complex/getChunks.c"
-#include "complex/logDir.c"
+#include "complex/logDirFile.c"
 
