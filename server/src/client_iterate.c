@@ -977,30 +977,45 @@ _handle_invalid(struct client *c, unsigned type, void *msg)
 
 static struct handle handle[] =
 {
-	{0u, _handle_invalid, NULL, NULL}, /* 0 */
-	TYPICAL_HANDLE_S(FEP__TYPE__tPing, ping), /* 1 */
-	TYPICAL_HANDLE_S(FEP__TYPE__tPong, pong), /* 2 */
-	RAW_P_HANDLE_S(FEP__TYPE__tError, error), /* 3 */
-	RAW_P_HANDLE_S(FEP__TYPE__tOk, ok), /* 4 */
-	RAW_P_HANDLE_S(FEP__TYPE__tPending, pending), /* 5 */
-	INVALID_P_HANDLE_S(FEP__TYPE__tReqAuth, req_auth), /* 6 */
-	TYPICAL_HANDLE_S(FEP__TYPE__tAuth, auth), /* 7 */
-	TYPICAL_HANDLE_S(FEP__TYPE__txfer, xfer), /* 8 */
-	TYPICAL_HANDLE_S(FEP__TYPE__tReadAsk, read_ask), /* 9 */
-	TYPICAL_HANDLE_S(FEP__TYPE__tWriteAsk, write_ask), /* 10 */
-	TYPICAL_HANDLE_S(FEP__TYPE__tEnd, end), /* 11 */
-	TYPICAL_HANDLE_S(FEP__TYPE__tWriteOk, write_ok), /* 12 */
-	TYPICAL_HANDLE_S(FEP__TYPE__tFileUpdate, file_update), /* 13 */
-	TYPICAL_HANDLE_S(FEP__TYPE__tRenameChunk, rename_chunk), /* 14 */
-	TYPICAL_HANDLE_S(FEP__TYPE__tQueryChunks, query_chunks), /* 15 */
-	TYPICAL_HANDLE_S(FEP__TYPE__tResultChunk, result_chunk), /* 16 */
-	TYPICAL_HANDLE_S(FEP__TYPE__tQueryRevisions, query_revisions), /* 17 */
-	TYPICAL_HANDLE_S(FEP__TYPE__tResultRevision, result_revision), /* 18 */
-	TYPICAL_HANDLE_S(FEP__TYPE__tDirectoryUpdate, directory_update), /* 19 */
-	TYPICAL_HANDLE_S(FEP__TYPE__tFileMeta, file_meta), /* 20 */
-	TYPICAL_HANDLE_S(FEP__TYPE__tWantSync, want_sync), /* 21 */
-	TYPICAL_HANDLE_S(FEP__TYPE__tOkUpdate, ok_update), /* 22 */
+	{0u, "Invalid", _handle_invalid, NULL, NULL}, /* 0 */
+	TYPICAL_HANDLE_S(FEP__TYPE__tPing, "Ping", ping), /* 1 */
+	TYPICAL_HANDLE_S(FEP__TYPE__tPong, "Pong", pong), /* 2 */
+	RAW_P_HANDLE_S(FEP__TYPE__tError, "Error", error), /* 3 */
+	RAW_P_HANDLE_S(FEP__TYPE__tOk, "Ok", ok), /* 4 */
+	RAW_P_HANDLE_S(FEP__TYPE__tPending, "Pending", pending), /* 5 */
+	INVALID_P_HANDLE_S(FEP__TYPE__tReqAuth, "ReqAuth", req_auth), /* 6 */
+	TYPICAL_HANDLE_S(FEP__TYPE__tAuth, "Auth", auth), /* 7 */
+	TYPICAL_HANDLE_S(FEP__TYPE__txfer, "xfer", xfer), /* 8 */
+	TYPICAL_HANDLE_S(FEP__TYPE__tReadAsk, "ReadAsk", read_ask), /* 9 */
+	TYPICAL_HANDLE_S(FEP__TYPE__tWriteAsk, "WriteAsk", write_ask), /* 10 */
+	TYPICAL_HANDLE_S(FEP__TYPE__tEnd, "End", end), /* 11 */
+	TYPICAL_HANDLE_S(FEP__TYPE__tWriteOk, "WriteOk", write_ok), /* 12 */
+	TYPICAL_HANDLE_S(FEP__TYPE__tFileUpdate, "FileUpdate",
+			file_update), /* 13 */
+	TYPICAL_HANDLE_S(FEP__TYPE__tRenameChunk, "RenameChunk",
+			rename_chunk), /* 14 */
+	TYPICAL_HANDLE_S(FEP__TYPE__tQueryChunks, "QueryChunks",
+			query_chunks), /* 15 */
+	TYPICAL_HANDLE_S(FEP__TYPE__tResultChunk, "ResultChunk",
+			result_chunk), /* 16 */
+	TYPICAL_HANDLE_S(FEP__TYPE__tQueryRevisions, "QueryRevisions",
+			query_revisions), /* 17 */
+	TYPICAL_HANDLE_S(FEP__TYPE__tResultRevision, "ResultRevision",
+			result_revision), /* 18 */
+	TYPICAL_HANDLE_S(FEP__TYPE__tDirectoryUpdate, "DirectoryUpdate",
+			directory_update), /* 19 */
+	TYPICAL_HANDLE_S(FEP__TYPE__tFileMeta, "FileMeta", file_meta), /* 20 */
+	TYPICAL_HANDLE_S(FEP__TYPE__tWantSync, "WantSync", want_sync), /* 21 */
+	TYPICAL_HANDLE_S(FEP__TYPE__tOkUpdate, "OkUpdate", ok_update), /* 22 */
 };
+
+const char*
+Fepstr(unsigned type)
+{
+	if (type >= sizeof(handle) / sizeof(struct handle))
+		type = 0;
+	return handle[type].text;
+}
 
 bool
 _send_message(struct sev_ctx *cev, unsigned type, void *msg, char *name)

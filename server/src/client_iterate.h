@@ -153,6 +153,7 @@ typedef size_t(*fep_pack_t)(void*, unsigned char*);
 struct handle
 {
 	unsigned short type;
+	char text[16];
 	handle_t f;
 	handle_unpack_t p;
 	handle_free_t e;
@@ -160,6 +161,7 @@ struct handle
 	fep_pack_t f_pack;
 };
 
+const char *Fepstr(unsigned type);
 #define HEADER_OFFSET 6
 /* header:
  * |a|a|b|b|b|_|
@@ -278,9 +280,10 @@ bool wait_id(struct client *c, struct listRoot *list, uint64_t id, wait_store_t 
 		return sendlog_error(c, 0, # name " not implement", -1);\
 	}
 
-#define TYPICAL_HANDLE_S(type, name) \
+#define TYPICAL_HANDLE_S(type, text, name) \
 	{\
 		type, \
+		text, \
 		(handle_t)_handle_ ##name,\
 		(handle_unpack_t)fep__ ##name ##__unpack,\
 		(handle_free_t)fep__ ##name ##__free_unpacked,\
@@ -288,21 +291,21 @@ bool wait_id(struct client *c, struct listRoot *list, uint64_t id, wait_store_t 
 		(fep_pack_t)fep__ ##name## __pack\
 	}
 
-#define RAW_P_HANDLE_S(type, name) \
+#define RAW_P_HANDLE_S(type, text, name) \
 	{\
-		type, (handle_t)_handle_ ##name, \
+		type, text, (handle_t)_handle_ ##name, \
 		NULL, \
 		NULL, \
 		(fep_get_packed_size_t)fep__ ##name## __get_packed_size, \
 		(fep_pack_t)fep__ ##name## __pack \
 	}
 
-#define RAW_HANDLE_S(type, name) \
-	{type, (handle_t)_handle_ ##name, NULL, NULL, NULL, NULL}
+#define RAW_HANDLE_S(type, text, name) \
+	{type, text, (handle_t)_handle_ ##name, NULL, NULL, NULL, NULL}
 
-#define INVALID_P_HANDLE_S(type, name) \
+#define INVALID_P_HANDLE_S(type, text, name) \
 	{\
-		type, (handle_t)_handle_invalid, \
+		type, text, (handle_t)_handle_invalid, \
 		NULL, \
 		NULL, \
 		(fep_get_packed_size_t)fep__ ##name## __get_packed_size, \
