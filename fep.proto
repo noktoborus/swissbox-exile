@@ -45,7 +45,7 @@ option optimize_for = SPEED;
  C: End (session_id = 2344)
  C: WriteAsk...
  ...
- C: FileUpdate (id = 1002)
+ C: FileMeta (id = 1002)
  S: OkUpdate (id = 1002)
 
  Последовательность чтения:
@@ -56,9 +56,9 @@ option optimize_for = SPEED;
  ...
  S: End (id = 445, session_id = 331)
 
- Получение количества чанков:
+ Получение количества чанков и информацию по файлу:
  C: QueryChunks (id = 100, session_id = 200)
- S: Ok (id = 100)
+ S: FileMeta (id = 100)
  S: ResultChunk (id = 101, session_id = 200, chunk_no = 1, chunk_max = 3)
  S: ResultChunk (id = 102, session_id = 200, chunk_no = 2, chunk_max = 3)
  S: ResultChunk (id = 103, session_id = 200, chunk_no = 3, chunk_max = 3)
@@ -194,51 +194,23 @@ message Cancel {
 }
 
 /*
-	Обновление меты файла, хеши имени,
+	Переименование, удаление файлов
+	Ответы:
+		OkUpdate, Error, Pending
 */
-message FileMeta {
+message FileUpdate {
 	required uint64 id = 1 [default = 0];
 
 	/* идентификация файла по трём полям */
 	required string rootdir_guid = 3;
 	required string file_guid = 4;
-	required string revision_guid = 5;
 
 	/* опциональные значения
-	 если обновляется только одно поле из (enc_filename, hash_filename)
-	 возвращается Error
+	 если не переименование (enc_filename)
+	 и не перемещение (directory_guid), то это удаление
 	 */
 	optional string enc_filename = 50;
-	optional string hash_filename = 51;
 	optional string directory_guid = 53;
-}
-
-
-/* обновление файла
- присылается сервером клиенту или клиентом серверу в случае обновления
- ревизии файла
- Ответы:
-	OkUpdate: Всё нормально, можно продолжать
-	Error: отмена
- */
-message FileUpdate {
-	required uint64 id = 1 [default = 0];
-
-	required string rootdir_guid = 3;
-	required string file_guid = 4;
-	required string revision_guid = 5;
-	/* может быть пустым если файл новый */
-	optional string parent_revision_guid = 6;
-	/* новое количество чанков в файле
-	   при удалении отсылается значение = 0,
-	  при переименовании chunks не указан, используется только
-	  поля enc_filename и hash_filename
-	 */
-	optional uint32 chunks = 10;
-	optional string enc_filename = 50;
-	optional bytes key = 52;
-
-	required string directory_guid = 53;
 
 	/* отправляется только сервером клиенту, содержит чекпоинт лога */
 	optional uint64 checkpoint = 100;
@@ -248,6 +220,34 @@ message FileUpdate {
 	/* количество и номер в пределах сессии */
 	optional uint32 no = 202;
 	optional uint32 max = 203;
+}
+
+
+/*
+ Присылается после отправки всех чанков
+ ревизии файла
+ Ответы:
+	OkUpdate: Всё нормально, можно продолжать
+	Error: отмена
+ */
+message FileMeta {
+	required uint64 id = 1 [default = 0];
+
+	required string rootdir_guid = 3;
+	required string file_guid = 4;
+	required string revision_guid = 5;
+	required string directory_guid = 6;
+	/* количество чанков в файле */
+	required uint32 chunks = 10;
+	/* эти поля не обязательно отправлять с новой ревизией,
+	  но если сервер не найдёт старые записи файла, в которых ключ есть,
+	  то можно словить Error
+	 */
+	optional string enc_filename = 50;
+	optional bytes key = 52;
+
+	/* может быть пустым если файл новый */
+	optional string parent_revision_guid = 87;
 }
 
 /*
@@ -351,13 +351,17 @@ message ResultRevision {
 	required uint32 session_id = 2;
 
 	required string revision_guid = 3;
-	optional string parent_revision_guid = 4;
 	/* аналог к ResultChunk.chunk_no/ResultChunk.chunk_max */
 	required uint32 rev_no = 5;
 	required uint32 rev_max = 6;
+	
+	optional string parent_revision_guid = 10;
 }
 
-/* запрос чанков для ревизии revision_guid */
+/* запрос чанков для ревизии revision_guid
+ Ответы:
+ 	FileMeta, Error
+ */
 message QueryChunks {
 	required uint64 id = 1 [default = 1];
 
