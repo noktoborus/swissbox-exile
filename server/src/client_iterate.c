@@ -23,11 +23,7 @@ TYPICAL_HANDLE_F(Fep__Error, error, &c->mid)
 TYPICAL_HANDLE_F(Fep__Pending, pending, &c->mid)
 TYPICAL_HANDLE_F(Fep__WriteOk, write_ok, &c->mid)
 
-NOTIMP_HANDLE_F(Fep__ResultChunk, result_chunk)
-NOTIMP_HANDLE_F(Fep__ResultRevision, result_revision)
-
 NOTIMP_HANDLE_F(Fep__FileMeta, file_meta)
-NOTIMP_HANDLE_F(Fep__OkUpdate, ok_update)
 
 struct client_cum {
 	uint32_t namehash;
@@ -996,17 +992,17 @@ static struct handle handle[] =
 			rename_chunk), /* 14 */
 	TYPICAL_HANDLE_S(FEP__TYPE__tQueryChunks, "QueryChunks",
 			query_chunks), /* 15 */
-	TYPICAL_HANDLE_S(FEP__TYPE__tResultChunk, "ResultChunk",
+	INVALID_P_HANDLE_S(FEP__TYPE__tResultChunk, "ResultChunk",
 			result_chunk), /* 16 */
 	TYPICAL_HANDLE_S(FEP__TYPE__tQueryRevisions, "QueryRevisions",
 			query_revisions), /* 17 */
-	TYPICAL_HANDLE_S(FEP__TYPE__tResultRevision, "ResultRevision",
+	INVALID_P_HANDLE_S(FEP__TYPE__tResultRevision, "ResultRevision",
 			result_revision), /* 18 */
 	TYPICAL_HANDLE_S(FEP__TYPE__tDirectoryUpdate, "DirectoryUpdate",
 			directory_update), /* 19 */
 	TYPICAL_HANDLE_S(FEP__TYPE__tFileMeta, "FileMeta", file_meta), /* 20 */
 	TYPICAL_HANDLE_S(FEP__TYPE__tWantSync, "WantSync", want_sync), /* 21 */
-	TYPICAL_HANDLE_S(FEP__TYPE__tOkUpdate, "OkUpdate", ok_update), /* 22 */
+	INVALID_P_HANDLE_S(FEP__TYPE__tOkUpdate, "OkUpdate", ok_update), /* 22 */
 };
 
 const char*
