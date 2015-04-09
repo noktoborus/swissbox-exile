@@ -83,6 +83,16 @@ struct logDirFile {
 	guid_t directory;
 	char path[PATH_MAX];
 
+	char type; /* "d" for directory or "f" for file */
+	guid_t file;
+	guid_t revision;
+	guid_t parent;
+
+	uint8_t key[AESKEY_MAX];
+	size_t key_len;
+
+	size_t chunks;
+
 	unsigned row;
 	unsigned max;
 };

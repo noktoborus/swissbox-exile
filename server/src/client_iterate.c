@@ -278,15 +278,7 @@ _handle_want_sync(struct client *c, unsigned type, Fep__WantSync *msg)
 	}
 
 	c->checkpoint = msg->checkpoint;
-	/* список обновления файлов */
-	{
-		struct getLogFile gs;
-
-		memset(&gs, 0, sizeof(struct getLogFile));
-		/* TODO */
-	}
-
-	/* генерация списка последних обновлений директорий */
+	/* генерация списка последних обновлений директорий и файлов */
 	{
 		struct logDirFile gs;
 		struct result_send *rs;
@@ -302,7 +294,7 @@ _handle_want_sync(struct client *c, unsigned type, Fep__WantSync *msg)
 		}
 		memcpy(&rs->v, &gs, sizeof(struct logDirFile));
 		rs->id = msg->session_id;
-		rs->type = RESULT_LOGDIR;
+		rs->type = RESULT_LOGDIRFILE;
 		rs->free = (void(*)(void*))spq_f_logDirFile_free;
 		rs->next = c->rout;
 		c->rout = rs;
@@ -1235,6 +1227,67 @@ client_alloc(struct sev_ctx *cev)
 }
 
 bool static inline
+_client_iterate_result_logdf(struct client *c, struct logDirFile *ldf)
+{
+	if (!spq_f_logDirFile_it(ldf)) {
+		rout_free(c);
+		return true;
+	}
+	if (ldf->type == 'd') {
+		Fep__DirectoryUpdate msg = FEP__DIRECTORY_UPDATE__INIT;
+		char guid[GUID_MAX + 1];
+		char rootdir[GUID_MAX + 1];
+
+		msg.id = generate_id(c);
+
+		guid2string(&c->rout->v.df.directory, guid, sizeof(guid));
+		guid2string(&c->rout->v.df.rootdir, rootdir, sizeof(rootdir));
+		msg.rootdir_guid = rootdir;
+		msg.guid = guid;
+		msg.session_id = c->rout->id;
+		msg.checkpoint = c->rout->v.df.checkpoint;
+		msg.no = c->rout->v.df.row;
+		msg.max = c->rout->v.df.max;
+		return send_message(c->cev, FEP__TYPE__tDirectoryUpdate, &msg);
+	} else if (ldf->type == 'f') {
+		Fep__FileUpdate msg = FEP__FILE_UPDATE__INIT;
+
+		char rootdir[GUID_MAX + 1];
+		char file[GUID_MAX + 1];
+		char dir[GUID_MAX + 1];
+		char revision[GUID_MAX + 1];
+		char parent_rev[GUID_MAX + 1];
+
+		msg.id = generate_id(c);
+		msg.checkpoint = ldf->checkpoint;
+
+		guid2string(&ldf->rootdir, rootdir, sizeof(rootdir));
+		guid2string(&ldf->file, file, sizeof(file));
+		guid2string(&ldf->directory, dir, sizeof(dir));
+		guid2string(&ldf->revision, revision, sizeof(revision));
+		guid2string(&ldf->parent, parent_rev, sizeof(parent_rev));
+
+		msg.rootdir_guid = rootdir;
+		msg.file_guid = file;
+		msg.revision_guid = revision;
+		msg.enc_filename = ldf->path;
+		msg.has_key = true;
+		msg.key.data = ldf->key;
+		msg.key.len = ldf->key_len;
+		msg.chunks = ldf->chunks;
+		msg.no = ldf->row;
+		msg.max = ldf->max;
+		msg.session_id = c->rout->id;
+
+		return send_message(c->cev, FEP__TYPE__tFileUpdate, &msg);
+	} else {
+		xsyslog(LOG_WARNING, "user '%s' with unknown log record '%c'",
+				c->name, ldf->type);
+	}
+	return true;
+}
+
+bool static inline
 _client_iterate_result(struct client *c)
 {
 	if (!c->rout)
@@ -1243,7 +1296,7 @@ _client_iterate_result(struct client *c)
 	if (c->rout->type == RESULT_CHUNKS) {
 		Fep__ResultChunk msg = FEP__RESULT_CHUNK__INIT;
 		char guid[GUID_MAX + 1];
-		char hash[HASH_MAX + 1];
+		uint8_t hash[HASH_MAX + 1];
 		size_t hash_len;
 		if (!spq_f_getChunks_it(&c->rout->v.c)) {
 			/* итерироваться больше некуда, потому подчищаем */
@@ -1292,25 +1345,12 @@ _client_iterate_result(struct client *c)
 				msg.rev_no, msg.rev_max);
 #endif
 		return send_message(c->cev, FEP__TYPE__tResultRevision, &msg);
-	} else if (c->rout->type == RESULT_LOGDIR) {
-		Fep__DirectoryUpdate msg = FEP__DIRECTORY_UPDATE__INIT;
-		char guid[GUID_MAX + 1];
-		char rootdir[GUID_MAX + 1];
-
-		if (!spq_f_logDirFile_it(&c->rout->v.df)) {
-			rout_free(c);
-			return true;
-		}
-
-		guid2string(&c->rout->v.df.directory, guid, sizeof(guid));
-		guid2string(&c->rout->v.df.rootdir, rootdir, sizeof(rootdir));
-		msg.rootdir_guid = rootdir;
-		msg.guid = guid;
-		msg.session_id = c->rout->id;
-		msg.checkpoint = c->rout->v.df.checkpoint;
-		msg.no = c->rout->v.df.row;
-		msg.max = c->rout->v.df.max;
-		/* TODO */
+	} else if (c->rout->type == RESULT_LOGDIRFILE) {
+		return _client_iterate_result_logdf(c, &c->rout->v.df);
+	} else {
+		xsyslog(LOG_WARNING, "client[%p] unknown rout type: %d\n",
+				(void*)c, c->rout->type);
+		rout_free(c);
 	}
 	return true;
 }

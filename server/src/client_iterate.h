@@ -48,8 +48,7 @@ struct fdb_fileUpdate {
 typedef enum _result_send {
 	RESULT_CHUNKS = 1,
 	RESULT_REVISIONS = 2,
-	RESULT_LOGDIR = 3,
-	RESULT_LOGFILE = 4,
+	RESULT_LOGDIRFILE = 3,
 } result_send_t;
 
 struct result_send {

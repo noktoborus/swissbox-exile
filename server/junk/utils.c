@@ -25,7 +25,7 @@ hash_pjw(char *str, size_t size)
 }
 
 size_t
-hex2bin(const char *hex, size_t hex_len, char *binary, size_t bin_len)
+hex2bin(const char *hex, size_t hex_len, uint8_t *binary, size_t bin_len)
 {
 	register size_t binpos = 0u;
 	register size_t hexpos = 0u;
