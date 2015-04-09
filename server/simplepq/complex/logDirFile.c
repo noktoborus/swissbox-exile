@@ -41,11 +41,11 @@ _spq_f_logDirFile_exec(PGconn *pgc, char *username, uint64_t checkpoint,
 	"AS x ORDER BY checkpoint ASC;";
 	const int fmt[3] = {0, 0, 0};
 
-	char _unixtime[sizeof(uint64_t) * 8 + 1];
-	char _deviceid[sizeof(uint64_t) * 8 + 1];
+	char _unixtime[sizeof(uint64_t) * 8 + 1] = {0};
+	char _deviceid[sizeof(uint64_t) * 8 + 1] = {0};
 
-	char *val[2];
-	int len[2];
+	char *val[3];
+	int len[3];
 
 	len[0] = strlen(username);
 	len[1] = snprintf(_unixtime, sizeof(_unixtime), "%"PRIu64, checkpoint);
