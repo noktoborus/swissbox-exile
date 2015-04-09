@@ -1047,8 +1047,9 @@ _send_message(struct sev_ctx *cev, unsigned type, void *msg, char *name)
 	}
 
 #if DEEPDEBUG
-	xsyslog(LOG_DEBUG, "client[%p] transmit header[type: %u, len: %"PRIuPTR"]",
-			(void*)cev, type, len);
+	xsyslog(LOG_DEBUG,
+			"client[%p] transmit header[type: %s (%u), len: %"PRIuPTR"]",
+			(void*)cev, Fepstr(type), type, len);
 #endif
 	/* упаковывается сообщение */
 	handle[type].f_pack(msg, &buf[HEADER_OFFSET]);
@@ -1073,8 +1074,11 @@ pack_header(unsigned type, size_t *len)
 		memcpy(buf, &typeBE, 2);
 		memcpy(&buf[2], &lenBE, 3);
 #if 0
-		xsyslog(LOG_DEBUG, "header[type: %u, len: %lu]: %02x %02x %02x %02x %02x %02x",
-				type, *len, buf[0], buf[1], buf[2], buf[3], buf[4], buf[5]);
+		xsyslog(LOG_DEBUG,
+				"header[type: %s (%u), len: %lu]: "
+				"%02x %02x %02x %02x %02x %02x",
+				Fepstr(type), type, *len,
+				buf[0], buf[1], buf[2], buf[3], buf[4], buf[5]);
 #endif
 		*len += HEADER_OFFSET;
 	}
@@ -1107,18 +1111,20 @@ handle_header(unsigned char *buf, size_t size, struct client *c)
 			c->h_type = ntohs(c->h_type);
 			c->h_len = ntohl(c->h_len << 8);
 #if DEEPDEBUG
-			xsyslog(LOG_DEBUG, "client[%p] got header[type: %u, len: %u]: "
+			xsyslog(LOG_DEBUG,
+					"client[%p] got header[type: %s (%u), len: %u]: "
 					"%02x %02x %02x %02x %02x %02x "
 					"(in %"PRIuPTR" bytes)",
-					(void*)c->cev, c->h_type, c->h_len,
+					(void*)c->cev, Fepstr(c->h_type), c->h_type, c->h_len,
 					buf[0], buf[1], buf[2], buf[3], buf[4], buf[5],
 					size);
 #endif
 			/* бесполезная проверка на длину пакета */
 			if (c->h_len > 1 << 24 || c->h_len == 0) {
-				xsyslog(LOG_WARNING, "client[%p] header[type: %u, len: %u]: "
+				xsyslog(LOG_WARNING,
+						"client[%p] header[type: %s (%u), len: %u]: "
 						"length can't be great then %d and equal zero",
-						(void*)c->cev, c->h_type, c->h_len,
+						(void*)c->cev, Fepstr(c->h_type), c->h_type, c->h_len,
 						1 << 24);
 				c->h_type = 0u;
 				return HEADER_INVALID;
@@ -1126,9 +1132,10 @@ handle_header(unsigned char *buf, size_t size, struct client *c)
 			/* проверка на тип */
 			if (sizeof(handle) / sizeof(struct handle) <= c->h_type ||
 					c->h_type == 0u) {
-				xsyslog(LOG_WARNING, "client[%p] header[type: %u, len: %u]: "
+				xsyslog(LOG_WARNING,
+						"client[%p] header[type: %s (%u), len: %u]: "
 						"invalid type",
-						(void*)c->cev, c->h_type, c->h_len);
+						(void*)c->cev, Fepstr(c->h_type), c->h_type, c->h_len);
 				c->h_type = 0u;
 				c->h_len = 0u;
 				/*
@@ -1147,9 +1154,9 @@ handle_header(unsigned char *buf, size_t size, struct client *c)
 		void *msg;
 		bool exit = false;
 		if (!handle[c->h_type].f) {
-			xsyslog(LOG_INFO, "client[%p] header[type: %u, len: %u]: "
+			xsyslog(LOG_INFO, "client[%p] header[type: %s (%u), len: %u]: "
 					"message has no handle",
-					(void*)c->cev, c->h_type, c->h_len);
+					(void*)c->cev, Fepstr(c->h_type), c->h_type, c->h_len);
 		} else {
 			/* не должно случаться такого, что бы небыло анпакера,
 			 * но как-то вот
@@ -1575,8 +1582,8 @@ _client_iterate_handle(struct client *c)
 	} else if (lval == HEADER_STOP) {
 		/* словили остановку -- сообщаем в лог и выходим */
 		xsyslog(LOG_WARNING, "client[%p] stop chat with "
-				"header[type: %u, len: %u]",
-				(void*)c->cev, c->h_type, c->h_len);
+				"header[type: %s (%u), len: %u]",
+				(void*)c->cev, Fepstr(c->h_type), c->h_type, c->h_len);
 		return false;
 	} else if (lval == HEADER_MORE) {
 		/* если просит больше, нужно взять */
