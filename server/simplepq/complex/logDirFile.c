@@ -12,7 +12,7 @@ _spq_f_logDirFile_exec(PGconn *pgc, char *username, uint64_t checkpoint,
 	"SELECT * FROM "
 	"	(SELECT"
 	"		'f' AS type,"
-	"		trunc(extract(epoch from time)),"
+	"		trunc(extract(epoch from time)) AS checkpoint,"
 	"		rootdir_guid,"
 	"		file_guid,"
 	"		revision_guid,"
@@ -27,7 +27,7 @@ _spq_f_logDirFile_exec(PGconn *pgc, char *username, uint64_t checkpoint,
 	"	FROM file_keys"
 	"	WHERE username = $1 AND time > to_timestamp($2) AND deviceid != $3 "
 	"	UNION SELECT 'd' AS type,"
-	"		trunc(extract(epoch from time)),"
+	"		trunc(extract(epoch from time)) AS checkpoint,"
 	"		rootdir_guid,"
 	"		NULL,"
 	"		NULL,"
@@ -38,7 +38,7 @@ _spq_f_logDirFile_exec(PGconn *pgc, char *username, uint64_t checkpoint,
 	"		0"
 	"	FROM directory_log"
 	"	WHERE username = $1 AND time > to_timestamp($2) AND deviceid != $3) "
-	"AS x ORDER BY time ASC;";
+	"AS x ORDER BY checkpoint ASC;";
 	const int fmt[3] = {0, 0, 0};
 
 	char _unixtime[sizeof(uint64_t) * 8 + 1];
