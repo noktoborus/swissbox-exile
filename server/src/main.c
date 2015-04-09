@@ -5,6 +5,7 @@
 #include "junk/utils.h"
 #include "simplepq/simplepq.h"
 #include "fakedb/fakedb.h"
+#include "client_iterate.h"
 
 #include <arpa/inet.h>
 #include <errno.h>
@@ -704,6 +705,7 @@ main(int argc, char *argv[])
 	if (spq_create_tables()) {
 		loop = EV_DEFAULT;
 		memset(&pain, 0, sizeof(struct main));
+		client_threads_prealloc();
 		ev_signal_init(&pain.sigint, signal_cb, SIGINT);
 		ev_signal_start(loop, &pain.sigint);
 		ev_signal_init(&pain.sigpipe, signal_ignore_cb, SIGPIPE);
@@ -724,6 +726,7 @@ main(int argc, char *argv[])
 		ev_signal_stop(loop, &pain.sigint);
 		ev_timer_stop(loop, &pain.watcher);
 		ev_loop_destroy(loop);
+		client_threads_bye();
 	}
 	fdb_close();
 	spq_close();

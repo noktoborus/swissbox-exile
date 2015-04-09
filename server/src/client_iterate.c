@@ -71,9 +71,10 @@ client_cum_free(struct client_cum *ccum)
 		ccum->next = ccum->prev;
 	if (ccum->prev)
 		ccum->prev = ccum->next;
-
-	free(ccum);
 	pthread_mutex_unlock(&clients_cum.lock);
+
+	pthread_mutex_destroy(&ccum->lock);
+	free(ccum);
 }
 
 static struct client_cum*
@@ -81,7 +82,7 @@ client_cum_create(uint32_t namehash)
 {
 	struct client_cum *ccum = NULL;
 
-	if (!pthread_mutex_lock(&clients_cum.lock))
+	if (pthread_mutex_lock(&clients_cum.lock))
 		return NULL;
 
 	for (ccum = clients_cum.first; ccum; ccum = ccum->next) {
@@ -94,6 +95,7 @@ client_cum_create(uint32_t namehash)
 		if (!ccum) {
 			xsyslog(LOG_WARNING, "memory fail when communication with over");
 		} else {
+			pthread_mutex_init(&ccum->lock, NULL);
 			ccum->namehash = namehash;
 			if ((ccum->next = clients_cum.first) != NULL)
 				ccum->next->prev = ccum;
@@ -106,6 +108,23 @@ client_cum_create(uint32_t namehash)
 	ccum->ref++;
 
 	return ccum;
+}
+
+void
+client_threads_bye()
+{
+	while (clients_cum.first)
+		client_cum_free(clients_cum.first);
+
+	pthread_mutex_destroy(&clients_cum.lock);
+	clients_cum.inited = false;
+}
+
+void
+client_threads_prealloc()
+{
+	pthread_mutex_init(&clients_cum.lock, NULL);
+	clients_cum.inited = true;
 }
 
 static struct result_send*
