@@ -21,7 +21,6 @@ TYPICAL_HANDLE_F(Fep__Auth, auth, &c->mid)
 TYPICAL_HANDLE_F(Fep__Ok, ok, &c->mid)
 TYPICAL_HANDLE_F(Fep__Error, error, &c->mid)
 TYPICAL_HANDLE_F(Fep__Pending, pending, &c->mid)
-TYPICAL_HANDLE_F(Fep__WriteOk, write_ok, &c->mid)
 
 NOTIMP_HANDLE_F(Fep__FileMeta, file_meta)
 
@@ -985,7 +984,7 @@ static struct handle handle[] =
 	TYPICAL_HANDLE_S(FEP__TYPE__tReadAsk, "ReadAsk", read_ask), /* 9 */
 	TYPICAL_HANDLE_S(FEP__TYPE__tWriteAsk, "WriteAsk", write_ask), /* 10 */
 	TYPICAL_HANDLE_S(FEP__TYPE__tEnd, "End", end), /* 11 */
-	TYPICAL_HANDLE_S(FEP__TYPE__tWriteOk, "WriteOk", write_ok), /* 12 */
+	INVALID_P_HANDLE_S(FEP__TYPE__tWriteOk, "WriteOk", write_ok), /* 12 */
 	TYPICAL_HANDLE_S(FEP__TYPE__tFileUpdate, "FileUpdate",
 			file_update), /* 13 */
 	TYPICAL_HANDLE_S(FEP__TYPE__tRenameChunk, "RenameChunk",
