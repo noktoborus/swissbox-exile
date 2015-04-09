@@ -68,6 +68,7 @@ struct result_send {
 	struct result_send *next;
 };
 
+#define C_NOSESSID ((uint32_t)-1)
 struct chunk_send {
 	int fd;
 

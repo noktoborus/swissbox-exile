@@ -266,6 +266,37 @@ _handle_query_chunks(struct client *c, unsigned type, Fep__QueryChunks *msg)
 	return send_ok(c, msg->id, C_OK_SIMPLE);
 }
 
+/*
+ * активация отправки лога клиенту
+ * TODO: аргумнет slice -- отправлять ли лог или текущее состояние
+ */
+static inline bool
+_active_sync(struct client *c, uint32_t session_id, bool slice)
+{
+	/* генерация списка последних обновлений директорий и файлов */
+	struct logDirFile gs;
+	struct result_send *rs;
+
+	memset(&gs, 0, sizeof(struct logDirFile));
+	if (!spq_f_logDirFile(c->name, c->checkpoint, c->device_id, &gs)) {
+		return false;
+	}
+
+	rs = calloc(1, sizeof(struct result_send));
+	if (!rs) {
+		spq_f_logDirFile_free(&gs);
+		return false;
+	}
+	memcpy(&rs->v, &gs, sizeof(struct logDirFile));
+	rs->id = session_id;
+	rs->type = RESULT_LOGDIRFILE;
+	rs->free = (void(*)(void*))spq_f_logDirFile_free;
+	rs->next = c->rout;
+	c->rout = rs;
+
+	return true;
+}
+
 bool
 _handle_want_sync(struct client *c, unsigned type, Fep__WantSync *msg)
 {
@@ -278,26 +309,8 @@ _handle_want_sync(struct client *c, unsigned type, Fep__WantSync *msg)
 	}
 
 	c->checkpoint = msg->checkpoint;
-	/* генерация списка последних обновлений директорий и файлов */
-	{
-		struct logDirFile gs;
-		struct result_send *rs;
-
-		memset(&gs, 0, sizeof(struct logDirFile));
-		if (!spq_f_logDirFile(c->name, c->checkpoint, c->device_id, &gs))
-			return send_error(c, msg->id, "Internal error 900", -1);
-
-		rs = calloc(1, sizeof(struct result_send));
-		if (!rs) {
-			spq_f_logDirFile_free(&gs);
-			return send_error(c, msg->id, "Internal error 901", -1);
-		}
-		memcpy(&rs->v, &gs, sizeof(struct logDirFile));
-		rs->id = msg->session_id;
-		rs->type = RESULT_LOGDIRFILE;
-		rs->free = (void(*)(void*))spq_f_logDirFile_free;
-		rs->next = c->rout;
-		c->rout = rs;
+	if (!_active_sync(c, msg->session_id, false)) {
+		return send_error(c, msg->id, "Internal error 1653", -1);
 	}
 
 	return send_ok(c, msg->id, C_OK_SIMPLE);
@@ -1233,6 +1246,8 @@ _client_iterate_result_logdf(struct client *c, struct logDirFile *ldf)
 		rout_free(c);
 		return true;
 	}
+
+	c->checkpoint = ldf->checkpoint;
 	if (ldf->type == 'd') {
 		Fep__DirectoryUpdate msg = FEP__DIRECTORY_UPDATE__INIT;
 		char guid[GUID_MAX + 1];
@@ -1244,10 +1259,12 @@ _client_iterate_result_logdf(struct client *c, struct logDirFile *ldf)
 		guid2string(&c->rout->v.df.rootdir, rootdir, sizeof(rootdir));
 		msg.rootdir_guid = rootdir;
 		msg.guid = guid;
-		msg.session_id = c->rout->id;
 		msg.checkpoint = c->rout->v.df.checkpoint;
 		msg.no = c->rout->v.df.row;
 		msg.max = c->rout->v.df.max;
+		if (c->rout->id != C_NOSESSID)
+			msg.session_id = c->rout->id;
+
 		return send_message(c->cev, FEP__TYPE__tDirectoryUpdate, &msg);
 	} else if (ldf->type == 'f') {
 		Fep__FileUpdate msg = FEP__FILE_UPDATE__INIT;
@@ -1277,7 +1294,8 @@ _client_iterate_result_logdf(struct client *c, struct logDirFile *ldf)
 		msg.chunks = ldf->chunks;
 		msg.no = ldf->row;
 		msg.max = ldf->max;
-		msg.session_id = c->rout->id;
+		if (c->rout->id != C_NOSESSID)
+			msg.session_id = c->rout->id;
 
 		return send_message(c->cev, FEP__TYPE__tFileUpdate, &msg);
 	} else {
@@ -1628,7 +1646,7 @@ client_iterate(struct sev_ctx *cev, bool last, void **p)
 		pthread_mutex_lock(&c->cum->lock);
 		/* если чекпоинт "уехал", то нам тоже нужно двигаться вперёд */
 		if (c->cum->new_checkpoint > c->checkpoint) {
-
+			_active_sync(c, C_NOSESSID, false);
 		}
 		pthread_mutex_unlock(&c->cum->lock);
 	}
