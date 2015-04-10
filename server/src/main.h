@@ -5,7 +5,7 @@
 #define _MAIN_1422961154_H_
 
 #include "list.h"
-#include "xsyslog.h"
+#include "junk/xsyslog.h"
 #include "proto/fep.pb-c.h"
 
 #include <ev.h>

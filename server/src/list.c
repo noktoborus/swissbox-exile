@@ -2,7 +2,7 @@
  * file: src/list.c
  */
 #include "list.h"
-#include "xsyslog.h"
+#include "junk/xsyslog.h"
 #include <errno.h>
 #include <sys/time.h>
 #include <string.h>

@@ -2,7 +2,7 @@
  * file: simplepq/simplepq.c
  */
 #include "simplepq.h"
-#include <syslog.h>
+#include "junk/xsyslog.h"
 
 #include <inttypes.h>
 #include <stdlib.h>
@@ -325,7 +325,7 @@ _spq_f_chunkFile(PGconn *pgc, char *username,
 
 /* поиск и захват ближайшего доступного ресурса в пуле */
 static struct spq*
-acquire_conn(struct spq_root *spq)
+_acquire_conn(struct spq_root *spq)
 {
 	struct spq *c = NULL;
 	while(c == NULL) {
@@ -347,7 +347,7 @@ acquire_conn(struct spq_root *spq)
 
 /* возвращение захваченного ресурса в пул */
 static void
-release_conn(struct spq_root *spq, struct spq *sc)
+_release_conn(struct spq_root *spq, struct spq *sc)
 {
 	/* процедура выполняется параллельно */
 	pthread_mutex_lock(&spq->mutex);
@@ -355,6 +355,31 @@ release_conn(struct spq_root *spq, struct spq *sc)
 	pthread_mutex_unlock(&spq->mutex);
 	return;
 }
+#if 0
+static inline struct spq*
+__acquire_conn(struct spq_root *spq, const char *funcname)
+{
+	struct spq *c;
+	if ((c = _acquire_conn(spq)))
+		xsyslog(LOG_DEBUG, "acquire %p in %s", (void*)c, funcname);
+	return c;
+}
+
+static inline void
+__release_conn(struct spq_root *spq, struct spq *sc, const char *funcname)
+{
+	xsyslog(LOG_DEBUG, "release %p in %s", (void*)sc, funcname);
+	_release_conn(spq, sc);
+	return;
+}
+
+# define acquire_conn(x) __acquire_conn(x, __func__)
+# define release_conn(x, y) __release_conn(x, y, __func__)
+#else
+# define acquire_conn(x) _acquire_conn(x)
+# define release_conn(x, y) _release_conn(x, y)
+#endif
+
 
 static void*
 _thread_mgm(struct spq_root *spq)
