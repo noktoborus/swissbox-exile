@@ -789,7 +789,7 @@ _spq_f_getFileMeta(PGconn *pgc, char *username, guid_t *rootdir, guid_t *file,
 	"	username = $1 AND "
 	"	rootdir_guid = $2 AND "
 	"	file_guid = $3 AND "
-	"	($4 AND revision_guid = $4) "
+	"	(($4 IS NOT NULL AND revision_guid = $4) OR TRUE) "
 	"	ORDER BY time DESC "
 	"LIMIT 1;";
 
