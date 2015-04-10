@@ -850,7 +850,7 @@ _handle_file_meta(struct client *c, unsigned type, Fep__FileMeta *msg)
 		snprintf(errmsg, sizeof(errmsg),
 				"not enought chunks: %u/%u (fail: %u)",
 				wf->chunks_ok, wf->chunks, wf->chunks_fail);
-		return send_error(c, msg->id, "not enought chunks", -1);
+		return send_error(c, msg->id, errmsg, -1);
 	}
 }
 

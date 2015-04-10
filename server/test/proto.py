@@ -93,6 +93,7 @@ def proto_bootstrap(s):
             if msgt[1] == "tReqAuth":
                 msg = FEP.Auth()
                 msg.id = msgt[2].id
+                msg.device_id = 4000
                 msg.authType = FEP.tUserToken
                 msg.domain = "it-grad.ru"
                 msg.username = "some-user-name"#str(__import__("uuid").uuid1())
@@ -192,6 +193,16 @@ def proto(s, c):
         send_message(s, msg)
         while recv_message(s)[0] !=  11:
             pass
+    if c == "rename":
+        msg = FEP.RenameChunk()
+        msg.id = 300
+        msg.rootdir_guid =  "a0cf497f-8d04-437b-ade1-1c542a2c0e8b"
+        msg.file_guid =     "810a931d-379c-465c-8cc7-c8ab5c8a643e"
+        msg.chunk_guid = "810a931d-379c-465c-8cc7-c8ab5c8a643e"
+        msg.to_chunk_guid = "a298cb11-1f0e-4b1e-9577-c50ff8766dbc"
+        msg.to_revision_guid = "a298cb11-1f0e-4b1e-9577-c50ff8766dbc"
+        send_message(s, msg);
+        recv_message(s)
     # TODO:
 
 def connect(host, command):
