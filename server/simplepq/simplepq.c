@@ -113,7 +113,7 @@ _spq_f_chunkRename(PGconn *pgc, char *username,
 			PQclear(res);
 			return false;
 	}
-	if (PQntuples(res) == 0) {
+	if (PQntuples(res) <= 0) {
 		PQclear(res);
 		return false;
 	}
@@ -789,7 +789,7 @@ _spq_f_getFileMeta(PGconn *pgc, char *username, guid_t *rootdir, guid_t *file,
 	"	username = $1 AND "
 	"	rootdir_guid = $2 AND "
 	"	file_guid = $3 AND "
-	"	(($4 IS NOT NULL AND revision_guid = $4) OR TRUE) "
+	"	(($4::UUID IS NOT NULL AND revision_guid = $4) OR TRUE) "
 	"	ORDER BY time DESC "
 	"LIMIT 1;";
 
@@ -814,7 +814,7 @@ _spq_f_getFileMeta(PGconn *pgc, char *username, guid_t *rootdir, guid_t *file,
 
 	res = PQexecParams(pgc, tb, 4, NULL, (const char *const*)val, len, fmt, 0);
 	pqs = PQresultStatus(res);
-	if (pqs != PGRES_COMMAND_OK && pqs != PGRES_EMPTY_QUERY) {
+	if (pqs != PGRES_TUPLES_OK && pqs != PGRES_EMPTY_QUERY) {
 		char errstr[1024];
 		snprintf(errstr, sizeof(errstr), "spq: getFileMeta exec error: %s",
 					PQresultErrorMessage(res));
@@ -823,7 +823,7 @@ _spq_f_getFileMeta(PGconn *pgc, char *username, guid_t *rootdir, guid_t *file,
 				return false;
 	}
 
-	if (pqs == PGRES_EMPTY_QUERY) {
+	if (PQntuples(res) <= 0) {
 		fmeta->empty = true;
 		return true;
 	}
