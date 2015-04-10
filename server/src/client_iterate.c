@@ -846,6 +846,10 @@ _handle_file_meta(struct client *c, unsigned type, Fep__FileMeta *msg)
 				c->device_id, msg->key.data, msg->key.len);
 		return send_ok(c, msg->id, checkpoint);
 	} else {
+		char errmsg[1024];
+		snprintf(errmsg, sizeof(errmsg),
+				"not enought chunks: %u/%u (fail: %u)",
+				wf->chunks_ok, wf->chunks, wf->chunks_fail);
 		return send_error(c, msg->id, "not enought chunks", -1);
 	}
 }
@@ -897,7 +901,7 @@ _handle_rename_chunk(struct client *c, unsigned type, Fep__RenameChunk *msg)
 	if (!spq_f_chunkRename(c->name, &rootdir, &file, &chunk,
 				&chunk_new, &revision_new)) {
 		wf->chunks_fail++;
-		errmsg = "Internal error 600";
+		errmsg = "Original chunk not found";
 	} else {
 		wf->chunks_ok++;
 	}
@@ -913,7 +917,7 @@ _handle_end(struct client *c, unsigned type, Fep__End *end)
 	struct wait_store *ws;
 	struct wait_xfer wx;
 	char chunk_hash[HASHHEX_MAX + 1];
-	char *errmsg = NULL;
+	char errmsg[1024] = {0};
 
 	ws = query_id(c, &c->sid, end->session_id);
 	if (!ws) {
@@ -935,10 +939,12 @@ _handle_end(struct client *c, unsigned type, Fep__End *end)
 #endif
 	/* размеры не совпали */
 	if (wx.filling != wx.size) {
-		errmsg = "Infernal sizes";
+		snprintf(errmsg, sizeof(errmsg),
+				"Infernal sizes. received: %"PRIu64", expected: %"PRIu64,
+				wx.filling, wx.size);
 	}
 
-	if (!errmsg) {
+	if (!*errmsg) {
 		/* чанк пришёл, теперь нужно обновить информацию в бд */
 		bin2hex(wx.hash, wx.hash_len, chunk_hash, sizeof(chunk_hash));
 		spq_f_chunkNew(c->name, chunk_hash, wx.path, &wx.wf->rootdir,
