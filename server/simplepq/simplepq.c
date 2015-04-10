@@ -812,7 +812,6 @@ _spq_f_getFileMeta(PGconn *pgc, char *username, guid_t *rootdir, guid_t *file,
 	val[2] = _file;
 	val[3] = len[3] ? _revision : NULL;
 
-	memset(fmeta, 0u, sizeof(struct spq_FileMeta));
 	res = PQexecParams(pgc, tb, 4, NULL, (const char *const*)val, len, fmt, 0);
 	pqs = PQresultStatus(res);
 	if (pqs != PGRES_TUPLES_OK && pqs != PGRES_EMPTY_QUERY) {
@@ -861,22 +860,30 @@ spq_f_getFileMeta(char *username, guid_t *rootdir, guid_t *file,
 {
 	bool retval = false;
 	struct spq *c;
-	/* чистка */
-	if (!username || !rootdir || !file) {
-		if (fmeta->res) {
-			PQclear(fmeta->res);
-			memset(fmeta, 0u, sizeof(struct spq_FileMeta));
-			return true;
-		}
-		return false;
-	}
-	/* обработка */
 	if ((c = acquire_conn(&_spq)) != NULL) {
-		retval = _spq_f_getFileMeta(c->conn, username, rootdir, file, revision,
-				fmeta);
-		release_conn(&_spq, c);
+		if (!(retval = _spq_f_getFileMeta(c->conn,
+						username, rootdir, file, revision, fmeta))
+				|| fmeta->empty) {
+			memset(fmeta, 0u, sizeof(struct spq_FileMeta));
+			fmeta->empty = true;
+			release_conn(&_spq, c);
+		} else {
+			fmeta->p = c;
+		}
 	}
 	return retval;
+}
+
+void
+spq_f_getFileMeta_free(struct spq_FileMeta *fmeta)
+{
+	if (fmeta->res) {
+		PQclear(fmeta->res);
+	}
+	if (fmeta->p) {
+		release_conn(&_spq, fmeta->p);
+	}
+	memset(fmeta, 0u, sizeof(struct spq_FileMeta));
 }
 
 #include "complex/getRevisions.c"

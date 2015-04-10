@@ -311,7 +311,7 @@ _handle_query_chunks(struct client *c, unsigned type, Fep__QueryChunks *msg)
 	{
 		bool retval;
 		retval = send_message(c->cev, FEP__TYPE__tFileMeta, &meta);
-		spq_f_getFileMeta(NULL, NULL, NULL, NULL, &fmeta);
+		spq_f_getFileMeta_free(&fmeta);
 		return retval;
 	}
 }
@@ -768,8 +768,6 @@ _handle_xfer(struct client *c, unsigned type, Fep__Xfer *xfer)
 bool
 file_check_complete(struct client *c, struct wait_file *wf)
 {
-	void *d;
-	bool retval = false;
 	/* TODO: разослать уведомление */
 	if (wf->chunks == wf->chunks_ok) {
 #if DEEPDEBUG
@@ -780,25 +778,9 @@ file_check_complete(struct client *c, struct wait_file *wf)
 		/* все чанки сошлись, теперь можно разослать клиентам уведомления
 		 */
 		/* TODO: _file_update_notify(c, wf); */
-		retval = true;
-#if DEEPDEBUG
-		if (wf->ref) {
-			xsyslog(LOG_DEBUG, "client[%p] file has ref links: %u",
-					(void*)c->cev, wf->ref);
-		}
-#endif
-		/* ссылок больше нет, можно подчистить */
-		if (!wf->ref) {
-#if DEEPDEBUG
-			xsyslog(LOG_DEBUG, "client[%p] file fully loaded",
-					(void*)c->cev);
-#endif
-			if ((d = query_id(c, &c->fid, wf->id)) != NULL)
-				fid_free(d);
-		}
+		return true;
 	}
-
-	return retval;
+	return false;
 }
 
 bool
@@ -834,6 +816,13 @@ _handle_file_meta(struct client *c, unsigned type, Fep__FileMeta *msg)
 		wf = ws->data;
 	}
 	wf->chunks = msg->chunks;
+	if (!file_check_complete(c, wf)) {
+			char errmsg[1024];
+		snprintf(errmsg, sizeof(errmsg),
+				"not enought chunks: %u/%u (fail: %u)",
+				wf->chunks_ok, wf->chunks, wf->chunks_fail);
+		retval = send_error(c, msg->id, errmsg, -1);
+	}
 
 	/* FIXME: ересь, прибраться после починки таблиц */
 	enc_filename = msg->enc_filename;
@@ -852,6 +841,7 @@ _handle_file_meta(struct client *c, unsigned type, Fep__FileMeta *msg)
 				msg->enc_filename, msg->file_guid, msg->revision_guid,
 				msg->key.len);
 #endif
+		memset(&fmeta, 0u, sizeof(struct spq_FileMeta));
 		if (!spq_f_getFileMeta(c->name, &_rootdir, &_file, NULL, &fmeta)) {
 			return send_error(c, msg->id, "Internal error 1759", -1);
 		}
@@ -873,7 +863,7 @@ _handle_file_meta(struct client *c, unsigned type, Fep__FileMeta *msg)
 			"file_guid: \"%s\", revision_guid: \"%s\", key_len: %"PRIuPTR,
 			enc_filename, msg->file_guid, msg->revision_guid, key_len);
 #endif
-	if (file_check_complete(c, wf)) {
+	{
 		register size_t len;
 		uint64_t checkpoint;
 		guid_t dir;
@@ -885,18 +875,30 @@ _handle_file_meta(struct client *c, unsigned type, Fep__FileMeta *msg)
 		checkpoint = spq_f_chunkFile(c->name, &wf->rootdir,
 				&wf->file, &wf->revision, &parent, &dir, enc_filename,
 				c->device_id, key, key_len);
-		if (need_clear)
-			spq_f_getFileMeta(NULL, NULL, NULL, NULL, &fmeta);
-		retval = send_ok(c, msg->id, checkpoint);
-	} else {
-		char errmsg[1024];
-		snprintf(errmsg, sizeof(errmsg),
-				"not enought chunks: %u/%u (fail: %u)",
-				wf->chunks_ok, wf->chunks, wf->chunks_fail);
-		retval = send_error(c, msg->id, errmsg, -1);
+		if (!checkpoint)
+			retval = send_error(c, msg->id, "Internal error 1785", -1);
+		else
+			retval = send_ok(c, msg->id, checkpoint);
 	}
+
+	/* ссылок больше нет, можно подчистить */
+	if (!wf->ref) {
+			void *d;
+#if DEEPDEBUG
+		xsyslog(LOG_DEBUG, "client[%p] file fully loaded",
+				(void*)c->cev);
+#endif
+		if ((d = query_id(c, &c->fid, wf->id)) != NULL)
+			fid_free(d);
+	} else {
+#if DEEPDEBUG
+		xsyslog(LOG_DEBUG, "client[%p] file has ref links: %u",
+				(void*)c->cev, wf->ref);
+	}
+#endif
+
 	if (need_clear)
-		spq_f_getFileMeta(NULL, NULL, NULL, NULL, &fmeta);
+		spq_f_getFileMeta_free(&fmeta);
 	return retval;
 }
 
@@ -928,11 +930,9 @@ _handle_rename_chunk(struct client *c, unsigned type, Fep__RenameChunk *msg)
 		if (!ws)
 			return send_error(c, msg->id, "Internal error 1725", -1);
 		wf = (ws->data = ws + 1);
-		string2guid(msg->file_guid, strlen(msg->file_guid), &wf->file);
-		string2guid(msg->to_revision_guid, strlen(msg->to_revision_guid),
-				&wf->revision);
-		string2guid(msg->rootdir_guid, strlen(msg->rootdir_guid),
-				&wf->rootdir);
+		memcpy(&wf->file, &file, sizeof(guid_t));
+		memcpy(&wf->revision, &revision_new, sizeof(guid_t));
+		memcpy(&wf->rootdir, &rootdir, sizeof(guid_t));
 		wf->id = hash;
 		wait_id(c, &c->fid, hash, ws);
 	} else {

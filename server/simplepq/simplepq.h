@@ -152,6 +152,7 @@ struct spq_FileMeta {
 	uint8_t key[PUBKEY_MAX];
 	uint32_t key_len;
 
+	void *p;
 	void *res;
 };
 
@@ -164,6 +165,7 @@ struct spq_FileMeta {
  */
 bool spq_f_getFileMeta(char *username, guid_t *rootdir, guid_t *file,
 		guid_t *revision, struct spq_FileMeta *fmeta);
+void spq_f_getFileMeta_free(struct spq_FileMeta *fmeta);
 
 #endif /* _SIMPLEPQ_SIMPLEPQ_1426075906_H_ */
 
