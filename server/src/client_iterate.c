@@ -846,6 +846,12 @@ _handle_file_meta(struct client *c, unsigned type, Fep__FileMeta *msg)
 		string2guid(PSLEN(msg->rootdir_guid), &_rootdir);
 		string2guid(PSLEN(msg->file_guid), &_file);
 		string2guid(PSLEN(msg->revision_guid), &_rev);
+#if DEEPDEBUG
+		xsyslog(LOG_DEBUG, "FileMeta Prepare: enc_filename: \"%s\", "
+				"file_guid: \"%s\", revision_guid: \"%s\", key_len: %"PRIuPTR,
+				msg->enc_filename, msg->file_guid, msg->revision_guid,
+				msg->key.len);
+#endif
 		if (!spq_f_getFileMeta(c->name, &_rootdir, &_file, &_rev, &fmeta)) {
 			return send_error(c, msg->id, "Internal error 1759", -1);
 		}
@@ -863,7 +869,7 @@ _handle_file_meta(struct client *c, unsigned type, Fep__FileMeta *msg)
 	}
 
 #if DEEPDEBUG
-	xsyslog(LOG_DEBUG, "enc_filename: \"%s\", "
+	xsyslog(LOG_DEBUG, "FileMeta: enc_filename: \"%s\", "
 			"file_guid: \"%s\", revision_guid: \"%s\", key_len: %"PRIuPTR,
 			enc_filename, msg->file_guid, msg->revision_guid, key_len);
 #endif
