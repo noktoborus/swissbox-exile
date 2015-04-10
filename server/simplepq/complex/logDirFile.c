@@ -178,9 +178,9 @@ spq_f_logDirFile_it(struct logDirFile *state)
 		/* public key */
 		if ((len = PQgetlength(state->res, state->row, 8)) != 0u) {
 			val = PQgetvalue(state->res, state->row, 8);
-			state->key_len = hex2bin(val, len, state->key, AESKEY_MAX);
+			state->key_len = hex2bin(val, len, state->key, PUBKEY_MAX);
 		} else {
-			memset(state->key, 0u, AESKEY_MAX);
+			memset(state->key, 0u, PUBKEY_MAX);
 		}
 
 		/* chunks */

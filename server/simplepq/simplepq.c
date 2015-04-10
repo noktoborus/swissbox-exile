@@ -839,9 +839,9 @@ _spq_f_getFileMeta(PGconn *pgc, char *username, guid_t *rootdir, guid_t *file,
 		int _len;
 		if ((_len = PQgetlength(res, 0, 5)) > 0) {
 			fmeta->key_len =
-				hex2bin(PQgetvalue(res, 0, 5), _len, fmeta->key, AESKEY_MAX);
+				hex2bin(PQgetvalue(res, 0, 5), _len, fmeta->key, PUBKEY_MAX);
 		} else {
-			memset(fmeta->key, 0u, AESKEY_MAX);
+			memset(fmeta->key, 0u, PUBKEY_MAX);
 			fmeta->key_len = 0u;
 		}
 	}

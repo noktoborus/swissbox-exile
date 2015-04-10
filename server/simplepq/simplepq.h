@@ -88,7 +88,7 @@ struct logDirFile {
 	guid_t revision;
 	guid_t parent;
 
-	uint8_t key[AESKEY_MAX];
+	uint8_t key[PUBKEY_MAX];
 	size_t key_len;
 
 	size_t chunks;
@@ -149,7 +149,7 @@ struct spq_FileMeta {
 	char *parent_rev;
 	char *enc_filename;
 
-	uint8_t key[AESKEY_MAX];
+	uint8_t key[PUBKEY_MAX];
 	uint32_t key_len;
 
 	void *res;
