@@ -785,15 +785,15 @@ file_check_complete(struct client *c, struct wait_file *wf)
 					(void*)c->cev, wf->ref);
 		}
 #endif
-	}
-	/* ссылок больше нет, можно подчистить */
-	if (!wf->ref) {
+		/* ссылок больше нет, можно подчистить */
+		if (!wf->ref) {
 #if DEEPDEBUG
-		xsyslog(LOG_DEBUG, "client[%p] file fully loaded",
-				(void*)c->cev);
+			xsyslog(LOG_DEBUG, "client[%p] file fully loaded",
+					(void*)c->cev);
 #endif
-		if ((d = query_id(c, &c->fid, wf->id)) != NULL)
-			fid_free(d);
+			if ((d = query_id(c, &c->fid, wf->id)) != NULL)
+				fid_free(d);
+		}
 	}
 
 	return retval;
@@ -823,6 +823,7 @@ _handle_file_meta(struct client *c, unsigned type, Fep__FileMeta *msg)
 	} else {
 		wf = ws->data;
 	}
+	wf->chunks = msg->chunks;
 
 #if DEEPDEBUG
 	xsyslog(LOG_DEBUG, "enc_filename: \"%s\", "

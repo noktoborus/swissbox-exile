@@ -245,8 +245,6 @@ struct wait_file {
 	guid_t rootdir;
 	guid_t file;
 	guid_t revision;
-	guid_t parent_revision;
-	guid_t directory;
 };
 
 /* получение привязанных к id данных */
