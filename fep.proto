@@ -211,6 +211,10 @@ message FileUpdate {
 	 */
 	optional string enc_filename = 50;
 	optional string directory_guid = 53;
+	/* приходит только от сервера клиенту
+	  при обновлении ревизии файла (enc_filename и directory_guid пустые)
+	 */
+	optional string revision_guid = 54;
 
 	/* отправляется только сервером клиенту, содержит чекпоинт лога */
 	optional uint64 checkpoint = 100;
