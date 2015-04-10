@@ -71,10 +71,11 @@ _spq_f_chunkRename(PGconn *pgc, char *username,
 		"	origin "
 		"FROM file_records "
 		"WHERE "
-		"	username = '$1' AND"
-		"	rootdir_guid = '$2' AND"
-		"	file_guid = '$3' AND"
-		"	chunk_guid =  '$4';";
+		"	username = $1 AND"
+		"	rootdir_guid = $2 AND"
+		"	file_guid = $3 AND"
+		"	chunk_guid =  $4"
+		"RETURNING time;";
 	const int format[6] = {0, 0, 0, 0, 0, 0};
 
 	char _rootdir_guid[GUID_MAX + 1];
@@ -105,12 +106,16 @@ _spq_f_chunkRename(PGconn *pgc, char *username,
 	res = PQexecParams(pgc, tb, 6, NULL,
 			(const char *const*)val, length, format, 0);
 	pqs = PQresultStatus(res);
-	if (pqs != PGRES_COMMAND_OK && pqs != PGRES_EMPTY_QUERY) {
+	if (pqs != PGRES_TUPLES_OK) {
 		snprintf(errstr, sizeof(errstr), "spq: chunkRename exec error: %s",
 				PQresultErrorMessage(res));
 			syslog(LOG_INFO, errstr);
 			PQclear(res);
 			return false;
+	}
+	if (PQntuples(res) == 0) {
+		PQclear(res);
+		return false;
 	}
 	PQclear(res);
 	return true;
