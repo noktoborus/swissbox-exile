@@ -454,6 +454,8 @@ _handle_write_ask(struct client *c, unsigned type, Fep__WriteAsk *msg)
 		errmsg = "illegal guid: file_guid";
 	if (!is_legal_guid(msg->chunk_guid))
 		errmsg = "illegal guid: chunk_guid";
+	if (!msg->chunk_hash.len)
+		errmsg = "Chunk hash is empty";
 
 	if (errmsg)
 		return send_error(c, msg->id, errmsg, -1);
