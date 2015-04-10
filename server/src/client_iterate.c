@@ -819,7 +819,7 @@ _handle_file_meta(struct client *c, unsigned type, Fep__FileMeta *msg)
 	/* если записи нет, нужно создать новую */
 
 	if (!ws) {
-		return send_error(c, msg->id, "Unexpected FileUpdate", -1);
+		return send_error(c, msg->id, "Unexpected FileMeta", -1);
 	} else {
 		wf = ws->data;
 	}
