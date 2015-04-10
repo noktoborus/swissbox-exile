@@ -81,7 +81,7 @@ spq_f_logDirFile(char *username, uint64_t checkpoint, uint64_t deviceid,
 	c = (struct spq*)state->p;
 
 	if (!state->res && (state->res = _spq_f_logDirFile_exec(c->conn,
-					username, deviceid, checkpoint)) == NULL) {
+					username, checkpoint, deviceid)) == NULL) {
 		release_conn(&_spq, c);
 		memset(state, 0u, sizeof(struct logDirFile));
 		return false;
