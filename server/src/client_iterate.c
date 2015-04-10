@@ -808,6 +808,14 @@ _handle_file_meta(struct client *c, unsigned type, Fep__FileMeta *msg)
 	uint64_t hash;
 	wait_store_t *ws;
 	struct wait_file *wf;
+	struct spq_FileMeta fmeta;
+
+	char *enc_filename;
+	uint8_t *key;
+	size_t key_len;
+
+	bool need_clear;
+	bool retval;
 
 	if (!c->status.auth_ok)
 		return send_error(c, msg->id, "Unauthorized", -1);
@@ -827,10 +835,37 @@ _handle_file_meta(struct client *c, unsigned type, Fep__FileMeta *msg)
 	}
 	wf->chunks = msg->chunks;
 
+	/* FIXME: ересь, прибраться после починки таблиц */
+	enc_filename = msg->enc_filename;
+	key = msg->key.data;
+	key_len = msg->key.len;
+	if (!msg->enc_filename || !msg->key.len) {
+		guid_t _rootdir;
+		guid_t _file;
+		guid_t _rev;
+		string2guid(PSLEN(msg->rootdir_guid), &_rootdir);
+		string2guid(PSLEN(msg->file_guid), &_file);
+		string2guid(PSLEN(msg->revision_guid), &_rev);
+		if (!spq_f_getFileMeta(c->name, &_rootdir, &_file, &_rev, &fmeta)) {
+			return send_error(c, msg->id, "Internal error 1759", -1);
+		}
+		if (fmeta.empty) {
+			return send_error(c, msg->id, "no file meta in db", -1);
+		}
+		need_clear = true;
+		if (!enc_filename) {
+			enc_filename = fmeta.enc_filename;
+		}
+		if (!key_len) {
+			key = fmeta.key;
+			key_len  = fmeta.key_len;
+		}
+	}
+
 #if DEEPDEBUG
 	xsyslog(LOG_DEBUG, "enc_filename: \"%s\", "
 			"file_guid: \"%s\", revision_guid: \"%s\", key_len: %"PRIuPTR,
-			msg->enc_filename, msg->file_guid, msg->revision_guid, msg->key.len);
+			enc_filename, msg->file_guid, msg->revision_guid, key_len);
 #endif
 	if (file_check_complete(c, wf)) {
 		register size_t len;
@@ -842,16 +877,21 @@ _handle_file_meta(struct client *c, unsigned type, Fep__FileMeta *msg)
 		string2guid(msg->directory_guid, strlen(msg->directory_guid), &dir);
 		string2guid(msg->parent_revision_guid, len, &parent);
 		checkpoint = spq_f_chunkFile(c->name, &wf->rootdir,
-				&wf->file, &wf->revision, &parent, &dir, msg->enc_filename,
-				c->device_id, msg->key.data, msg->key.len);
-		return send_ok(c, msg->id, checkpoint);
+				&wf->file, &wf->revision, &parent, &dir, enc_filename,
+				c->device_id, key, key_len);
+		if (need_clear)
+			spq_f_getFileMeta(NULL, NULL, NULL, NULL, &fmeta);
+		retval = send_ok(c, msg->id, checkpoint);
 	} else {
 		char errmsg[1024];
 		snprintf(errmsg, sizeof(errmsg),
 				"not enought chunks: %u/%u (fail: %u)",
 				wf->chunks_ok, wf->chunks, wf->chunks_fail);
-		return send_error(c, msg->id, errmsg, -1);
+		retval = send_error(c, msg->id, errmsg, -1);
 	}
+	if (need_clear)
+		spq_f_getFileMeta(NULL, NULL, NULL, NULL, &fmeta);
+	return retval;
 }
 
 bool
