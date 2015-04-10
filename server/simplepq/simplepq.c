@@ -272,7 +272,7 @@ _spq_f_chunkFile(PGconn *pgc, char *username,
 		"	enc_filename,"
 		"	deviceid,"
 		"	public_key"
-		") VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)"
+		") VALUES ($1, $2, $3, $4::UUID, $5, $6, $7, $8, $9)"
 		"RETURNING trunc(extract(epoch from time));";
 	const int format[9] = {0, 0, 0, 0, 0, 0, 0, 0, 0};
 
@@ -303,7 +303,7 @@ _spq_f_chunkFile(PGconn *pgc, char *username,
 	val[2] = _s_file;
 	val[3] = _s_revision;
 	val[4] = length[4] ? _s_parent : NULL;
-	val[5] = length[5] ? _s_dir : NULL;
+	val[5] = _s_dir;
 	val[6] = enc_filename;
 	val[7] = _deviceid;
 	val[8] = pkey;
