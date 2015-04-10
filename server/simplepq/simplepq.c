@@ -40,6 +40,7 @@ static struct spq_root {
 	bool inited;
 	bool end;
 	unsigned pool;
+	unsigned active;
 
 	struct {
 		struct spq *sc;
@@ -56,7 +57,6 @@ _spq_f_chunkRename(PGconn *pgc, char *username,
 {
 	PGresult *res;
 	ExecStatusType pqs;
-	char errstr[1024];
 	const char *tb = "INSERT INTO file_records "
 		"SELECT "
 		"	time,"
@@ -107,11 +107,10 @@ _spq_f_chunkRename(PGconn *pgc, char *username,
 			(const char *const*)val, length, format, 0);
 	pqs = PQresultStatus(res);
 	if (pqs != PGRES_TUPLES_OK) {
-		snprintf(errstr, sizeof(errstr), "spq: chunkRename exec error: %s",
-				PQresultErrorMessage(res));
-			syslog(LOG_INFO, errstr);
-			PQclear(res);
-			return false;
+		xsyslog(LOG_INFO,
+				"chunkRename exec error: %s", PQresultErrorMessage(res));
+		PQclear(res);
+		return false;
 	}
 	if (PQntuples(res) <= 0) {
 		PQclear(res);
@@ -127,7 +126,6 @@ _spq_f_getChunkPath(PGconn *pgc, char *username,
 		char *path, size_t path_len, size_t *offset, size_t *origin)
 {
 	PGresult *res;
-	char errstr[1024];
 	const char *tb = "SELECT chunk_path, \"offset\", origin "
 		"FROM file_records WHERE "
 		"username = $1 AND "
@@ -160,9 +158,8 @@ _spq_f_getChunkPath(PGconn *pgc, char *username,
 			(const char *const*)val, length, format, 0);
 
 	if (PQresultStatus(res) != PGRES_TUPLES_OK) {
-		snprintf(errstr, sizeof(errstr), "spq: getChunkPath exec error: %s",
+		xsyslog(LOG_INFO, "getChunkPath exec error: %s",
 			PQresultErrorMessage(res));
-		syslog(LOG_INFO, errstr);
 		PQclear(res);
 		return false;
 	}
@@ -191,7 +188,6 @@ _spq_f_chunkNew(PGconn *pgc, char *username, char *hash, char *path,
 		uint32_t offset, uint32_t origin_len)
 {
 	PGresult *res;
-	char errstr[1024];
 	const char *tb = "INSERT INTO file_records"
 		"("
 		"	username, "
@@ -240,9 +236,8 @@ _spq_f_chunkNew(PGconn *pgc, char *username, char *hash, char *path,
 			(const char *const*)val, length, format, 0);
 
 	if (PQresultStatus(res) != PGRES_COMMAND_OK) {
-		snprintf(errstr, sizeof(errstr), "spq: chunkNew exec error: %s",
+		xsyslog(LOG_INFO, "chunkNew exec error: %s",
 			PQresultErrorMessage(res));
-		syslog(LOG_INFO, errstr);
 		PQclear(res);
 		return false;
 	}
@@ -260,7 +255,6 @@ _spq_f_chunkFile(PGconn *pgc, char *username,
 {
 	PGresult *res;
 	ExecStatusType pqs;
-	char errstr[1024];
 	const char tb[] = "INSERT INTO file_keys"
 		"("
 		"	username,"
@@ -312,9 +306,8 @@ _spq_f_chunkFile(PGconn *pgc, char *username,
 			(const char *const*)val, length, format, 0);
 	pqs = PQresultStatus(res);
 	if (pqs != PGRES_TUPLES_OK) {
-		snprintf(errstr, sizeof(errstr), "spq: chunkFile exec error: %s",
+		xsyslog(LOG_INFO, "chunkFile exec error: %s",
 			PQresultErrorMessage(res));
-		syslog(LOG_INFO, errstr);
 	} else if (PQgetlength(res, 0, 0)) {
 		checkpoint = strtoul(PQgetvalue(res, 0, 0), NULL, 10);
 	}
@@ -339,6 +332,7 @@ _acquire_conn(struct spq_root *spq)
 			c = spq->acquire.sc;
 			c->mark_active = true;
 			spq->acquire.sc = NULL;
+			spq->active++;
 		}
 		pthread_mutex_unlock(&spq->mutex);
 	}
@@ -352,6 +346,7 @@ _release_conn(struct spq_root *spq, struct spq *sc)
 	/* процедура выполняется параллельно */
 	pthread_mutex_lock(&spq->mutex);
 	sc->mark_active = false;
+	spq->active--;
 	pthread_mutex_unlock(&spq->mutex);
 	return;
 }
@@ -424,10 +419,8 @@ _thread_mgm(struct spq_root *spq)
 					 */
 					if (errhash != sc->errhash) {
 						sc->errhash = errhash;
-						snprintf(errstr, sizeof(errstr) - 1,
-								"spq: [%p] error: %s",
+						xsyslog(LOG_INFO, "con[%p] error: %s",
 								(void*)sc, errmsg);
-						syslog(LOG_INFO, errstr);
 					}
 					PQfinish(sc->conn);
 				}
@@ -436,7 +429,7 @@ _thread_mgm(struct spq_root *spq)
 			} else if (sc->conn && pgstatus == CONNECTION_OK && sc->errhash) {
 				/* сообщаем что успешно подключились и подчищаем хеш */
 				sc->errhash = 0u;
-				syslog(LOG_INFO, "spq: [%p] connected", (void*)sc);
+				xsyslog(LOG_INFO, "con[%p] connected", (void*)sc);
 			} else if ((sc->conn && pgstatus == CONNECTION_BAD)
 					|| (spq_c > spq->pool && !sc->mark_active)) {
 				/*
@@ -453,9 +446,7 @@ _thread_mgm(struct spq_root *spq)
 				if (sc_p->next)
 					sc_p->next->prev = sc_p->prev;
 				/* подчистка */
-				snprintf(errstr, sizeof(errstr) - 1, "spq: [%p] destroy",
-						(void*)sc_p);
-				syslog(LOG_INFO, errstr);
+				xsyslog(LOG_INFO, "con[%p] destroy", (void*)sc_p);
 				free(sc_p);
 				/* если список закончился, то нужно выйти из цикла чуть раньше
 				 */
@@ -471,16 +462,13 @@ _thread_mgm(struct spq_root *spq)
 			}
 		}
 		if (spq_c == 0u && spq->pool == 0u) {
-			syslog(LOG_INFO, "spq: empty pool, drop thread");
 			break;
 		}
 		/* создание новых структур для пула */
 		while (spq_c < spq->pool) {
 			sc = calloc(1, sizeof(struct spq));
 			if (sc) {
-				snprintf(errstr, sizeof(errstr) - 1,
-						"spq: [%p] new connection", (void*)sc);
-				syslog(LOG_INFO, errstr);
+				xsyslog(LOG_INFO, "con[%p] new connection", (void*)sc);
 				/* назначем какое-нибудь безумное значение
 				 * что бы получить красивенье "... connected" в логе
 				 */
@@ -490,7 +478,7 @@ _thread_mgm(struct spq_root *spq)
 					sc->next->prev = sc;
 				spq->first = sc;
 			} else {
-				snprintf(errstr, sizeof(errstr) - 1, "spq: new connection: %s",
+				snprintf(errstr, sizeof(errstr) - 1, "new connection: %s",
 						strerror(errno));
 			}
 			spq_c++;
@@ -516,7 +504,8 @@ _thread_mgm(struct spq_root *spq)
 		pthread_mutex_unlock(&spq->mutex);
 	}
 
-	syslog(LOG_WARNING, "spq: manager exit");
+	xsyslog(LOG_INFO, "manager exit (pool=%u, end=%s, active=%u)",
+			_spq.pool, _spq.end ? "yes" : "no", _spq.active);
 	return NULL;
 }
 
@@ -527,7 +516,8 @@ spq_open(unsigned pool, char *pgstring)
 	if (_spq.inited)
 		return;
 	if (!pgstring || !*pgstring) {
-		syslog(LOG_WARNING, "spq: pgstring not passed");
+		xsyslog(LOG_WARNING, "no connection (pgstring=%s, pool=%u)",
+				pgstring, pool);
 		return;
 	}
 	pthread_cond_init(&_spq.cond, NULL);
@@ -535,7 +525,8 @@ spq_open(unsigned pool, char *pgstring)
 	pthread_mutex_lock(&_spq.mutex);
 	if (pthread_create(&_spq.mgm, NULL,
 				(void*(*)(void*))_thread_mgm, (void*)&_spq)) {
-		syslog(LOG_INFO, "spq: manager thread started");
+		xsyslog(LOG_INFO, "manager thread started: %p",
+				(void*)_spq.mgm);
 	}
 	_spq.pool = pool;
 	pgstring_len = strlen(pgstring);
@@ -548,7 +539,7 @@ spq_resize(unsigned pool)
 {
 	if (pool == _spq.pool)
 		return;
-	syslog(LOG_INFO, "spq: resize pool: %u -> %u", _spq.pool, pool);
+	xsyslog(LOG_INFO, "resize pool: %u -> %u", _spq.pool, pool);
 }
 
 void
@@ -560,7 +551,7 @@ spq_close()
 	_spq.end = true;
 	pthread_cond_broadcast(&_spq.cond);
 	pthread_mutex_unlock(&_spq.mutex);
-	syslog(LOG_INFO, "spq: wait manager exit");
+	xsyslog(LOG_INFO, "wait manager exit, active = %u", _spq.active);
 	pthread_join(_spq.mgm, &n);
 	pthread_mutex_destroy(&_spq.mutex);
 	pthread_cond_destroy(&_spq.cond);
@@ -582,7 +573,6 @@ spq_close()
 bool
 spq_create_tables()
 {
-	char errstr[4096];
 	const char *const tbs[] = {"CREATE TABLE IF NOT EXISTS file_records "
 		"("
 		"	time timestamp with time zone NOT NULL DEFAULT now(), "
@@ -656,9 +646,7 @@ spq_create_tables()
 	for (p = (char**)tbs; *p; p++) {
 		res = PQexec(sc->conn, *p);
 		if (PQresultStatus(res) != PGRES_COMMAND_OK) {
-			snprintf(errstr, sizeof(errstr) - 1, "spq: create error: %s",
-					PQresultErrorMessage(res));
-			syslog(LOG_INFO, errstr);
+			xsyslog(LOG_INFO, "create error: %s", PQresultErrorMessage(res));
 		}
 		PQclear(res);
 	}
@@ -741,7 +729,6 @@ _spq_f_logDirPush(PGconn *pgc, char *username,
 {
 	PGresult *res;
 	ExecStatusType pqs;
-	char errstr[1024];
 	const char *tb = "INSERT INTO directory_log "
 		"( username, rootdir_guid, directory_guid, path ) "
 		"VALUES ($1, $2, $3, $4);";
@@ -767,11 +754,10 @@ _spq_f_logDirPush(PGconn *pgc, char *username,
 			(const char *const*)val, length, format, 0);
 	pqs = PQresultStatus(res);
 	if (pqs != PGRES_COMMAND_OK && pqs != PGRES_EMPTY_QUERY) {
-		snprintf(errstr, sizeof(errstr), "spq: logDirPush exec error: %s",
-					PQresultErrorMessage(res));
-				syslog(LOG_INFO, errstr);
-				PQclear(res);
-				return false;
+		xsyslog(LOG_INFO, "logDirPush exec error: %s",
+				PQresultErrorMessage(res));
+		PQclear(res);
+		return false;
 	}
 	PQclear(res);
 	return true;
@@ -840,12 +826,10 @@ _spq_f_getFileMeta(PGconn *pgc, char *username, guid_t *rootdir, guid_t *file,
 	res = PQexecParams(pgc, tb, 4, NULL, (const char *const*)val, len, fmt, 0);
 	pqs = PQresultStatus(res);
 	if (pqs != PGRES_TUPLES_OK && pqs != PGRES_EMPTY_QUERY) {
-		char errstr[1024];
-		snprintf(errstr, sizeof(errstr), "spq: getFileMeta exec error: %s",
-					PQresultErrorMessage(res));
-				syslog(LOG_INFO, errstr);
-				PQclear(res);
-				return false;
+		xsyslog(LOG_INFO, "getFileMeta exec error: %s",
+			PQresultErrorMessage(res));
+		PQclear(res);
+		return false;
 	}
 
 	if (PQntuples(res) <= 0) {
