@@ -71,10 +71,11 @@ size_t
 guid2string(guid_t *guid, char *out, size_t outlen)
 {
 	int len;
-	if (!guid || !out || !outlen)
-		return false;
-	if (!guid->not_null)
+	if (!guid || !out || !outlen || !guid->not_null) {
+		if (out && outlen)
+			*out = '\0';
 		return 0u;
+	}
 	len = snprintf(out, outlen,
 			"%08"PRIX32"-%04"PRIX16"-%04"PRIX16"-%04"PRIX16"-%012"PRIX64,
 			guid->f1, guid->f2, guid->f3,
