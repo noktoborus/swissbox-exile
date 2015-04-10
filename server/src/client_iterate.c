@@ -852,7 +852,7 @@ _handle_file_meta(struct client *c, unsigned type, Fep__FileMeta *msg)
 				msg->enc_filename, msg->file_guid, msg->revision_guid,
 				msg->key.len);
 #endif
-		if (!spq_f_getFileMeta(c->name, &_rootdir, &_file, &_rev, &fmeta)) {
+		if (!spq_f_getFileMeta(c->name, &_rootdir, &_file, NULL, &fmeta)) {
 			return send_error(c, msg->id, "Internal error 1759", -1);
 		}
 		if (fmeta.empty) {
