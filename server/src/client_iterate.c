@@ -872,7 +872,7 @@ _handle_rename_chunk(struct client *c, unsigned type, Fep__RenameChunk *msg)
 
 	/* получение хеша и поиск структуры в списке */
 	hash = MAKE_FHASH(msg->rootdir_guid, msg->file_guid);
-	if ((ws = touch_id(c, &c->fid, hash)) != NULL) {
+	if ((ws = touch_id(c, &c->fid, hash)) == NULL) {
 		/* создание нового wait_file */
 		struct wait_store *ws;
 		struct wait_file *wf;
