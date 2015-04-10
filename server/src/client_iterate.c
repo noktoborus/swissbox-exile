@@ -872,8 +872,21 @@ _handle_rename_chunk(struct client *c, unsigned type, Fep__RenameChunk *msg)
 
 	/* получение хеша и поиск структуры в списке */
 	hash = MAKE_FHASH(msg->rootdir_guid, msg->file_guid);
-	if ((ws = touch_id(c, &c->fid, hash)) == NULL) {
-		return send_error(c, msg->id, "Unexpected chunk rename", -1);
+	if ((ws = touch_id(c, &c->fid, hash)) != NULL) {
+		/* создание нового wait_file */
+		struct wait_store *ws;
+		struct wait_file *wf;
+		ws = calloc(1, sizeof(struct wait_store) + sizeof(struct wait_xfer));
+		if (!ws)
+			return send_error(c, msg->id, "Internal error 1725", -1);
+		wf = (ws->data = ws + 1);
+		string2guid(msg->file_guid, strlen(msg->file_guid), &wf->file);
+		string2guid(msg->to_revision_guid, strlen(msg->to_revision_guid),
+				&wf->revision);
+		string2guid(msg->rootdir_guid, strlen(msg->rootdir_guid),
+				&wf->rootdir);
+		wf->id = hash;
+		wait_id(c, &c->fid, hash, ws);
 	}
 	wf = ws->data;
 #if DEEPDEBUG
