@@ -874,8 +874,6 @@ _handle_rename_chunk(struct client *c, unsigned type, Fep__RenameChunk *msg)
 	hash = MAKE_FHASH(msg->rootdir_guid, msg->file_guid);
 	if ((ws = touch_id(c, &c->fid, hash)) == NULL) {
 		/* создание нового wait_file */
-		struct wait_store *ws;
-		struct wait_file *wf;
 		ws = calloc(1, sizeof(struct wait_store) + sizeof(struct wait_xfer));
 		if (!ws)
 			return send_error(c, msg->id, "Internal error 1725", -1);
@@ -887,8 +885,9 @@ _handle_rename_chunk(struct client *c, unsigned type, Fep__RenameChunk *msg)
 				&wf->rootdir);
 		wf->id = hash;
 		wait_id(c, &c->fid, hash, ws);
+	} else {
+		wf = ws->data;
 	}
-	wf = ws->data;
 #if DEEPDEBUG
 	xsyslog(LOG_DEBUG, "rename chunk: rootdir: %s, file: %s, chunk %s -> "
 			"chunk %s, rev %s", msg->rootdir_guid, msg->file_guid,
