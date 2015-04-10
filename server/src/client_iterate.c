@@ -766,24 +766,6 @@ _handle_xfer(struct client *c, unsigned type, Fep__Xfer *xfer)
 }
 
 bool
-file_check_complete(struct client *c, struct wait_file *wf)
-{
-	/* TODO: разослать уведомление */
-	if (wf->chunks == wf->chunks_ok) {
-#if DEEPDEBUG
-		xsyslog(LOG_DEBUG, "client[%p] file fin: %u/%u[%u]",
-				(void*)c->cev, (unsigned)wf->chunks_ok,
-				(unsigned)wf->chunks, (unsigned)wf->chunks_fail);
-#endif
-		/* все чанки сошлись, теперь можно разослать клиентам уведомления
-		 */
-		/* TODO: _file_update_notify(c, wf); */
-		return true;
-	}
-	return false;
-}
-
-bool
 _handle_file_meta(struct client *c, unsigned type, Fep__FileMeta *msg)
 {
 	/* TODO: удаление файлов */
@@ -815,8 +797,9 @@ _handle_file_meta(struct client *c, unsigned type, Fep__FileMeta *msg)
 	} else {
 		wf = ws->data;
 	}
+	/* совсем немного устарелого кода */
 	wf->chunks = msg->chunks;
-	if (!file_check_complete(c, wf)) {
+	if (wf->chunks != wf->chunks_ok) {
 			char errmsg[1024];
 		snprintf(errmsg, sizeof(errmsg),
 				"not enought chunks: %u/%u (fail: %u)",
@@ -998,7 +981,6 @@ _handle_end(struct client *c, unsigned type, Fep__End *end)
 				end->offset, end->origin_len);
 		/* заодно проверяем готовность файла */
 		wx.wf->chunks_ok++;
-		file_check_complete(c, wx.wf);
 		return send_ok(c, end->id, C_OK_SIMPLE);
 	}
 	/* чанк не нужен, клиент перетащит его заного */
