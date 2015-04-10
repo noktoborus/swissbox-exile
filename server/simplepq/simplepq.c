@@ -812,7 +812,7 @@ _spq_f_getFileMeta(PGconn *pgc, char *username, guid_t *rootdir, guid_t *file,
 	val[2] = _file;
 	val[3] = len[3] ? _revision : NULL;
 
-	memset(&fmeta, 0u, sizeof(struct spq_FileMeta));
+	memset(fmeta, 0u, sizeof(struct spq_FileMeta));
 	res = PQexecParams(pgc, tb, 4, NULL, (const char *const*)val, len, fmt, 0);
 	pqs = PQresultStatus(res);
 	if (pqs != PGRES_TUPLES_OK && pqs != PGRES_EMPTY_QUERY) {
