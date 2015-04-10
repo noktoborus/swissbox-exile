@@ -22,7 +22,7 @@ TYPICAL_HANDLE_F(Fep__Ok, ok, &c->mid)
 TYPICAL_HANDLE_F(Fep__Error, error, &c->mid)
 TYPICAL_HANDLE_F(Fep__Pending, pending, &c->mid)
 
-NOTIMP_HANDLE_F(Fep__FileMeta, file_meta)
+NOTIMP_HANDLE_F(Fep__FileUpdate, file_update)
 
 struct client_cum {
 	uint32_t namehash;
@@ -247,12 +247,14 @@ _handle_query_revisions(struct client *c, unsigned type,
 bool
 _handle_query_chunks(struct client *c, unsigned type, Fep__QueryChunks *msg)
 {
+	Fep__FileMeta meta = FEP__FILE_META__INIT;
 	struct getChunks gc;
 	guid_t rootdir;
 	guid_t file;
 	guid_t revision;
 
 	struct result_send *rs;
+	struct spq_FileMeta fmeta;
 
 	/* конвертим типы */
 	string2guid(msg->rootdir_guid, strlen(msg->rootdir_guid), &rootdir);
@@ -271,13 +273,47 @@ _handle_query_chunks(struct client *c, unsigned type, Fep__QueryChunks *msg)
 		spq_f_getChunks_free(&gc);
 		return send_error(c, msg->id, "Internal error 111", -1);
 	}
+
+	/* отправка подтверждения, что всё ок */
+
+	memset(&fmeta, 0u, sizeof(struct spq_FileMeta));
+	if (!spq_f_getFileMeta(c->name, &rootdir, &file, &revision, &fmeta)) {
+		free(rs);
+		return send_error(c, msg->id, "Internal error 112", -1);
+	}
+	if (fmeta.empty) {
+		free(rs);
+		return send_error(c, msg->id, "Invalid file request", -1);
+	}
+	meta.id = generate_id(c);
+
+	meta.rootdir_guid = msg->rootdir_guid;
+	meta.file_guid = msg->file_guid;
+	meta.revision_guid = msg->revision_guid;
+	meta.directory_guid = fmeta.dir;
+	if (fmeta.parent_rev)
+		meta.parent_revision_guid = fmeta.parent_rev;
+
+	meta.chunks = fmeta.chunks;
+	meta.enc_filename = fmeta.enc_filename;
+	meta.has_key = true;
+	meta.key.data = fmeta.key;
+	meta.key.len = fmeta.key_len;
+
+	/* заполнение списка, добавление в очередь */
 	memcpy(&rs->v.c, &gc, sizeof(struct getChunks));
 	rs->id = msg->session_id;
 	rs->type = RESULT_CHUNKS;
 	rs->free = (void(*)(void*))spq_f_getChunks_free;
 	rs->next = c->rout;
 	c->rout = rs;
-	return send_ok(c, msg->id, C_OK_SIMPLE);
+	/* отправка сообщение, чистка результатов запроса, выход */
+	{
+		bool retval;
+		retval = send_message(c->cev, FEP__TYPE__tFileMeta, &meta);
+		spq_f_getFileMeta(NULL, NULL, NULL, NULL, &fmeta);
+		return retval;
+	}
 }
 
 /*
@@ -764,7 +800,7 @@ file_check_complete(struct client *c, struct wait_file *wf)
 }
 
 bool
-_handle_file_update(struct client *c, unsigned type, Fep__FileUpdate *fu)
+_handle_file_meta(struct client *c, unsigned type, Fep__FileMeta *msg)
 {
 	/* TODO: удаление файлов */
 	uint64_t hash;
@@ -772,9 +808,9 @@ _handle_file_update(struct client *c, unsigned type, Fep__FileUpdate *fu)
 	struct wait_file *wf;
 
 	if (!c->status.auth_ok)
-		return send_error(c, fu->id, "Unauthorized", -1);
+		return send_error(c, msg->id, "Unauthorized", -1);
 
-	hash = MAKE_FHASH(fu->rootdir_guid, fu->file_guid);
+	hash = MAKE_FHASH(msg->rootdir_guid, msg->file_guid);
 
 	/* ws_touched нужен для избежания попадания второй записи об одном файле
 	 * в список
@@ -783,38 +819,31 @@ _handle_file_update(struct client *c, unsigned type, Fep__FileUpdate *fu)
 	/* если записи нет, нужно создать новую */
 
 	if (!ws) {
-		return send_error(c, fu->id, "Unexpected FileUpdate", -1);
+		return send_error(c, msg->id, "Unexpected FileUpdate", -1);
 	} else {
 		wf = ws->data;
 	}
-	/*
-	 * TODO: учесть что FileUpdate может прийти без ключей
-	 * сейчас ключи добавляются к каждой новой записи файла,
-	 * но все ревизии имеют один ключ, привязанный к файлу
-	 * вынести в отдельную таблицу записи ключей для файлов нужно
-	 *
-	 */
 
 #if DEEPDEBUG
 	xsyslog(LOG_DEBUG, "enc_filename: \"%s\", "
 			"file_guid: \"%s\", revision_guid: \"%s\", key_len: %"PRIuPTR,
-			fu->enc_filename, fu->file_guid, fu->revision_guid, fu->key.len);
+			msg->enc_filename, msg->file_guid, msg->revision_guid, msg->key.len);
 #endif
-	/* TODO */
 	if (file_check_complete(c, wf)) {
 		register size_t len;
 		uint64_t checkpoint;
 		guid_t dir;
 		guid_t parent;
-		len = fu->parent_revision_guid ? strlen(fu->parent_revision_guid) : 0u;
-		string2guid(fu->directory_guid, strlen(fu->directory_guid), &dir);
-		string2guid(fu->parent_revision_guid, len, &parent);
+		len = msg->parent_revision_guid
+			? strlen(msg->parent_revision_guid) : 0u;
+		string2guid(msg->directory_guid, strlen(msg->directory_guid), &dir);
+		string2guid(msg->parent_revision_guid, len, &parent);
 		checkpoint = spq_f_chunkFile(c->name, &wf->rootdir,
-				&wf->file, &wf->revision, &parent, &dir, fu->enc_filename,
-				c->device_id, fu->key.data, fu->key.len);
-		return send_ok(c, fu->id, checkpoint);
+				&wf->file, &wf->revision, &parent, &dir, msg->enc_filename,
+				c->device_id, msg->key.data, msg->key.len);
+		return send_ok(c, msg->id, checkpoint);
 	} else {
-		return send_error(c, fu->id, "not enought chunks", -1);
+		return send_error(c, msg->id, "not enought chunks", -1);
 	}
 }
 
@@ -1291,13 +1320,14 @@ _client_iterate_result_logdf(struct client *c, struct logDirFile *ldf)
 
 		msg.id = generate_id(c);
 
-		guid2string(&c->rout->v.df.directory, guid, sizeof(guid));
-		guid2string(&c->rout->v.df.rootdir, rootdir, sizeof(rootdir));
+		guid2string(&ldf->directory, guid, sizeof(guid));
+		guid2string(&ldf->rootdir, rootdir, sizeof(rootdir));
 		msg.rootdir_guid = rootdir;
 		msg.guid = guid;
-		msg.checkpoint = c->rout->v.df.checkpoint;
-		msg.no = c->rout->v.df.row;
-		msg.max = c->rout->v.df.max;
+		msg.checkpoint = ldf->checkpoint;
+
+		msg.no = ldf->row;
+		msg.max = ldf->max;
 		if (c->rout->id != C_NOSESSID)
 			msg.session_id = c->rout->id;
 
@@ -1308,8 +1338,6 @@ _client_iterate_result_logdf(struct client *c, struct logDirFile *ldf)
 		char rootdir[GUID_MAX + 1];
 		char file[GUID_MAX + 1];
 		char dir[GUID_MAX + 1];
-		char revision[GUID_MAX + 1];
-		char parent_rev[GUID_MAX + 1];
 
 		msg.id = generate_id(c);
 		msg.checkpoint = ldf->checkpoint;
@@ -1317,17 +1345,13 @@ _client_iterate_result_logdf(struct client *c, struct logDirFile *ldf)
 		guid2string(&ldf->rootdir, rootdir, sizeof(rootdir));
 		guid2string(&ldf->file, file, sizeof(file));
 		guid2string(&ldf->directory, dir, sizeof(dir));
-		guid2string(&ldf->revision, revision, sizeof(revision));
-		guid2string(&ldf->parent, parent_rev, sizeof(parent_rev));
 
 		msg.rootdir_guid = rootdir;
 		msg.file_guid = file;
-		msg.revision_guid = revision;
+
 		msg.enc_filename = ldf->path;
-		msg.has_key = true;
-		msg.key.data = ldf->key;
-		msg.key.len = ldf->key_len;
-		msg.chunks = ldf->chunks;
+		msg.directory_guid = dir;
+
 		msg.no = ldf->row;
 		msg.max = ldf->max;
 		if (c->rout->id != C_NOSESSID)

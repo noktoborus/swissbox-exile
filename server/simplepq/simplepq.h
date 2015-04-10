@@ -81,7 +81,7 @@ struct logDirFile {
 	uint64_t checkpoint;
 	guid_t rootdir;
 	guid_t directory;
-	char path[PATH_MAX];
+	char path[PATH_MAX]; /* raw path for "d", enc_filename for "f" */
 
 	char type; /* "d" for directory or "f" for file */
 	guid_t file;
@@ -137,6 +137,33 @@ bool spq_f_getChunks(char *username,
 bool spq_f_getChunks_it(struct getChunks *state);
 /* отчистка результатов getChunks */
 void spq_f_getChunks_free(struct getChunks *state);
+
+struct spq_FileMeta {
+	bool empty;
+
+	char *rev;
+	char *dir;
+
+	uint32_t chunks;
+
+	char *parent_rev;
+	char *enc_filename;
+
+	uint8_t key[AESKEY_MAX];
+	uint32_t key_len;
+
+	void *res;
+};
+
+/*
+ * вызывается два раза -- первый раз для заполнения полей в fmeta,
+ * второй раз для освобождения,
+ * если в результате spq_FileMeta.empty == true, то второй вызов не требуется
+ * аргумент *revision может быть == NULL, в таком случае возвращается
+ * последняя ревизия
+ */
+bool spq_f_getFileMeta(char *username, guid_t *rootdir, guid_t *file,
+		guid_t *revision, struct spq_FileMeta *fmeta);
 
 #endif /* _SIMPLEPQ_SIMPLEPQ_1426075906_H_ */
 

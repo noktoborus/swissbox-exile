@@ -759,6 +759,120 @@ spq_f_logDirPush(char *username, guid_t *rootdir, guid_t *directory, char *path)
 	return r;
 }
 
+bool
+_spq_f_getFileMeta(PGconn *pgc, char *username, guid_t *rootdir, guid_t *file,
+		guid_t *revision, struct spq_FileMeta *fmeta)
+{
+	PGresult *res;
+	ExecStatusType pqs;
+	const char *tb =
+	"SELECT "
+	"	revision_guid, "
+	"	directory_guid, "
+	"	(SELECT COUNT(*) "
+	"		FROM file_records "
+	"		WHERE "
+	"			file_records.rootdir_guid = file_keys.rootdir_guid AND "
+	"			file_records.file_guid = file_keys.file_guid AND "
+	"			file_records.revision_guid = file_keys.revision_guid) "
+	"	AS chunks, "
+	"	parent_revision_guid, "
+	"	enc_filename, "
+	"	public_key "
+	"FROM file_keys "
+	"WHERE "
+	"	username = $1 AND "
+	"	rootdir_guid = $2 AND "
+	"	file_guid = $3 AND "
+	"	($4 AND revision_guid = $4) "
+	"	ORDER BY time DESC "
+	"LIMIT 1;";
+
+	const int fmt[4] = {0, 0, 0, 0};
+
+	char _rootdir[GUID_MAX + 1];
+	char _file[GUID_MAX + 1];
+	char _revision[GUID_MAX + 1];
+
+	char *val[4];
+	int len[4];
+
+	len[0] = strlen(username);
+	len[1] = guid2string(rootdir, _rootdir, sizeof(_rootdir));
+	len[2] = guid2string(file, _file, sizeof(_file));
+	len[3] = guid2string(revision, _revision, sizeof(_revision));
+
+	val[0] = username;
+	val[1] = _rootdir;
+	val[2] = _file;
+	val[3] = len[3] ? _revision : NULL;
+
+	res = PQexecParams(pgc, tb, 4, NULL, (const char *const*)val, len, fmt, 0);
+	pqs = PQresultStatus(res);
+	if (pqs != PGRES_COMMAND_OK && pqs != PGRES_EMPTY_QUERY) {
+		char errstr[1024];
+		snprintf(errstr, sizeof(errstr), "spq: getFileMeta exec error: %s",
+					PQresultErrorMessage(res));
+				syslog(LOG_INFO, errstr);
+				PQclear(res);
+				return false;
+	}
+
+	if (pqs == PGRES_EMPTY_QUERY) {
+		fmeta->empty = true;
+		return true;
+	}
+
+	/* складирование результатов */
+	fmeta->res = res;
+	/* revision guid */
+	fmeta->rev = PQgetvalue(res, 0, 0);
+	fmeta->dir = PQgetvalue(res, 0, 1);
+	if (PQgetlength(res, 0, 2) > 0) {
+		fmeta->chunks = (uint32_t)strtoul(PQgetvalue(res, 0, 2), NULL, 10);
+	} else {
+		fmeta->chunks = 0u;
+	}
+	fmeta->parent_rev = PQgetvalue(res, 0, 3);
+	fmeta->enc_filename = PQgetvalue(res, 0, 4);
+	{
+		int _len;
+		if ((_len = PQgetlength(res, 0, 5)) > 0) {
+			fmeta->key_len =
+				hex2bin(PQgetvalue(res, 0, 5), _len, fmeta->key, AESKEY_MAX);
+		} else {
+			memset(fmeta->key, 0u, AESKEY_MAX);
+			fmeta->key_len = 0u;
+		}
+	}
+
+	return true;
+}
+
+bool
+spq_f_getFileMeta(char *username, guid_t *rootdir, guid_t *file,
+		guid_t *revision, struct spq_FileMeta *fmeta)
+{
+	bool retval = false;
+	struct spq *c;
+	/* чистка */
+	if (!username || !rootdir || !file || !revision) {
+		if (fmeta->res) {
+			PQclear(fmeta->res);
+			memset(fmeta, 0u, sizeof(struct spq_FileMeta));
+			return true;
+		}
+		return false;
+	}
+	/* обработка */
+	if ((c = acquire_conn(&_spq)) != NULL) {
+		retval = _spq_f_getFileMeta(c->conn, username, rootdir, file, revision,
+				fmeta);
+		release_conn(&_spq, c);
+	}
+	return retval;
+}
+
 #include "complex/getRevisions.c"
 #include "complex/getChunks.c"
 #include "complex/logDirFile.c"
