@@ -326,6 +326,12 @@ _active_sync(struct client *c, uint32_t session_id, bool slice)
 	/* генерация списка последних обновлений директорий и файлов */
 	struct logDirFile gs;
 	struct result_send *rs;
+#if DEEPDEBUG
+	xsyslog(LOG_DEBUG,
+			"client[%p] activate sync from checkpoint=%"PRIu64
+			" for device=%"PRIX64" (slice: %s)",
+			(void*)c, c->checkpoint, c->device_id, slice ? "yes" : "no");
+#endif
 
 	memset(&gs, 0, sizeof(struct logDirFile));
 	if (!spq_f_logDirFile(c->name, c->checkpoint, c->device_id, &gs)) {
