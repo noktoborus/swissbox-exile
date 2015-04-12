@@ -30,7 +30,7 @@ struct client_cum {
 	unsigned ref; /* подсчёт ссылок */
 
 	uint64_t new_checkpoint;
-
+	uint64_t from_device;
 	/* к этим областям нужно обращаться только
 	 * после блокировки корня (clients_cum.lock)
 	 */
@@ -330,7 +330,7 @@ _active_sync(struct client *c, uint32_t session_id, bool slice)
 	xsyslog(LOG_DEBUG,
 			"client[%p] activate sync from checkpoint=%"PRIu64
 			" for device=%"PRIX64" (slice: %s)",
-			(void*)c, c->checkpoint, c->device_id, slice ? "yes" : "no");
+			(void*)c->cev, c->checkpoint, c->device_id, slice ? "yes" : "no");
 #endif
 
 	memset(&gs, 0, sizeof(struct logDirFile));
@@ -368,7 +368,7 @@ _handle_want_sync(struct client *c, unsigned type, Fep__WantSync *msg)
 	if (!_active_sync(c, msg->session_id, false)) {
 		return send_error(c, msg->id, "Internal error 1653", -1);
 	}
-
+	c->status.log_active = true;
 	return send_ok(c, msg->id, C_OK_SIMPLE);
 }
 
@@ -864,10 +864,28 @@ _handle_file_meta(struct client *c, unsigned type, Fep__FileMeta *msg)
 		checkpoint = spq_f_chunkFile(c->name, &wf->rootdir,
 				&wf->file, &wf->revision, &parent, &dir, enc_filename,
 				c->device_id, key, key_len);
-		if (!checkpoint)
+		if (!checkpoint) {
 			retval = send_error(c, msg->id, "Internal error 1785", -1);
-		else
+		} else {
 			retval = send_ok(c, msg->id, checkpoint);
+			/* обновление чекпоинта,
+			 * нотификация другим подключённым устройствам
+			 */
+#if DEEPDEBUG
+			xsyslog(LOG_DEBUG,
+					"client[%p] send notify checkpoint=%"PRIu64
+					" from device=%"PRIX64,
+					(void*)c->cev, checkpoint, c->device_id);
+#endif
+			if (c->cum) {
+				pthread_mutex_lock(&c->cum->lock);
+				if (checkpoint > c->cum->new_checkpoint) {
+					c->cum->new_checkpoint = checkpoint;
+					c->cum->from_device = c->device_id;
+				}
+				pthread_mutex_unlock(&c->cum->lock);
+			}
+		}
 	}
 
 	/* ссылок больше нет, можно подчистить */
@@ -1307,19 +1325,19 @@ client_destroy(struct client *c)
 	do {
 #if DEEPDEBUG
 		xsyslog(LOG_DEBUG, "client[%p] remain %"PRIuPTR" mid",
-				(void*)c, c->mid.count);
+				(void*)c->cev, c->mid.count);
 #endif
 	} while (list_free_root(&c->mid, &mid_free));
 	do {
 #if DEEPDEBUG
 		xsyslog(LOG_DEBUG, "client[%p] remain %"PRIuPTR" sid",
-				(void*)c, c->sid.count);
+				(void*)c->cev, c->sid.count);
 #endif
 	} while (list_free_root(&c->sid, (void(*)(void*))&sid_free));
 	do {
 #if DEEPDEBUG
 		xsyslog(LOG_DEBUG, "client[%p] remain %"PRIuPTR" fid",
-				(void*)c, c->fid.count);
+				(void*)c->cev, c->fid.count);
 #endif
 	} while (list_free_root(&c->fid, (void(*)(void*))&fid_free));
 
@@ -1366,8 +1384,16 @@ _client_iterate_result_logdf(struct client *c, struct logDirFile *ldf)
 		rout_free(c);
 		return true;
 	}
-
+#if DEEPDEBUG
+	xsyslog(LOG_DEBUG,
+			"client[%p] change checkpoint: %"PRIu64" -> %"PRIu64
+			"(%c), device=%"PRIX64,
+			(void*)c->cev, c->checkpoint, ldf->checkpoint,
+			ldf->type, c->device_id);
+#endif
+	/* обновление чекпоинта клиента */
 	c->checkpoint = ldf->checkpoint;
+	/* отсылка данных */
 	if (ldf->type == 'd') {
 		Fep__DirectoryUpdate msg = FEP__DIRECTORY_UPDATE__INIT;
 		char guid[GUID_MAX + 1];
@@ -1482,7 +1508,7 @@ _client_iterate_result(struct client *c)
 		return _client_iterate_result_logdf(c, &c->rout->v.df);
 	} else {
 		xsyslog(LOG_WARNING, "client[%p] unknown rout type: %d\n",
-				(void*)c, c->rout->type);
+				(void*)c->cev, c->rout->type);
 		rout_free(c);
 	}
 	return true;
@@ -1760,7 +1786,8 @@ client_iterate(struct sev_ctx *cev, bool last, void **p)
 		 */
 		pthread_mutex_lock(&c->cum->lock);
 		/* если чекпоинт "уехал", то нам тоже нужно двигаться вперёд */
-		if (c->cum->new_checkpoint > c->checkpoint) {
+		if (c->cum->new_checkpoint > c->checkpoint &&
+				c->cum->from_device != c->device_id) {
 			_active_sync(c, C_NOSESSID, false);
 		}
 		pthread_mutex_unlock(&c->cum->lock);

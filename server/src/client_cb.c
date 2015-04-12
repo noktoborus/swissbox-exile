@@ -69,7 +69,8 @@ c_auth_cb(struct client *c, uint64_t id, unsigned int msgtype, void *msg, void *
 	c->device_id = amsg->device_id;
 
 	strcpy(c->name, amsg->username);
-	xsyslog(LOG_INFO, "client[%p] authorized as %s", (void*)c->cev, c->name);
+	xsyslog(LOG_INFO, "client[%p] authorized as %s, device=%"PRIX64,
+			(void*)c->cev, c->name, c->device_id);
 	if (!client_load(c)) {
 		/* отправляем сообщение и выходим */
 		send_error(c, id, "Can't load user info", 0);
