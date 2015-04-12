@@ -193,6 +193,15 @@ def proto(s, c):
         send_message(s, msg)
         while recv_message(s)[0] !=  11:
             pass
+    if c == "wantsync":
+        msg = FEP.WantSync()
+        msg.id = 3004
+        msg.with_slice = False
+        msg.session_id = 500
+        msg.checkpoint = 0
+        send_message(s, msg)
+        while recv_message(s):
+            pass
     if c == "rename":
         msg = FEP.RenameChunk()
         msg.id = 300
