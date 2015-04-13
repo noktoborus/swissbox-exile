@@ -335,10 +335,11 @@ _handle_query_chunks(struct client *c, unsigned type, Fep__QueryChunks *msg)
 
 /*
  * активация отправки лога клиенту
- * TODO: аргумнет slice -- отправлять ли лог или текущее состояние
+ * аргумент locked указывает предварительную
+ * блокировку c->cum->lock
  */
 static inline bool
-_active_sync(struct client *c, uint32_t session_id, bool slice)
+_active_sync(struct client *c, uint32_t session_id, bool locked)
 {
 	/* генерация списка последних обновлений директорий и файлов */
 	struct logDirFile gs;
@@ -346,13 +347,26 @@ _active_sync(struct client *c, uint32_t session_id, bool slice)
 #if DEEPDEBUG
 	xsyslog(LOG_DEBUG,
 			"client[%p] activate sync from checkpoint=%"PRIu64
-			" for device=%"PRIX64" (slice: %s)",
-			(void*)c->cev, c->checkpoint, c->device_id, slice ? "yes" : "no");
+			" for device=%"PRIX64,
+			(void*)c->cev, c->checkpoint, c->device_id);
 #endif
 
 	memset(&gs, 0, sizeof(struct logDirFile));
 	if (!spq_f_logDirFile(c->name, c->checkpoint, c->device_id, &gs)) {
 		return false;
+	}
+
+	/* если результат пустой,то нужно обновить текущий чекпоинт
+	 * до последнего, что бы не шумел
+	 */
+	if (!gs.max) {
+		if (!locked)
+			pthread_mutex_lock(&c->cum->lock);
+		if (c->cum->new_checkpoint > c->checkpoint) {
+			c->checkpoint = c->cum->new_checkpoint;
+		}
+		if (!locked)
+			pthread_mutex_unlock(&c->cum->lock);
 	}
 
 	rs = calloc(1, sizeof(struct result_send));
@@ -1857,7 +1871,7 @@ client_iterate(struct sev_ctx *cev, bool last, void **p)
 		/* если чекпоинт "уехал", то нам тоже нужно двигаться вперёд */
 		if (c->cum->new_checkpoint > c->checkpoint &&
 				c->cum->from_device != c->device_id) {
-			_active_sync(c, C_NOSESSID, false);
+			_active_sync(c, C_NOSESSID, true);
 		}
 		pthread_mutex_unlock(&c->cum->lock);
 	}
