@@ -233,18 +233,26 @@ struct wait_xfer {
 };
 
 struct wait_file {
-	bool notified;
 	unsigned chunks;
 	unsigned chunks_ok;
 	unsigned chunks_fail;
 
 	unsigned ref; /* количество ссылок из wait_xfer */
 
+	uint64_t msg_id;
+
 	/* meta */
 	uint64_t id;
 	guid_t rootdir;
 	guid_t file;
 	guid_t revision;
+	guid_t parent;
+	guid_t dir;
+
+	uint8_t key[PUBKEY_MAX];
+	unsigned key_len;
+
+	char enc_filename[PATH_MAX];
 };
 
 /* получение привязанных к id данных */

@@ -789,6 +789,61 @@ _handle_xfer(struct client *c, unsigned type, Fep__Xfer *xfer)
 	return send_error(c, xfer->id, errmsg, -1);
 }
 
+
+/* эту ерунду нужно вызывать в самом конце, после работы с wait_file,
+ * т.е. при положительном результате wait_file будет освобождён
+ * возвращает состояние линии
+ */
+static bool
+_file_complete(struct client *c, struct wait_file *wf)
+{
+	uint64_t checkpoint;
+	bool retval = true;
+	if (wf->chunks != wf->chunks_ok) {
+		return true;
+	}
+	/* файл собрался */
+	checkpoint = spq_f_chunkFile(c->name, &wf->rootdir,
+			&wf->file, &wf->revision, &wf->parent, &wf->dir,
+			wf->enc_filename, c->device_id, wf->key, wf->key_len);
+
+	if (!checkpoint) {
+		retval = send_error(c, wf->msg_id, "Internal error 1785", -1);
+	} else {
+		/* рассылаем приглашение обновиться соседям */
+		if (c->cum) {
+#if DEEPDEBUG
+			xsyslog(LOG_DEBUG,
+					"client[%p] send notify checkpoint=%"PRIu64" "
+					"from device=%"PRIX64,
+					(void*)c->cev, checkpoint, c->device_id);
+#endif
+			pthread_mutex_lock(&c->cum->lock);
+			if (checkpoint > c->cum->new_checkpoint) {
+				c->cum->new_checkpoint = checkpoint;
+				c->cum->from_device = c->device_id;
+			}
+			pthread_mutex_unlock(&c->cum->lock);
+		}
+		retval = send_ok(c, wf->msg_id, checkpoint);
+	}
+#if DEEPDEBUG
+		xsyslog(LOG_DEBUG, "client[%p] file complete with ref=%u, "
+				" chunks=%u/%u (chunks_fail=%u) and status=%s",
+				(void*)c->cev, wf->ref,
+				wf->chunks_ok, wf->chunks, wf->chunks_fail,
+				retval ? "Ok" : "Error");
+#endif
+	/* чистка */
+	if (!wf->ref) {
+		void *d;
+		if ((d = query_id(c, &c->fid, wf->id)) != NULL)
+			fid_free(d);
+	}
+
+	return retval;
+}
+
 bool
 _handle_file_meta(struct client *c, unsigned type, Fep__FileMeta *msg)
 {
@@ -803,48 +858,11 @@ _handle_file_meta(struct client *c, unsigned type, Fep__FileMeta *msg)
 	size_t key_len;
 
 	bool need_clear = false;
-	bool retval;
 
 	if (!c->status.auth_ok)
 		return send_error(c, msg->id, "Unauthorized", -1);
 
 	hash = MAKE_FHASH(msg->rootdir_guid, msg->file_guid);
-
-	/* ws_touched нужен для избежания попадания второй записи об одном файле
-	 * в список
-	 */
-	ws = query_id(c, &c->fid, hash);
-	/* если записи нет, нужно создать новую */
-
-	if (!ws) {
-		return send_error(c, msg->id, "Unexpected FileMeta", -1);
-	} else {
-		wf = ws->data;
-	}
-	/* костыль на случай, если всё плохо */
-	if (wf->ref) {
-#if DEEPDEBUG
-		xsyslog(LOG_DEBUG, "client[%p] file has ref links: %u",
-				(void*)c->cev, wf->ref);
-#endif
-		wait_id(c, &c->fid, hash, ws);
-	}
-
-
-	/* совсем немного устарелого кода */
-	wf->chunks = msg->chunks;
-	if (wf->chunks != wf->chunks_ok) {
-			char errmsg[1024];
-		snprintf(errmsg, sizeof(errmsg),
-				"not enought chunks: %u/%u (fail: %u)",
-				wf->chunks_ok, wf->chunks, wf->chunks_fail);
-		/*
-		 *
-		 */
-		if (!wf->ref)
-			fid_free(ws);
-		return send_error(c, msg->id, errmsg, -1);
-	}
 
 	/* FIXME: ересь, прибраться после починки таблиц
 	 * если в FileMeta не указаны enc_filename и key,
@@ -871,14 +889,10 @@ _handle_file_meta(struct client *c, unsigned type, Fep__FileMeta *msg)
 #endif
 		memset(&fmeta, 0u, sizeof(struct spq_FileMeta));
 		if (!spq_f_getFileMeta(c->name, &_rootdir, &_file, NULL, &fmeta)) {
-			if (!wf->ref)
-				fid_free(ws);
 			return send_error(c, msg->id, "Internal error 1759", -1);
 		}
 		if (fmeta.empty) {
-			if (!wf->ref)
-				fid_free(ws);
-			return send_error(c, msg->id, "no file meta in db", -1);
+			return send_error(c, msg->id, "no origin file meta in db", -1);
 		}
 		need_clear = true;
 		if (!enc_filename) {
@@ -890,6 +904,49 @@ _handle_file_meta(struct client *c, unsigned type, Fep__FileMeta *msg)
 		}
 	}
 
+	/* ws_touched нужен для избежания попадания второй записи об одном файле
+	 * в список
+	 */
+	ws = touch_id(c, &c->fid, hash);
+	if (!ws) {
+		/* если записи нет, нужно создать новую */
+		ws = calloc(1, sizeof(struct wait_store) + sizeof(struct wait_file));
+		if (!ws) {
+			if (need_clear)
+				spq_f_getFileMeta_free(&fmeta);
+			return send_error(c, msg->id, "Internal error 1860", -1);
+		}
+		wf = ws->data = ws + 1;
+		wf->id = hash;
+		wait_id(c, &c->fid, hash, ws);
+	} else {
+		wf = ws->data;
+	}
+
+	/* заполнение всех полей */
+	if (!wf->rootdir.not_null)
+		string2guid(PSLEN(msg->rootdir_guid), &wf->rootdir);
+	if (!wf->file.not_null)
+		string2guid(PSLEN(msg->file_guid), &wf->file);
+	if (!wf->revision.not_null)
+		string2guid(PSLEN(msg->revision_guid), &wf->revision);
+	if (!wf->parent.not_null && msg->parent_revision_guid)
+		string2guid(PSLEN(msg->parent_revision_guid), &wf->parent);
+	if (!wf->dir.not_null)
+		string2guid(PSLEN(msg->directory_guid), &wf->dir);
+	/* вообще их обрезать нельзя и нужно выдавать ошибку типа
+	 * strlen(enc_filename) > PATH_MAX
+	 * TODO: добавить обработку размера ключа и имени файла
+	 */
+	strncpy(wf->enc_filename, enc_filename,
+			MIN(PATH_MAX, strlen(enc_filename)));
+	memcpy(wf->key, key, key_len);
+	wf->key_len = key_len;
+
+	wf->chunks = msg->chunks;
+
+	if (need_clear)
+		spq_f_getFileMeta_free(&fmeta);
 #if DEEPDEBUG
 	xsyslog(LOG_DEBUG, "client[%p] FileMeta: enc_filename: \"%s\", "
 			"file_guid: \"%s\", revision_guid: \"%s\", key_len: %"PRIuPTR" "
@@ -898,51 +955,8 @@ _handle_file_meta(struct client *c, unsigned type, Fep__FileMeta *msg)
 			enc_filename, msg->file_guid, msg->revision_guid, key_len,
 			hash);
 #endif
-	{
-		register size_t len;
-		uint64_t checkpoint;
-		guid_t dir;
-		guid_t parent;
-		len = msg->parent_revision_guid
-			? strlen(msg->parent_revision_guid) : 0u;
-		string2guid(msg->directory_guid, strlen(msg->directory_guid), &dir);
-		string2guid(msg->parent_revision_guid, len, &parent);
-		checkpoint = spq_f_chunkFile(c->name, &wf->rootdir,
-				&wf->file, &wf->revision, &parent, &dir, enc_filename,
-				c->device_id, key, key_len);
-		if (!checkpoint) {
-			retval = send_error(c, msg->id, "Internal error 1785", -1);
-		} else {
-			retval = send_ok(c, msg->id, checkpoint);
-			/* обновление чекпоинта,
-			 * нотификация другим подключённым устройствам
-			 */
-#if DEEPDEBUG
-			xsyslog(LOG_DEBUG,
-					"client[%p] send notify checkpoint=%"PRIu64
-					" from device=%"PRIX64,
-					(void*)c->cev, checkpoint, c->device_id);
-#endif
-			if (c->cum) {
-				pthread_mutex_lock(&c->cum->lock);
-				if (checkpoint > c->cum->new_checkpoint) {
-					c->cum->new_checkpoint = checkpoint;
-					c->cum->from_device = c->device_id;
-				}
-				pthread_mutex_unlock(&c->cum->lock);
-			}
-		}
-	}
-#if DEEPDEBUG
-	xsyslog(LOG_DEBUG, "client[%p] file load complete with result: %s",
-			(void*)c->cev, retval ? "Ok" :  "Error");
-#endif
 
-	if (!wf->ref)
-		fid_free(ws);
-	if (need_clear)
-		spq_f_getFileMeta_free(&fmeta);
-	return retval;
+	return _file_complete(c, wf);
 }
 
 bool
@@ -1045,6 +1059,11 @@ _handle_end(struct client *c, unsigned type, Fep__End *end)
 		}
 		/* заодно проверяем готовность файла */
 		wx.wf->chunks_ok++;
+		/* нет смысла пытаться отправить "Ok" клиенту, если
+		 * соеденение отвалилось при отправке OkUpdate
+		 */
+		if (!_file_complete(c, wx.wf))
+			return false;
 		return send_ok(c, end->id, C_OK_SIMPLE);
 	}
 	/* чанк не нужен, клиент перетащит его заного */
