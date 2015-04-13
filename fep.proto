@@ -448,10 +448,13 @@ message DirectoryUpdate {
    */
 message WantSync {
 	required uint64 id = 1 [default = 0];
+
+	/*
+		WantSync должен быть на каждый rootdir
+
+	required string rootdir_guid = 3;*/
 	/* чекпоинт для лога */
-	required uint64 checkpoint = 5;
-	/* при true перед логом отправляется текущее состояние */
-	required bool with_slice = 6;
+	required uint64 checkpoint = 5 [default = 0];
 
 	/* номер сессии для DirectoryUpdate/FileUpdate */
 	required uint64 session_id = 10;
