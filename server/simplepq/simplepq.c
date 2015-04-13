@@ -723,7 +723,7 @@ spq_f_getChunkPath(char *username,
 	return r;
 }
 
-static inline bool
+static inline uint64_t
 _spq_f_logDirPush(PGconn *pgc, char *username,
 		guid_t *rootdir, guid_t *directory, char *path)
 {
@@ -731,7 +731,8 @@ _spq_f_logDirPush(PGconn *pgc, char *username,
 	ExecStatusType pqs;
 	const char *tb = "INSERT INTO directory_log "
 		"( username, rootdir_guid, directory_guid, path ) "
-		"VALUES ($1, $2, $3, $4);";
+		"VALUES ($1, $2, $3, $4) "
+		"RETURNING trunc(extract(epoch from time));";
 	const int format[5] = {0, 0, 0, 0};
 
 	char _rootdir_guid[GUID_MAX + 1];
@@ -739,6 +740,8 @@ _spq_f_logDirPush(PGconn *pgc, char *username,
 
 	char *val[4];
 	int length[4];
+
+	uint64_t checkpoint = 0u;
 
 	length[0] = strlen(username);
 	length[1] = guid2string(rootdir, _rootdir_guid, sizeof(_rootdir_guid));
@@ -753,18 +756,19 @@ _spq_f_logDirPush(PGconn *pgc, char *username,
 	res = PQexecParams(pgc, tb, 4, NULL,
 			(const char *const*)val, length, format, 0);
 	pqs = PQresultStatus(res);
-	if (pqs != PGRES_COMMAND_OK && pqs != PGRES_EMPTY_QUERY) {
+	if (pqs != PGRES_TUPLES_OK) {
 		xsyslog(LOG_INFO, "logDirPush exec error: %s",
 				PQresultErrorMessage(res));
-		PQclear(res);
-		return false;
+	} else if (PQgetlength(res, 0, 0)) {
+		checkpoint = strtoul(PQgetvalue(res, 0, 0), NULL, 10);
 	}
 	PQclear(res);
-	return true;
+	return checkpoint;
 }
 
 uint64_t
-spq_f_logDirPush(char *username, guid_t *rootdir, guid_t *directory, char *path)
+spq_f_logDirPush(char *username, guid_t *rootdir, guid_t *directory,
+		char *path)
 {
 	uint64_t r = 0;
 	struct spq *c;

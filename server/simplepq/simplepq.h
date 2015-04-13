@@ -167,5 +167,11 @@ bool spq_f_getFileMeta(char *username, guid_t *rootdir, guid_t *file,
 		guid_t *revision, struct spq_FileMeta *fmeta);
 void spq_f_getFileMeta_free(struct spq_FileMeta *fmeta);
 
+
+/* запись в лог директорий */
+uint64_t spq_f_logDirPush(char *username, guid_t *rootdir, guid_t *directory,
+		char *path);
+
+
 #endif /* _SIMPLEPQ_SIMPLEPQ_1426075906_H_ */
 
