@@ -604,10 +604,12 @@ spq_create_tables()
 				 */
 		"CREATE TABLE IF NOT EXISTS directory_tree "
 		"("
+		"	time timestamp with time zone NOT NULL DEFAULT now(),"
 		"	username varchar(1024) NOT NULL,"
 		"	rootdir_guid UUID NOT NULL,"
 		"	directory_guid UUID NOT NULL,"
-		"	path varchar(4096) NOT NULL"
+		"	path varchar(4096) DEFAULT NULL,"
+		"	deviceid bigint NOT NULL"
 		");",
 		"CREATE TABLE IF NOT EXISTS directory_log "
 		"("
