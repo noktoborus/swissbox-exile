@@ -797,7 +797,7 @@ _handle_file_meta(struct client *c, unsigned type, Fep__FileMeta *msg)
 	/* ws_touched нужен для избежания попадания второй записи об одном файле
 	 * в список
 	 */
-	ws = touch_id(c, &c->fid, hash);
+	ws = query_id(c, &c->fid, hash);
 	/* если записи нет, нужно создать новую */
 
 	if (!ws) {
@@ -805,6 +805,16 @@ _handle_file_meta(struct client *c, unsigned type, Fep__FileMeta *msg)
 	} else {
 		wf = ws->data;
 	}
+	/* костыль на случай, если всё плохо */
+	if (wf->ref) {
+#if DEEPDEBUG
+		xsyslog(LOG_DEBUG, "client[%p] file has ref links: %u",
+				(void*)c->cev, wf->ref);
+#endif
+		wait_id(c, &c->fid, hash, ws);
+	}
+
+
 	/* совсем немного устарелого кода */
 	wf->chunks = msg->chunks;
 	if (wf->chunks != wf->chunks_ok) {
@@ -827,16 +837,20 @@ _handle_file_meta(struct client *c, unsigned type, Fep__FileMeta *msg)
 		string2guid(PSLEN(msg->file_guid), &_file);
 		string2guid(PSLEN(msg->revision_guid), &_rev);
 #if DEEPDEBUG
-		xsyslog(LOG_DEBUG, "FileMeta Prepare: enc_filename: \"%s\", "
+		xsyslog(LOG_DEBUG, "client[%p] "
+				"FileMeta Prepare: enc_filename: \"%s\", "
 				"file_guid: \"%s\", revision_guid: \"%s\", key_len: %"PRIuPTR,
+				(void*)c->cev,
 				msg->enc_filename, msg->file_guid, msg->revision_guid,
 				msg->key.len);
 #endif
 		memset(&fmeta, 0u, sizeof(struct spq_FileMeta));
 		if (!spq_f_getFileMeta(c->name, &_rootdir, &_file, NULL, &fmeta)) {
+			fid_free(ws);
 			return send_error(c, msg->id, "Internal error 1759", -1);
 		}
 		if (fmeta.empty) {
+			fid_free(ws);
 			return send_error(c, msg->id, "no file meta in db", -1);
 		}
 		need_clear = true;
@@ -850,8 +864,9 @@ _handle_file_meta(struct client *c, unsigned type, Fep__FileMeta *msg)
 	}
 
 #if DEEPDEBUG
-	xsyslog(LOG_DEBUG, "FileMeta: enc_filename: \"%s\", "
+	xsyslog(LOG_DEBUG, "client[%p] FileMeta: enc_filename: \"%s\", "
 			"file_guid: \"%s\", revision_guid: \"%s\", key_len: %"PRIuPTR,
+			(void*)c->cev,
 			enc_filename, msg->file_guid, msg->revision_guid, key_len);
 #endif
 	{
@@ -889,23 +904,12 @@ _handle_file_meta(struct client *c, unsigned type, Fep__FileMeta *msg)
 			}
 		}
 	}
-
-	/* ссылок больше нет, можно подчистить */
-	if (!wf->ref) {
-			void *d;
 #if DEEPDEBUG
-		xsyslog(LOG_DEBUG, "client[%p] file fully loaded",
-				(void*)c->cev);
+		xsyslog(LOG_DEBUG, "client[%p] file load complete with result: %s",
+				(void*)c->cev, retval ? "Ok" :  "Error");
 #endif
-		if ((d = query_id(c, &c->fid, wf->id)) != NULL)
-			fid_free(d);
-	} else {
-#if DEEPDEBUG
-		xsyslog(LOG_DEBUG, "client[%p] file has ref links: %u",
-				(void*)c->cev, wf->ref);
-#endif
-	}
 
+	fid_free(ws);
 	if (need_clear)
 		spq_f_getFileMeta_free(&fmeta);
 	return retval;
