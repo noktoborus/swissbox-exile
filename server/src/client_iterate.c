@@ -1409,6 +1409,9 @@ _client_iterate_result_logdf(struct client *c, struct logDirFile *ldf)
 		msg.guid = guid;
 		msg.checkpoint = ldf->checkpoint;
 
+		if (*ldf->path)
+			msg.path = ldf->path;
+
 		msg.no = ldf->row;
 		msg.max = ldf->max;
 		if (c->rout->id != C_NOSESSID)
@@ -1421,6 +1424,7 @@ _client_iterate_result_logdf(struct client *c, struct logDirFile *ldf)
 		char rootdir[GUID_MAX + 1];
 		char file[GUID_MAX + 1];
 		char dir[GUID_MAX + 1];
+		char rev[GUID_MAX + 1];
 
 		msg.id = generate_id(c);
 		msg.checkpoint = ldf->checkpoint;
@@ -1428,12 +1432,17 @@ _client_iterate_result_logdf(struct client *c, struct logDirFile *ldf)
 		guid2string(&ldf->rootdir, rootdir, sizeof(rootdir));
 		guid2string(&ldf->file, file, sizeof(file));
 		guid2string(&ldf->directory, dir, sizeof(dir));
+		guid2string(&ldf->revision, rev, sizeof(rev));
 
 		msg.rootdir_guid = rootdir;
 		msg.file_guid = file;
 
-		msg.enc_filename = ldf->path;
-		msg.directory_guid = dir;
+		if (*ldf->path)
+			msg.enc_filename = ldf->path;
+		if (ldf->directory.not_null)
+			msg.directory_guid = dir;
+		if (ldf->revision.not_null)
+			msg.revision_guid = rev;
 
 		msg.no = ldf->row;
 		msg.max = ldf->max;
