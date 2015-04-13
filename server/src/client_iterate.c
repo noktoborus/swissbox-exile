@@ -198,10 +198,26 @@ bool
 _handle_directory_update(struct client *c, unsigned type,
 		Fep__DirectoryUpdate *msg)
 {
-	/*
-	 * тактика: отправить запись в бд
-	 */
-	return send_ok(c, msg->id, C_OK_SIMPLE);
+	guid_t rootdir;
+	guid_t directory;
+	uint64_t checkpoint;
+
+	string2guid(PSLEN(msg->rootdir_guid), &rootdir);
+	string2guid(PSLEN(msg->guid), &directory);
+
+	checkpoint = spq_f_logDirPush(c->name, &rootdir, &directory, msg->path);
+	if (!checkpoint)
+		return send_error(c, msg->id, "Internal error 1839", -1);
+
+	if (c->cum) {
+		pthread_mutex_lock(&c->cum->lock);
+		if (checkpoint > c->cum->new_checkpoint) {
+			c->cum->new_checkpoint = checkpoint;
+			c->cum->from_device = c->device_id;
+		}
+		pthread_mutex_unlock(&c->cum->lock);
+	}
+	return send_ok(c, msg->id, checkpoint);
 }
 
 bool
