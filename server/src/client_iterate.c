@@ -657,6 +657,7 @@ send_pending(struct client *c, uint64_t id)
 	return send_message(c->cev, FEP__TYPE__tPending, &pending);
 }
 
+#if DEEPDEBUG
 static inline const char *
 list_name(struct client *c, struct listRoot *list)
 {
@@ -669,6 +670,7 @@ list_name(struct client *c, struct listRoot *list)
 	else
 		return "???";
 }
+#endif
 
 bool
 wait_id(struct client *c, struct listRoot *list, uint64_t id, wait_store_t *s)
@@ -784,7 +786,7 @@ _handle_file_meta(struct client *c, unsigned type, Fep__FileMeta *msg)
 	uint8_t *key;
 	size_t key_len;
 
-	bool need_clear;
+	bool need_clear = false;
 	bool retval;
 
 	if (!c->status.auth_ok)
@@ -901,8 +903,8 @@ _handle_file_meta(struct client *c, unsigned type, Fep__FileMeta *msg)
 #if DEEPDEBUG
 		xsyslog(LOG_DEBUG, "client[%p] file has ref links: %u",
 				(void*)c->cev, wf->ref);
-	}
 #endif
+	}
 
 	if (need_clear)
 		spq_f_getFileMeta_free(&fmeta);
