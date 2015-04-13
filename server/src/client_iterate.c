@@ -1002,8 +1002,9 @@ _handle_end(struct client *c, unsigned type, Fep__End *end)
 	wx.wf->ref--;
 	close(wx.fd);
 #if DEEPDEBUG
-	xsyslog(LOG_DEBUG, "client[%p] close fd#%d, id %"PRIu32,
-			(void*)c->cev, wx.fd, end->session_id);
+	xsyslog(LOG_DEBUG, "client[%p] close fd#%d, id %"PRIu32" "
+			"file hash: %"PRIu64,
+			(void*)c->cev, wx.fd, end->session_id, wx.wf->id);
 #endif
 	/* размеры не совпали */
 	if (wx.filling != wx.size) {
