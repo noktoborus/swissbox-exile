@@ -825,7 +825,11 @@ _handle_file_meta(struct client *c, unsigned type, Fep__FileMeta *msg)
 		retval = send_error(c, msg->id, errmsg, -1);
 	}
 
-	/* FIXME: ересь, прибраться после починки таблиц */
+	/* FIXME: ересь, прибраться после починки таблиц
+	 * если в FileMeta не указаны enc_filename и key,
+	 * нужно подгребсти их из таблицы
+	 * по нормальному, нужно делать связь между таблицами по REFERENCES
+	 */
 	enc_filename = msg->enc_filename;
 	key = msg->key.data;
 	key_len = msg->key.len;
@@ -846,11 +850,13 @@ _handle_file_meta(struct client *c, unsigned type, Fep__FileMeta *msg)
 #endif
 		memset(&fmeta, 0u, sizeof(struct spq_FileMeta));
 		if (!spq_f_getFileMeta(c->name, &_rootdir, &_file, NULL, &fmeta)) {
-			fid_free(ws);
+			if (!wf->ref)
+				fid_free(ws);
 			return send_error(c, msg->id, "Internal error 1759", -1);
 		}
 		if (fmeta.empty) {
-			fid_free(ws);
+			if (!wf->ref)
+				fid_free(ws);
 			return send_error(c, msg->id, "no file meta in db", -1);
 		}
 		need_clear = true;
@@ -865,9 +871,11 @@ _handle_file_meta(struct client *c, unsigned type, Fep__FileMeta *msg)
 
 #if DEEPDEBUG
 	xsyslog(LOG_DEBUG, "client[%p] FileMeta: enc_filename: \"%s\", "
-			"file_guid: \"%s\", revision_guid: \"%s\", key_len: %"PRIuPTR,
+			"file_guid: \"%s\", revision_guid: \"%s\", key_len: %"PRIuPTR" "
+			"hash: %"PRIu64,
 			(void*)c->cev,
-			enc_filename, msg->file_guid, msg->revision_guid, key_len);
+			enc_filename, msg->file_guid, msg->revision_guid, key_len,
+			hash);
 #endif
 	{
 		register size_t len;
@@ -905,11 +913,12 @@ _handle_file_meta(struct client *c, unsigned type, Fep__FileMeta *msg)
 		}
 	}
 #if DEEPDEBUG
-		xsyslog(LOG_DEBUG, "client[%p] file load complete with result: %s",
-				(void*)c->cev, retval ? "Ok" :  "Error");
+	xsyslog(LOG_DEBUG, "client[%p] file load complete with result: %s",
+			(void*)c->cev, retval ? "Ok" :  "Error");
 #endif
 
-	fid_free(ws);
+	if (!wf->ref)
+		fid_free(ws);
 	if (need_clear)
 		spq_f_getFileMeta_free(&fmeta);
 	return retval;
@@ -1006,9 +1015,12 @@ _handle_end(struct client *c, unsigned type, Fep__End *end)
 	if (!*errmsg) {
 		/* чанк пришёл, теперь нужно обновить информацию в бд */
 		bin2hex(wx.hash, wx.hash_len, chunk_hash, sizeof(chunk_hash));
-		spq_f_chunkNew(c->name, chunk_hash, wx.path, &wx.wf->rootdir,
+		if (!spq_f_chunkNew(c->name, chunk_hash, wx.path, &wx.wf->rootdir,
 				&wx.wf->revision, &wx.chunk_guid, &wx.wf->file,
-				end->offset, end->origin_len);
+				end->offset, end->origin_len)) {
+			wx.wf->chunks_fail++;
+			return send_error(c, end->id, "Internal error 1817", -1);
+		}
 		/* заодно проверяем готовность файла */
 		wx.wf->chunks_ok++;
 		return send_ok(c, end->id, C_OK_SIMPLE);
