@@ -594,8 +594,9 @@ spq_create_tables()
 		xsyslog(LOG_INFO, "db struct version: %s, excepted version: %s",
 				version, S(SQLSTRUCTVER));
 		if (strcmp(version, S(SQLSTRUCTVER))) {
-			xsyslog(LOG_ERR, "expected and db version differ. Please, "
-					"update database from sql/struct.sql file");
+			xsyslog(LOG_ERR, "expected and db version differ (%s != %s). "
+					"Please, update database from sql/struct.sql file",
+					S(SQLSTRUCTVER), version);
 			release_conn(&_spq, sc);
 			return false;
 		}
