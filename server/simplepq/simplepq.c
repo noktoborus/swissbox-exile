@@ -724,22 +724,23 @@ spq_f_getChunkPath(char *username,
 }
 
 static inline uint64_t
-_spq_f_logDirPush(PGconn *pgc, char *username,
+_spq_f_logDirPush(PGconn *pgc, char *username, uint64_t device_id,
 		guid_t *rootdir, guid_t *directory, char *path)
 {
 	PGresult *res;
 	ExecStatusType pqs;
 	const char *tb = "INSERT INTO directory_log "
-		"( username, rootdir_guid, directory_guid, path ) "
-		"VALUES ($1, $2, $3, $4) "
+		"( username, rootdir_guid, directory_guid, path, deviceid) "
+		"VALUES ($1, $2, $3, $4, $5) "
 		"RETURNING trunc(extract(epoch from time));";
-	const int format[5] = {0, 0, 0, 0};
+	const int format[5] = {0, 0, 0, 0, 0};
 
 	char _rootdir_guid[GUID_MAX + 1];
 	char _dir_guid[GUID_MAX + 1];
+	char _deviceid[sizeof(uint64_t) * 8 + 1];
 
-	char *val[4];
-	int length[4];
+	char *val[5];
+	int length[5];
 
 	uint64_t checkpoint = 0u;
 
@@ -747,13 +748,15 @@ _spq_f_logDirPush(PGconn *pgc, char *username,
 	length[1] = guid2string(rootdir, _rootdir_guid, sizeof(_rootdir_guid));
 	length[2] = guid2string(directory, _dir_guid, sizeof(_dir_guid));
 	length[3] = path ? strlen(path) : 0;
+	length[4] = snprintf(_deviceid, sizeof(_deviceid), "%"PRIu64, device_id);
 
 	val[0] = username;
 	val[1] = _rootdir_guid;
 	val[2] = _dir_guid;
 	val[3] = path;
+	val[4] = _deviceid;
 
-	res = PQexecParams(pgc, tb, 4, NULL,
+	res = PQexecParams(pgc, tb, 5, NULL,
 			(const char *const*)val, length, format, 0);
 	pqs = PQresultStatus(res);
 	if (pqs != PGRES_TUPLES_OK) {
@@ -767,13 +770,14 @@ _spq_f_logDirPush(PGconn *pgc, char *username,
 }
 
 uint64_t
-spq_f_logDirPush(char *username, guid_t *rootdir, guid_t *directory,
-		char *path)
+spq_f_logDirPush(char *username, uint64_t device_id,
+		guid_t *rootdir, guid_t *directory, char *path)
 {
 	uint64_t r = 0;
 	struct spq *c;
 	if ((c = acquire_conn(&_spq)) != NULL) {
-		r = _spq_f_logDirPush(c->conn, username, rootdir, directory, path);
+		r = _spq_f_logDirPush(c->conn, username, device_id,
+				rootdir, directory, path);
 		release_conn(&_spq, c);
 	}
 	return r;

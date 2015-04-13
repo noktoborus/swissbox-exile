@@ -169,8 +169,8 @@ void spq_f_getFileMeta_free(struct spq_FileMeta *fmeta);
 
 
 /* запись в лог директорий */
-uint64_t spq_f_logDirPush(char *username, guid_t *rootdir, guid_t *directory,
-		char *path);
+uint64_t spq_f_logDirPush(char *username, uint64_t device_id,
+		guid_t *rootdir, guid_t *directory, char *path);
 
 
 #endif /* _SIMPLEPQ_SIMPLEPQ_1426075906_H_ */
