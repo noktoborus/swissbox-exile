@@ -598,18 +598,6 @@ spq_create_tables()
 		"	enc_filename varchar(1024) NOT NULL, "
 		"	deviceid bigint NOT NULL, "
 		"	public_key varchar(4096) NOT NULL"
-		");", /* таблица directory_tree должна заполняться автоматически
-				 по триггеру в таблице directory_log
-				 содержит текущий список каталогов
-				 */
-		"CREATE TABLE IF NOT EXISTS directory_tree "
-		"("
-		"	time timestamp with time zone NOT NULL DEFAULT now(),"
-		"	username varchar(1024) NOT NULL,"
-		"	rootdir_guid UUID NOT NULL,"
-		"	directory_guid UUID NOT NULL,"
-		"	path varchar(4096) DEFAULT NULL,"
-		"	deviceid bigint NOT NULL"
 		");",
 		"CREATE TABLE IF NOT EXISTS directory_log "
 		"("
@@ -619,7 +607,11 @@ spq_create_tables()
 		"	directory_guid UUID NOT NULL,"
 		"	path varchar(4096) DEFAULT NULL,"
 		"	deviceid bigint NOT NULL"
-		");",
+		");", /* таблица directory_tree должна заполняться автоматически
+				 по триггеру в таблице directory_log
+				 содержит текущий список каталогов
+				 */
+		"CREATE TABLE IF NOT EXISTS directory_tree (LIKE directory_log)",
 		"CREATE UNIQUE INDEX file_keys_urfr_idx "
 		"ON file_keys "
 		"("
