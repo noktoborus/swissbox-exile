@@ -1,5 +1,16 @@
 /*	vim: synta=pgsql
+	текущая версия задаётся в fepserver_installed()
 */
+
+CREATE OR REPLACE FUNCTION fepserver_installed()
+	RETURNS text AS $$
+DECLARE
+	_struct_version_value text;
+BEGIN
+	SELECT INTO _struct_version_value '1';
+	RETURN _struct_version_value;
+END $$ LANGUAGE plpgsql;
+
 
 DROP TABLE IF EXISTS file_recrods;
 CREATE TABLE IF NOT EXISTS file_records
@@ -68,15 +79,6 @@ ON file_records
 	revision_guid,
 	chunk_guid
 );
-
-CREATE OR REPLACE FUNCTION fepserver_installed()
-	RETURNS text AS $$
-DECLARE
-	_retval text;
-BEGIN
-	SELECT INTO _retval version();
-	RETURN _retval;
-END $$ LANGUAGE plpgsql;
 
 CREATE OR REPLACE FUNCTION directory_action()
 	RETURNS TRIGGER AS $$

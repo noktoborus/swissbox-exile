@@ -589,7 +589,19 @@ spq_create_tables()
 		release_conn(&_spq, sc);
 		return false;
 	} else {
-		xsyslog(LOG_INFO, "db version: %s", PQgetvalue(res, 0, 0));
+		char *version = PQgetvalue(res, 0, 0);
+#ifdef SQLSTRUCTVER
+		xsyslog(LOG_INFO, "db struct version: %s, excepted version: %s",
+				version, S(SQLSTRUCTVER));
+		if (strcmp(version, S(SQLSTRUCTVER))) {
+			xsyslog(LOG_ERR, "expected and db version differ. Please, "
+					"update database from sql/struct.sql file");
+			release_conn(&_spq, sc);
+			return false;
+		}
+#else
+		xsyslog(LOG_INFO, "db struct version: %s", version);
+#endif
 	}
 	PQclear(res);
 

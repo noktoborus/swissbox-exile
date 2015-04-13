@@ -15,7 +15,7 @@ SOURCES=${SRC}/main.c ${SRC}/client_iterate.c proto/fep.pb-c.c\
 all: ${BIN}
 
 clean:
-	rm -f ${BIN} .buildflags
+	rm -f ${BIN} .buildflags .sqlversion
 
 debug:
 	make clean && make EF=-DDEEPDEBUG ${BIN}
@@ -23,8 +23,8 @@ debug:
 runtest: ${BIN} proto/fep_pb2.py
 	python2 test/proto.py ${BIN} auth
 
-${BIN}: .buildflags ${SOURCES}
-	${CC} -o ${BIN} ${CFLAGS} ${SOURCES} ${LIBS} `cat .buildflags`
+${BIN}: .buildflags .sqlversion ${SOURCES}
+	${CC} -o ${BIN} ${CFLAGS} -DSQLSTRUCTVER=`cat .sqlversion` ${SOURCES} ${LIBS} `cat .buildflags`
 	echo "build ok"
 
 .buildflags: buildtools/findev.sh buildtools/findpq.sh\
@@ -39,4 +39,7 @@ proto/fep.pb-c.c: ../fep.proto
 
 proto/fep_pb2.py: ../fep.proto
 	protoc --python_out=proto/ -I../ ../fep.proto
+
+.sqlversion: sql/struct.sql
+	sed -e "s/.*_struct_version_value '\([0-9]*\)'.*\|.*/\1/" -e '/^$$/d' $< > $@
 

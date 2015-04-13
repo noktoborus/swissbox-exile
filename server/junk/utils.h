@@ -77,6 +77,7 @@ static inline int _pthread_cond_wait(pthread_cond_t *c, pthread_mutex_t *m) {
 #endif
 
 #define PSLEN(x) x, strlen(x)
-
+#define _S(x) #x
+#define S(x) _S(x)
 #endif /* _UTILS_1422516244_H_ */
 
