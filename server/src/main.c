@@ -109,10 +109,10 @@ client_free(struct sev_ctx *cev)
 	ev_io_stop(cev->evloop, (struct ev_io*)&cev->io);
 
 	if (cev->fd != -1) {
-		shutdown(cev->fd, SHUT_RDWR);
 #if DEEPDEBUG
 		xsyslog(LOG_DEBUG, "client[%p] destroy fd#%d", (void*)cev, cev->fd);
 #endif
+		shutdown(cev->fd, SHUT_RDWR);
 		close(cev->fd);
 		cev->fd = -1;
 	}
@@ -347,6 +347,7 @@ server_cb(struct ev_loop *loop, ev_io *w, int revents)
 		if (!ptx) {
 			xsyslog(LOG_WARNING, "accept(%s, fd#%d) allocation failed",
 					xaddr, sock);
+			shutdown(sock, SHUT_RDWR);
 			close(sock);
 			return;
 		}
@@ -372,6 +373,7 @@ server_bind(struct ev_loop *loop, struct sev_main *sev)
 	if (sev->fd != -1) {
 		xsyslog(LOG_WARNING, "server bind(%p) -> rebind fd#%d",
 				(void*)sev, sev->fd);
+		shutdown(sev->fd, SHUT_RDWR);
 		close(sev->fd);
 		ev_io_stop(loop, &sev->evio);
 		sev->fd = -1;
@@ -463,6 +465,7 @@ server_free(struct ev_loop *loop, struct sev_main *sev)
 	xsyslog(LOG_INFO, "server free(%p) -> fd#%d", (void*)sev, sev->fd);
 	if (sev->fd != -1) {
 		ev_io_stop(loop, &sev->evio);
+		shutdown(sev->fd, SHUT_RDWR);
 		close(sev->fd);
 	}
 
