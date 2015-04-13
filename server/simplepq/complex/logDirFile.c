@@ -33,7 +33,7 @@ _spq_f_logDirFile_exec(PGconn *pgc, char *username, uint64_t checkpoint,
 	"		NULL,"
 	"		directory_guid,"
 	"		NULL,"
-	"		NULL,"
+	"		path,"
 	"		NULL,"
 	"		0"
 	"	FROM directory_log"
