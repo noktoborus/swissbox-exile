@@ -76,7 +76,7 @@ static inline int _pthread_cond_wait(pthread_cond_t *c, pthread_mutex_t *m) {
 # define pthread_cond_wait(x, y) {xsyslog(LOG_DEBUG, "cond unlock %p", (void*)y); _pthread_cond_wait(x, y); }
 #endif
 
-#define PSLEN(x) x, strlen(x)
+#define PSLEN(x) x, (x != NULL ? strlen(x) : 0u)
 #define _S(x) #x
 #define S(x) _S(x)
 #endif /* _UTILS_1422516244_H_ */

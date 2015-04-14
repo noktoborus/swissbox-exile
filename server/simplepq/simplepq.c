@@ -682,6 +682,85 @@ spq_f_getChunkPath(char *username,
 }
 
 static inline uint64_t
+_spq_f_logFilePush(PGconn *pgc, char *username, uint64_t device_id,
+		guid_t *rootdir, guid_t *file, guid_t *directory, char *filename)
+{
+	/* FIXME: хуита */
+	PGresult *res;
+	ExecStatusType pqs;
+	const char *tb = "UPDATE file_keys "
+		"SET "
+		"	time = now(), "
+		"	checkpoint = trunc(extract(epoch from now())), "
+		"	directory_guid = "
+		"		CASE "
+		"			WHEN $4::UUID IS NULL THEN directory_guid "
+		"			ELSE $4::UUID "
+		"		END, "
+		"	enc_filename = "
+		"		CASE "
+		"			WHEN $5::varchar IS NULL THEN enc_filename "
+		"			ELSE $5::varchar "
+		"		END, "
+		"	deviceid = $6 "
+		"WHERE "
+		"	username = $1 AND "
+		"	rootdir_guid = $2 AND "
+		"	file_guid = $3 "
+		"RETURNING checkpoint;";
+	const int fmt[5] = {0, 0, 0, 0, 0};
+
+	char _rootdir[GUID_MAX + 1];
+	char _file[GUID_MAX + 1];
+	char _dir[GUID_MAX + 1];
+	char _deviceid[sizeof(uint64_t) * 8 + 1];
+
+	char *val[6];
+	int len[6];
+
+	uint64_t checkpoint = 0u;
+
+	len[0] = strlen(username);
+	len[1] = guid2string(rootdir, _rootdir, sizeof(_rootdir));
+	len[2] = guid2string(file, _file, sizeof(_file));
+	len[3] = guid2string(directory, _dir, sizeof(_dir));
+	len[4] = filename ? strlen(filename) : 0u;
+	len[5] = snprintf(_deviceid, sizeof(_deviceid), "%"PRIu64, device_id);
+
+	val[0] = username;
+	val[1] = _rootdir;
+	val[2] = _file;
+	val[3] = len[3] ? _dir : NULL;
+	val[4] = filename;
+	val[5] = _deviceid;
+
+	res = PQexecParams(pgc, tb, 6, NULL, (const char *const*)val, len, fmt, 0);
+	pqs = PQresultStatus(res);
+	if (pqs != PGRES_TUPLES_OK) {
+		xsyslog(LOG_INFO, "logFilePush exec error: %s",
+				PQresultErrorMessage(res));
+	} else if (PQntuples(res) > 0 && PQgetlength(res, 0, 0)) {
+		checkpoint = strtoul(PQgetvalue(res, 0, 0), NULL, 10);
+	}
+	PQclear(res);
+	return checkpoint;
+}
+
+uint64_t
+spq_f_logFilePush(char *username, uint64_t device_id,
+		guid_t *rootdir, guid_t *file, guid_t *directory, char *filename)
+{
+	uint64_t r = 0u;
+	struct spq *c;
+	if ((c = acquire_conn(&_spq)) != NULL) {
+		r = _spq_f_logFilePush(c->conn, username, device_id,
+				rootdir, file, directory, filename);
+		release_conn(&_spq, c);
+	}
+	return r;
+}
+
+static inline uint64_t
 _spq_f_logDirPush(PGconn *pgc, char *username, uint64_t device_id,
 		guid_t *rootdir, guid_t *directory, char *path)
 {

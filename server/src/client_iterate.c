@@ -22,8 +22,6 @@ TYPICAL_HANDLE_F(Fep__Ok, ok, &c->mid)
 TYPICAL_HANDLE_F(Fep__Error, error, &c->mid)
 TYPICAL_HANDLE_F(Fep__Pending, pending, &c->mid)
 
-NOTIMP_HANDLE_F(Fep__FileUpdate, file_update)
-
 struct client_cum {
 	uint32_t namehash;
 	pthread_mutex_t lock;
@@ -193,6 +191,48 @@ is_legal_guid(char *guid)
 
 	return true;
 }
+
+bool
+_handle_file_update(struct client *c, unsigned type, Fep__FileUpdate *msg)
+{
+	uint64_t checkpoint;
+	guid_t rootdir;
+	guid_t file;
+
+	guid_t directory;
+	char enc_filename[PATH_MAX] = {0};
+
+	if (msg->enc_filename) {
+		register size_t _len = strlen(enc_filename);
+		if (_len >= PATH_MAX)
+			return send_error(c, msg->id, "enc_filename too long", -1);
+		strncpy(enc_filename, msg->enc_filename, _len);
+	} else {
+		memset(enc_filename, 0u, PATH_MAX);
+	}
+
+	string2guid(PSLEN(msg->rootdir_guid), &rootdir);
+	string2guid(PSLEN(msg->file_guid), &file);
+	string2guid(PSLEN(msg->directory_guid), &directory);
+
+	checkpoint = spq_f_logFilePush(c->name, c->device_id, &rootdir, &file,
+			&directory, *enc_filename ? enc_filename : NULL);
+
+	if (!checkpoint)
+		return send_error(c, msg->id, "Internal error 1913", -1);
+
+	if (c->cum) {
+		pthread_mutex_lock(&c->cum->lock);
+		if (checkpoint > c->cum->new_checkpoint) {
+			c->cum->new_checkpoint = checkpoint;
+			c->cum->from_device = c->device_id;
+		}
+		pthread_mutex_unlock(&c->cum->lock);
+	}
+
+	return send_ok(c, msg->id, checkpoint);
+}
+
 
 bool
 _handle_directory_update(struct client *c, unsigned type,
