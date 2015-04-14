@@ -396,6 +396,14 @@ _thread_mgm(struct spq_root *spq)
 		gettimeofday(&tvc, NULL);
 		spq_c = 0u;
 		pthread_mutex_lock(&spq->mutex);
+		/* выбор активного соеденения */
+		if (!spq->acquire.sc) {
+			for (sc = spq->first; sc; sc = sc->next) {
+				if (sc->mark_active || PQstatus(sc->conn) != CONNECTION_OK)
+					continue;
+				spq->acquire.sc = sc;
+			}
+		}
 		/* проверка статуса и выполнение переподключений */
 		for (sc = spq->first; sc; sc = sc->next) {
 			spq_c++;
@@ -482,14 +490,6 @@ _thread_mgm(struct spq_root *spq)
 						strerror(errno));
 			}
 			spq_c++;
-		}
-		/* выбор активного соеденения */
-		if (!spq->acquire.sc) {
-			for (sc = spq->first; sc; sc = sc->next) {
-				if (sc->mark_active || PQstatus(sc->conn) != CONNECTION_OK)
-					continue;
-				spq->acquire.sc = sc;
-			}
 		}
 		/* проверка всяких состояний,
 		 */
