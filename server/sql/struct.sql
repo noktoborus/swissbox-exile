@@ -60,6 +60,13 @@ CREATE TABLE IF NOT EXISTS directory_log
 DROP TABLE IF EXISTS directory_tree;
 CREATE TABLE IF NOT EXISTS directory_tree (LIKE directory_log);
 
+CREATE UNIQUE INDEX directory_tree_urd_idx
+ON directory_tree
+(
+	lower(username),
+	rootdir_guid,
+	directory_guid
+);
 
 CREATE UNIQUE INDEX file_keys_urfr_idx
 ON file_keys
@@ -82,6 +89,8 @@ ON file_records
 
 CREATE OR REPLACE FUNCTION directory_action()
 	RETURNS TRIGGER AS $$
+DECLARE
+	rows_affected integer default 0;
 BEGIN
 	IF NEW.path IS NULL THEN
 		DELETE FROM directory_tree
@@ -94,13 +103,22 @@ BEGIN
 		IF substring(NEW.path from 1 for 1) != '/' THEN
 			NEW.path = concat('/', NEW.path);
 		END IF;
-		INSERT INTO directory_tree SELECT NEW.*;
+
+		UPDATE directory_tree
+		SET path = NEW.path, time = NEW.time, deviceid = NEW.deviceid
+		WHERE username = NEW.username AND
+			rootdir_guid = NEW.rootdir_guid AND
+			directory_guid = NEW.directory_guid;
+		GET DIAGNOSTICS rows_affected = ROW_COUNT;
+		/* TODO: добавить события на переименование подкаталогов */
+		if rows_affected < 1 then
+			INSERT INTO directory_tree SELECT NEW.*;
+		end if;
 	END IF;
 	RETURN NEW;
 END $$ LANGUAGE plpgsql;
 
 DROP TRIGGER IF EXISTS tr_directory_action ON directory_log;
 CREATE TRIGGER tr_directory_action BEFORE INSERT ON directory_log FOR EACH ROW EXECUTE PROCEDURE directory_action();
-
 
 
