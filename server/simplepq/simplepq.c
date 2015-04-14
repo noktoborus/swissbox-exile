@@ -494,8 +494,11 @@ _thread_mgm(struct spq_root *spq)
 		/* проверка всяких состояний,
 		 */
 		clock_gettime(CLOCK_REALTIME, &ts);
-		ts.tv_sec += 1u;
-		ts.tv_nsec += 30u;
+		if (_spq.end) {
+			ts.tv_nsec += 3000000000;
+		} else {
+			ts.tv_sec += 1u;
+		}
 		/* TODO: выполнять проверку до timedwait и после */
 		pthread_cond_timedwait(&spq->cond, &spq->mutex, &ts);
 		if (spq->end) {
