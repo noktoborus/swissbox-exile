@@ -7,7 +7,7 @@ CREATE OR REPLACE FUNCTION fepserver_installed()
 DECLARE
 	_struct_version_value text;
 BEGIN
-	SELECT INTO _struct_version_value '1';
+	SELECT INTO _struct_version_value '2';
 	RETURN _struct_version_value;
 END $$ LANGUAGE plpgsql;
 
@@ -31,6 +31,7 @@ DROP TABLE IF EXISTS file_keys;
 CREATE TABLE IF NOT EXISTS file_keys
 (
 	time timestamp with time zone NOT NULL DEFAULT now(),
+	checkpoint bigint NOT NULL DEFAULT trunc(extract(epoch from now())),
 	username varchar(1024) NOT NULL,
 	rootdir_guid UUID NOT NULL,
 	file_guid UUID NOT NULL,
@@ -46,6 +47,7 @@ DROP TABLE IF EXISTS directory_log CASCADE;
 CREATE TABLE IF NOT EXISTS directory_log
 (
 	time timestamp with time zone NOT NULL DEFAULT now(),
+	checkpoint bigint NOT NULL DEFAULT trunc(extract(epoch from now())),
 	username varchar(1024) NOT NULL,
 	rootdir_guid UUID NOT NULL,
 	directory_guid UUID NOT NULL,
@@ -105,7 +107,9 @@ BEGIN
 		END IF;
 
 		UPDATE directory_tree
-		SET path = NEW.path, time = NEW.time, deviceid = NEW.deviceid
+		SET
+			path = NEW.path, time = NEW.time,
+			checkpoint = NEW.checkpoint, deviceid = NEW.deviceid
 		WHERE username = NEW.username AND
 			rootdir_guid = NEW.rootdir_guid AND
 			directory_guid = NEW.directory_guid;
