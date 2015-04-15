@@ -1103,7 +1103,7 @@ _handle_end(struct client *c, unsigned type, Fep__End *end)
 	}
 #if DEEPDEBUG
 	xsyslog(LOG_DEBUG, "client[%p] close fd#%d, id %"PRIu32" "
-			"file hash: %"PRIu64,
+			"file meta hash: %"PRIu64,
 			(void*)c->cev, wx->fd, end->session_id, wf->id);
 #endif
 	/* размеры не совпали */
