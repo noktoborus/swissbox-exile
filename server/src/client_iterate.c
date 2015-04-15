@@ -208,7 +208,7 @@ _handle_file_update(struct client *c, unsigned type, Fep__FileUpdate *msg)
 	char enc_filename[PATH_MAX] = {0};
 
 	if (msg->enc_filename) {
-		register size_t _len = strlen(enc_filename);
+		register size_t _len = strlen(msg->enc_filename);
 		if (_len >= PATH_MAX)
 			return send_error(c, msg->id, "enc_filename too long", -1);
 		strncpy(enc_filename, msg->enc_filename, _len);
