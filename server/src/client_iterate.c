@@ -164,10 +164,15 @@ static void
 sid_free(wait_store_t *ws)
 {
 	struct wait_xfer *wx;
-	wx = ws->data;
-	if (wx->fd != -1) {
-		xsyslog(LOG_DEBUG, "destroy xfer fd#%d", wx->fd);
-		close(wx->fd);
+	if ((wx = ws->data) != NULL) {
+		if (wx->wf) {
+			wx->wf->ref--;
+		}
+		if (wx->fd != -1) {
+			xsyslog(LOG_DEBUG, "destroy xfer fd#%d", wx->fd);
+			close(wx->fd);
+		}
+		sha256_free(&wx->sha256);
 	}
 	free(ws);
 }
@@ -568,6 +573,7 @@ _handle_write_ask(struct client *c, unsigned type, Fep__WriteAsk *msg)
 		}
 	}
 
+
 	if (errmsg)
 		return send_error(c, msg->id, errmsg, -1);
 
@@ -614,6 +620,10 @@ _handle_write_ask(struct client *c, unsigned type, Fep__WriteAsk *msg)
 				(void*)c->cev, path, strerror(errno));
 		return send_error(c, msg->id, errmsg, -1);
 	}
+	/* инициализируем polarssl */
+	sha256_init(&wx.sha256);
+	sha256_starts(&wx.sha256, 0);
+
 	/* пакуем структуры */
 	wrok.id = msg->id;
 	wrok.session_id = generate_id(c);
@@ -819,6 +829,7 @@ _handle_xfer(struct client *c, unsigned type, Fep__Xfer *xfer)
 		errmsg = "Write fail";
 	} else {
 		wx->filling += xfer->data.len;
+		sha256_update(&wx->sha256, xfer->data.data, xfer->data.len);
 		return true;
 	}
 #if DEEPDEBUG
@@ -830,17 +841,15 @@ _handle_xfer(struct client *c, unsigned type, Fep__Xfer *xfer)
 				(void*)c->cev, wx->fd);
 	}
 #endif
-	/* больше чанк нам не нужен, т.к. его должны переслать заного
+	/*
 	 * закрываем всякие ресурсы и уменьшаем счётчик ссылок
 	 */
-	wx->wf->ref--;
-	close(wx->fd);
 	unlink(wx->path);
 	/* освобождение памяти в последнюю очередь,
 	 * т.к. wx и ws выделяются в последнюю очередь
 	 */
 	if ((ws = query_id(c, &c->sid, xfer->session_id)) != NULL)
-		free(ws);
+		sid_free(ws);
 	return send_error(c, xfer->id, errmsg, -1);
 }
 
@@ -1073,7 +1082,8 @@ bool
 _handle_end(struct client *c, unsigned type, Fep__End *end)
 {
 	struct wait_store *ws;
-	struct wait_xfer wx;
+	struct wait_xfer *wx;
+	struct wait_file *wf;
 	char chunk_hash[HASHHEX_MAX + 1];
 	char errmsg[1024] = {0};
 
@@ -1085,46 +1095,64 @@ _handle_end(struct client *c, unsigned type, Fep__End *end)
 #endif
 		return send_error(c, end->id, "Unexpected End message", -1);
 	}
-	/* копия для удобства и освобождаем память от ненужной структуры */
-	memcpy(&wx, ws->data, sizeof(struct wait_xfer));
-	free(ws);
-	/* закрываем всякий мусор и уменьшаем счётчик */
-	wx.wf->ref--;
-	close(wx.fd);
+	if (!(wx = ws->data) || !(wf = wx->wf)) {
+		snprintf(errmsg, sizeof(errmsg), "Internal error 1928 wx=%c, wf=%c",
+				wx ? 'y' : 'n', wx ? 'y' : 'n');
+		sid_free(ws->data);
+		return send_error(c, end->id, "Internal error 1928", -1);
+	}
 #if DEEPDEBUG
 	xsyslog(LOG_DEBUG, "client[%p] close fd#%d, id %"PRIu32" "
 			"file hash: %"PRIu64,
-			(void*)c->cev, wx.fd, end->session_id, wx.wf->id);
+			(void*)c->cev, wx->fd, end->session_id, wf->id);
 #endif
 	/* размеры не совпали */
-	if (wx.filling != wx.size) {
+	if (wx->filling != wx->size) {
 		snprintf(errmsg, sizeof(errmsg),
 				"Infernal sizes. received: %"PRIu64", expected: %"PRIu64,
-				wx.filling, wx.size);
+				wx->filling, wx->size);
 	}
 
 	if (!*errmsg) {
-		/* чанк пришёл, теперь нужно обновить информацию в бд */
-		bin2hex(wx.hash, wx.hash_len, chunk_hash, sizeof(chunk_hash));
-		if (!spq_f_chunkNew(c->name, chunk_hash, wx.path, &wx.wf->rootdir,
-				&wx.wf->revision, &wx.chunk_guid, &wx.wf->file,
-				end->offset, end->origin_len)) {
-			wx.wf->chunks_fail++;
-			return send_error(c, end->id, "Internal error 1817", -1);
+		unsigned char sha256_o[SHA256_MAX];
+		char sha256_hex[SHA256HEX_MAX + 1];
+		sha256_finish(&wx->sha256, sha256_o);
+		bin2hex(wx->hash, wx->hash_len, chunk_hash, sizeof(chunk_hash));
+		if (wx->hash_len != SHA256_MAX
+				|| memcmp(sha256_o, wx->hash, SHA256_MAX)) {
+			bin2hex(sha256_o, SHA256_MAX, sha256_hex, sizeof(sha256_hex));
+			snprintf(errmsg, sizeof(errmsg),
+					"invalid chunk hash: %s, expect: %s",
+					sha256_hex, chunk_hash);
+		/* чанк пришёл, теперь нужно попробовать обновить информацию в бд */
+		} else if (!spq_f_chunkNew(c->name, chunk_hash, wx->path, &wf->rootdir,
+					&wf->revision, &wx->chunk_guid, &wf->file,
+					end->offset, end->origin_len)) {
+			/* оказалось не всё просто */
+			snprintf(errmsg, sizeof(errmsg), "Internal error 1817");
+		} else {
+			/* обновляем состояние чанков */
+			wf->chunks_ok++;
 		}
-		/* заодно проверяем готовность файла */
-		wx.wf->chunks_ok++;
+	}
+	if (!*errmsg) {
+		sid_free(ws);
 		/* нет смысла пытаться отправить "Ok" клиенту, если
 		 * соеденение отвалилось при отправке OkUpdate
 		 */
-		if (!_file_complete(c, wx.wf))
+		if (!_file_complete(c, wf))
 			return false;
 		return send_ok(c, end->id, C_OK_SIMPLE);
+	} else {
+		/* чанк не нужен, клиент перетащит его заного */
+		wf->chunks_fail++;
+		unlink(wx->path);
+		/* чиститься нужно после unlink
+		 * потому что в sid_free вычещается и ws->dat
+		 */
+		sid_free(ws);
+		return send_error(c, end->id, errmsg, -1);
 	}
-	/* чанк не нужен, клиент перетащит его заного */
-	wx.wf->chunks_fail++;
-	unlink(wx.path);
-	return send_error(c, end->id, errmsg, -1);
 }
 
 bool

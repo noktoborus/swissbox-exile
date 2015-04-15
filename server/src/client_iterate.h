@@ -11,6 +11,7 @@
 #include "simplepq/simplepq.h"
 
 #include <stdint.h>
+#include <polarssl/sha256.h>
 
 #define BUFFER_ALLOC 1024
 #define BUFFER_MAX 65536
@@ -230,6 +231,8 @@ struct wait_xfer {
 	guid_t chunk_guid;
 	size_t hash_len; /* длина и сам хеш чанка */
 	uint8_t hash[HASH_MAX];
+
+	sha256_context sha256;
 };
 
 struct wait_file {

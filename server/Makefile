@@ -32,6 +32,7 @@ ${BIN}: .buildflags .sqlversion ${SOURCES}
 	buildtools/findev.sh >>.buildflags
 	buildtools/findpq.sh >>.buildflags
 	buildtools/findprotobuf-c.sh >>.buildflags
+	buildtools/findpolarssl.sh >>.buildflags
 
 
 proto/fep.pb-c.c: ../fep.proto
