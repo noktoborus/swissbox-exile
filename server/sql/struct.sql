@@ -1,4 +1,4 @@
-/*	vim: synta=pgsql
+/*	vim: syntax=pgsql
 	текущая версия задаётся в fepserver_installed()
 */
 
