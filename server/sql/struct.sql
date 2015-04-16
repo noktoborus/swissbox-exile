@@ -7,7 +7,7 @@ CREATE OR REPLACE FUNCTION fepserver_installed()
 DECLARE
 	_struct_version_value text;
 BEGIN
-	SELECT INTO _struct_version_value '2';
+	SELECT INTO _struct_version_value '3';
 	RETURN _struct_version_value;
 END $$ LANGUAGE plpgsql;
 
@@ -55,19 +55,55 @@ CREATE TABLE IF NOT EXISTS directory_log
 	deviceid bigint NOT NULL
 );
 
+
+DROP SEQUENCE IF EXISTS directory_tree_seq;
+CREATE SEQUENCE directory_tree_seq;
 /* таблица directory_tree должна заполняться автоматически
    	 по триггеру в таблице directory_log
    	 содержит текущий список каталогов
    	 */
 DROP TABLE IF EXISTS directory_tree;
-CREATE TABLE IF NOT EXISTS directory_tree (LIKE directory_log);
-
-CREATE UNIQUE INDEX directory_tree_urd_idx
-ON directory_tree
+CREATE TABLE IF NOT EXISTS directory_tree
 (
-	lower(username),
-	rootdir_guid,
-	directory_guid
+	id bigint DEFAULT nextval('directory_tree_seq') PRIMARY KEY,
+	time timestamp with time zone NOT NULL DEFAULT now(),
+	checkpoint bigint NOT NULL DEFAULT trunc(extract(epoch from now())),
+	username varchar(1024) NOT NULL,
+	rootdir_guid UUID NOT NULL,
+	directory_guid UUID NOT NULL,
+	path varchar(4096) DEFAULT NULL,
+	deviceid bigint NOT NULL,
+	UNIQUE(lower(username), rootdir_guid, directory_guid)
+);
+
+DROP SEQUENCE IF EXISTS file_seq;
+CREATE SEQUENCE file_seq;
+
+DROP TABLE IF EXISTS file;
+CREATE TABLE IF NOT EXISTS file
+(
+	/* постоянные поля */
+	id bigint DEFAULT nextval('file_seq') PRIMARY KEY,
+	file UUID NOT NULL,
+	rootdir UUID NOT NULL,
+	filename varchar(4096) NOT NULL DEFAULT '',
+	pubkey varchar(4096) NOT NULL DEFAULT '',
+	/* обновляемые поля */
+	dir_id bigint REFERENCES directory_tree(id),
+	username varchar(1024) NOT NULL,
+);
+
+DROP SEQUENCE IF EXISTS file_revision_seq;
+CREATE SEQUENCE file_revision_seq;
+
+DROP TABLE IF EXISTS file_revision;
+CREATE TABLE IF NOT EXISTS file_revision
+(
+	id bigint DEFAULT nextval('file_revision_seq') PRIMARY KEY,
+	file_id bigint REFERENCES file(id),
+
+	revision UUID NOT NULL,
+	
 );
 
 CREATE UNIQUE INDEX file_keys_urfr_idx
