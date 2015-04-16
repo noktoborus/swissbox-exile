@@ -708,7 +708,7 @@ _spq_f_logFilePush(PGconn *pgc, char *username, uint64_t device_id,
 		"	rootdir_guid = $2 AND "
 		"	file_guid = $3 "
 		"RETURNING checkpoint;";
-	const int fmt[5] = {0, 0, 0, 0, 0};
+	const int fmt[6] = {0, 0, 0, 0, 0, 0};
 
 	char _rootdir[GUID_MAX + 1];
 	char _file[GUID_MAX + 1];
