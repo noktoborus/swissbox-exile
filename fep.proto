@@ -469,6 +469,20 @@ message OkUpdate {
 	required uint64 checkpoint = 5;
 }
 
+
+/* от сервера к клиенту
+	извещение о обновлении состояния Rootdir
+  */
+message RootdirUpdate {
+	required uint64 id = 1 [default = 0];
+	required string rootdir_guid;
+	
+	optional string name = 90;
+
+	optional checkpoint = 100;
+	optional uint32 no = 202;
+	optional uint32 max = 203;
+}
 /*
 TODO: добавить сообщение нотификации отдельных файлов
 */
