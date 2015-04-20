@@ -98,6 +98,7 @@ enum Type {
 	tFileMeta = 20;
 	tWantSync = 21;
 	tOkUpdate = 22;
+	tRootdirUpdate = 23;
 }
 
 /*
@@ -475,11 +476,11 @@ message OkUpdate {
   */
 message RootdirUpdate {
 	required uint64 id = 1 [default = 0];
-	required string rootdir_guid;
+	required string rootdir_guid = 24;
 	
 	optional string name = 90;
 
-	optional checkpoint = 100;
+	optional uint64 checkpoint = 100;
 	optional uint32 no = 202;
 	optional uint32 max = 203;
 }
