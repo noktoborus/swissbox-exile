@@ -29,14 +29,16 @@ END $$ LANGUAGE plpgsql;
 
 DROP TRIGGER IF EXISTS tr_directory_action ON directory_log;
 
-DROP TABLE IF EXISTS directory_tree CASCADE;
-DROP TABLE IF EXISTS directory_log CASCADE;
-DROP TABLE IF EXISTS file_revision CASCADE;
+DROP TABLE IF EXISTS rootdir_log CASCADE;
 DROP TABLE IF EXISTS file_chunk CASCADE;
+DROP TABLE IF EXISTS file_revision CASCADE;
 DROP TABLE IF EXISTS options CASCADE;
 DROP TABLE IF EXISTS file CASCADE;
-DROP TABLE IF EXISTS "user" CASCADE;
+DROP TABLE IF EXISTS directory_tree CASCADE;
+DROP TABLE IF EXISTS directory_log CASCADE;
 DROP TABLE IF EXISTS event CASCADE;
+DROP TABLE IF EXISTS rootdir CASCADE;
+DROP TABLE IF EXISTS "user" CASCADE;
 
 DROP SEQUENCE IF EXISTS directory_tree_seq CASCADE;
 DROP SEQUENCE IF EXISTS file_revision_seq CASCADE;
@@ -44,8 +46,43 @@ DROP SEQUENCE IF EXISTS file_chunk_seq CASCADE;
 DROP SEQUENCE IF EXISTS file_seq CASCADE;
 DROP SEQUENCE IF EXISTS user_seq CASCADE;
 DROP SEQUENCE IF EXISTS event_seq CASCADE;
+DROP SEQUENCE IF EXISTS rootdir_log_seq CASCADE;
+DROP SEQUENCE IF EXISTS rootdir_seq CASCADE;
 
 DROP TYPE IF EXISTS event_type CASCADE;
+
+CREATE SEQUENCE user_seq;
+CREATE TABLE IF NOT EXISTS "user"
+(
+	id bigint NOT NULL DEFAULT nextval('user_seq') PRIMARY KEY,
+	username varchar(1024) NOT NULL CHECK(char_length(username) > 0)
+);
+
+CREATE SEQUENCE rootdir_log_seq;
+-- лог создания/удаления рутдир
+CREATE TABLE IF NOT EXISTS rootdir_log
+(
+	id bigint NOT NULL DEFAULT nextval('rootdir_log_seq') PRIMARY KEY,
+	rootdir_id bigint NOT NULL,
+	user_id bigint REFERENCES "user"(id),
+	
+	-- для удобства вставки в лог и получение чекпоинта
+	checkpoint bigint NOT NULL,
+
+	rootdir_guid UUID NOT NULL DEFAULT gen_random_uuid(),
+	-- если NULL, то директория удаляется
+	title varchar(1024) DEFAULT NULL
+);
+
+CREATE SEQUENCE rootdir_seq;
+-- текущее состояние рутдир
+CREATE TABLE IF NOT EXISTS rootdir
+(
+	id bigint NOT NULL DEFAULT nextval('rootdir_seq') PRIMARY KEY,
+	user_id bigint REFERENCES "user"(id),
+	rootdir_guid UUID NOT NULL UNIQUE,
+	title varchar(1024) NOT NULL
+);
 
 CREATE TABLE IF NOT EXISTS options
 (
@@ -55,24 +92,21 @@ CREATE TABLE IF NOT EXISTS options
 	value_u UUID DEFAULT NULL
 );
 
-CREATE TYPE event_type AS ENUM ('dir', 'file');
+CREATE TYPE event_type AS ENUM ('dir', 'file', 'rootdir');
 
 CREATE SEQUENCE event_seq;
 CREATE TABLE IF NOT EXISTS event
 (
 	id bigint NOT NULL DEFAULT nextval('event_seq') PRIMARY KEY,
 	checkpoint bigint NOT NULL DEFAULT trunc(extract(epoch from now())),
-	/* требуется для фильтрации событий */
-	rootdir UUID NOT NULL,
-	"type" event_type NOT NULL
-);
-
-
-CREATE SEQUENCE user_seq;
-CREATE TABLE IF NOT EXISTS "user"
-(
-	id bigint NOT NULL DEFAULT nextval('user_seq') PRIMARY KEY,
-	username varchar(1024) NOT NULL CHECK(char_length(username) > 0)
+	-- требуется для фильтрации событий
+	-- поле не ссылается на rootdir(id) потому что лог не особо полезен
+	-- и может в любой момент быть затёрт
+	-- (checkpoint так же хранится в состояниях каталогов/файлов и может быть получен оттуда)
+	rootdir_guid UUID NOT NULL,
+	"type" event_type NOT NULL,
+	-- указатель на id в таблице, которая ицнициировала событие
+	target_id bigint NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS directory_log
@@ -189,8 +223,74 @@ CREATE OR REPLACE FUNCTION user_action()
 	RETURNS trigger AS $$
 DECLARE
 BEGIN
-	 /* в первую очередь, нужно создать корневую директорию */
-	 /*INSERT INTO event (rootdir, rootdir, */
+	RAISE INFO 'try `SELECT user_init(%)` to initialize user', new.id;
+	return new;
+END $$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION user_init(_id bigint)
+	RETURNS void AS $$
+DECLARE
+BEGIN
+	/* в первую очередь, нужно создать корневую директорию */
+	INSERT INTO rootdir_log (user_id, title) VALUES (_id, 'First');
+END $$ LANGUAGE plpgsql;
+
+-- обработчик добавления в rootdir_log
+CREATE OR REPLACE FUNCTION rootdir_log_action()
+	RETURNS trigger AS $$
+DECLARE
+	_row record;
+	_affect integer;
+	_checkpoint bigint;
+	_null record;
+BEGIN
+	if new.title IS NOT NULL then
+		-- впихивание или переименование директории
+		WITH _row AS (
+			UPDATE rootdir SET title = new.title
+			WHERE
+				user_id = new.user_id
+				AND (new.rootdir_id IS NULL AND rootdir_guid = new.rootdir_guid
+					OR id = new.rootdir_id)
+			RETURNING *
+		) SELECT NULL INTO _null;
+		RAISE INFO 'cc: %', COUNT(_row);
+		if COUNT(_row) then
+			RAISE INFO 'insert %, %, %', new.user_id, new.rootdir_guid, new.title;
+			WITH _row AS (
+				INSERT INTO rootdir (user_id, rootdir_guid, title)
+				VALUES (new.user_id, new.rootdir_guid, new.title)
+				RETURNING *
+			) SELECT NULL INTO _null;
+		end if;
+	else -- удаление рутдиры
+		/*
+		with _row AS (
+			DELETE FROM rootdir
+			WHERE
+				user_id = new.user_id
+				AND (new.rootdir_id IS NULL AND rootdir_guid = new.rootdir_guid
+					OR id = new.rootdir_id)
+			RETURNING *
+		) SELECT rootdir_guid INTO _row_id FROM _row;
+		*/
+		RAISE EXCEPTION 'rootdir destroy not implement (user: %, rootdir: %)',
+			(SELECT username FROM "users" WHERE id = new.user_id), new.rootdir_guid;
+	end if;
+	if NOT EXISTS (SELECT * FROM _row) then
+		RAISE EXCEPTION 'rootdir(% "%") update failed', new.rootdir_guid, new.title;
+		return new;
+	end if;
+
+	new.rootdir_id = _row_id;
+	-- добавление записи в события и получение чекпоинта
+	with _row AS (
+		INSERT INTO event (rootdir_guid, "type", target_id)
+		VALUES (_row_id, 'rootdir', _row_id)
+		RETURNING *
+		) SELECT checkpoint INTO _checkpoint FROM _row;
+	new.checkpoint = _checkpoint;
+	return new;
 END $$ LANGUAGE plpgsql;
 
 CREATE OR REPLACE FUNCTION chunk_insert(
@@ -226,7 +326,8 @@ CREATE TRIGGER tr_directory_action BEFORE INSERT ON directory_log
 	FOR EACH ROW EXECUTE PROCEDURE directory_action();
 CREATE TRIGGER tr_user_action AFTER INSERT ON "user"
 	FOR EACH ROW EXECUTE PROCEDURE user_action();
-
+CREATE TRIGGER tr_rootdir_log_action BEFORE INSERT ON rootdir_log
+	FOR EACH ROW EXECUTE PROCEDURE rootdir_log_action();
 
 INSERT INTO options ("key", value_c, value_u)
 	VALUES ('trash_dir', '.Trash', '10000002-3004-5006-7008-900000000000');
