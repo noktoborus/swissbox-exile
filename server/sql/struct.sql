@@ -240,12 +240,12 @@ CREATE OR REPLACE FUNCTION rootdir_log_action()
 	RETURNS trigger AS $$
 DECLARE
 	_row record;
-	_affect integer;
-	_checkpoint bigint;
 	_null record;
+	_checkpoint bigint;
 BEGIN
 	if new.title IS NOT NULL then
-		-- впихивание или переименование директории
+		-- можно проверить на NULL new.rootdir_id и new.rootdir_guid
+		-- но пока проще сделать попытку апдейта
 		WITH _row AS (
 			UPDATE rootdir SET title = new.title
 			WHERE
@@ -253,17 +253,21 @@ BEGIN
 				AND (new.rootdir_id IS NULL AND rootdir_guid = new.rootdir_guid
 					OR id = new.rootdir_id)
 			RETURNING *
-		) SELECT NULL INTO _null;
-		RAISE INFO 'cc: %', COUNT(_row);
-		if COUNT(_row) then
-			RAISE INFO 'insert %, %, %', new.user_id, new.rootdir_guid, new.title;
+		) SELECT * FROM _row INTO _null;
+		-- а потом впихнуть запись, если не апдейтнулось
+		if _null IS NULL then
 			WITH _row AS (
 				INSERT INTO rootdir (user_id, rootdir_guid, title)
 				VALUES (new.user_id, new.rootdir_guid, new.title)
 				RETURNING *
-			) SELECT NULL INTO _null;
+			) SELECT * FROM _row INTO _null;
 		end if;
 	else -- удаление рутдиры
+		if new.rootdir_guid IS NULL AND new.rootdir_id IS NULL then
+			RAISE EXCEPTION 'rootidr destroy: no id or guid (user: %)',
+				(SELECT username FROM "user" WHERE id = new.user_id);
+			return new;
+		end if;
 		/*
 		with _row AS (
 			DELETE FROM rootdir
@@ -275,18 +279,18 @@ BEGIN
 		) SELECT rootdir_guid INTO _row_id FROM _row;
 		*/
 		RAISE EXCEPTION 'rootdir destroy not implement (user: %, rootdir: %)',
-			(SELECT username FROM "users" WHERE id = new.user_id), new.rootdir_guid;
+			(SELECT username FROM "user" WHERE id = new.user_id), new.rootdir_guid;
 	end if;
-	if NOT EXISTS (SELECT * FROM _row) then
+	if _null IS NULL then
 		RAISE EXCEPTION 'rootdir(% "%") update failed', new.rootdir_guid, new.title;
 		return new;
 	end if;
 
-	new.rootdir_id = _row_id;
+	new.rootdir_id = _null.id;
 	-- добавление записи в события и получение чекпоинта
 	with _row AS (
 		INSERT INTO event (rootdir_guid, "type", target_id)
-		VALUES (_row_id, 'rootdir', _row_id)
+		VALUES (_null.rootdir_guid, 'rootdir', new.id)
 		RETURNING *
 		) SELECT checkpoint INTO _checkpoint FROM _row;
 	new.checkpoint = _checkpoint;
