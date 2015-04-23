@@ -27,20 +27,19 @@ END $$ LANGUAGE plpgsql;
 
 /* обновление табличного пространства */
 
-DROP TRIGGER IF EXISTS tr_directory_action ON directory_log;
-
 DROP TABLE IF EXISTS rootdir_log CASCADE;
 DROP TABLE IF EXISTS file_chunk CASCADE;
 DROP TABLE IF EXISTS file_revision CASCADE;
 DROP TABLE IF EXISTS options CASCADE;
 DROP TABLE IF EXISTS file CASCADE;
-DROP TABLE IF EXISTS directory_tree CASCADE;
+DROP TABLE IF EXISTS directory CASCADE;
 DROP TABLE IF EXISTS directory_log CASCADE;
 DROP TABLE IF EXISTS event CASCADE;
 DROP TABLE IF EXISTS rootdir CASCADE;
 DROP TABLE IF EXISTS "user" CASCADE;
 
-DROP SEQUENCE IF EXISTS directory_tree_seq CASCADE;
+DROP SEQUENCE IF EXISTS directory_seq CASCADE;
+DROP SEQUENCE IF EXISTS directory_log_seq CASCADE;
 DROP SEQUENCE IF EXISTS file_revision_seq CASCADE;
 DROP SEQUENCE IF EXISTS file_chunk_seq CASCADE;
 DROP SEQUENCE IF EXISTS file_seq CASCADE;
@@ -63,11 +62,11 @@ CREATE SEQUENCE rootdir_log_seq;
 CREATE TABLE IF NOT EXISTS rootdir_log
 (
 	id bigint NOT NULL DEFAULT nextval('rootdir_log_seq') PRIMARY KEY,
-	rootdir_id bigint NOT NULL,
 	user_id bigint REFERENCES "user"(id),
 	
 	-- для удобства вставки в лог и получение чекпоинта
 	checkpoint bigint NOT NULL,
+	rootdir_id bigint NOT NULL,
 
 	rootdir_guid UUID NOT NULL DEFAULT gen_random_uuid(),
 	-- если NULL, то директория удаляется
@@ -79,9 +78,11 @@ CREATE SEQUENCE rootdir_seq;
 CREATE TABLE IF NOT EXISTS rootdir
 (
 	id bigint NOT NULL DEFAULT nextval('rootdir_seq') PRIMARY KEY,
+	checkpoint bigint NOT NULL DEFAULT trunc(extract(epoch from now())),
 	user_id bigint REFERENCES "user"(id),
-	rootdir_guid UUID NOT NULL UNIQUE,
-	title varchar(1024) NOT NULL
+	rootdir_guid UUID NOT NULL,
+	title varchar(1024) NOT NULL,
+	UNIQUE (user_id, rootdir_guid)
 );
 
 CREATE TABLE IF NOT EXISTS options
@@ -92,7 +93,7 @@ CREATE TABLE IF NOT EXISTS options
 	value_u UUID DEFAULT NULL
 );
 
-CREATE TYPE event_type AS ENUM ('dir', 'file', 'rootdir');
+CREATE TYPE event_type AS ENUM ('directory', 'file', 'rootdir');
 
 CREATE SEQUENCE event_seq;
 CREATE TABLE IF NOT EXISTS event
@@ -108,34 +109,42 @@ CREATE TABLE IF NOT EXISTS event
 	-- указатель на id в таблице, которая ицнициировала событие
 	target_id bigint NOT NULL
 );
-
+CREATE SEQUENCE directory_log_seq;
+-- если path IS NULL, то это удаление, иначе создание/переменование
+-- INSERT INTO directory_log(rootdir_id, directory_id, path) ...
+-- INSERT INTO directory_log(rootdir_id, directory_guid, path) ...
 CREATE TABLE IF NOT EXISTS directory_log
 (
+	id bigint DEFAULT nextval('directory_log_seq') PRIMARY KEY,
+	-- время создания директории
 	time timestamp with time zone NOT NULL DEFAULT now(),
-	event_id bigint NOT NULL REFERENCES event(id),
-	user_id bigint NOT NULL REFERENCES "user"(id),
-	rootdir_guid UUID NOT NULL,
+	rootdir_id bigint REFERENCES rootdir(id),
+	
+	checkpoint bigint DEFAULT NULL,
+	directory_id bigint DEFAULT NULL,
+
 	directory_guid UUID NOT NULL,
-	path varchar(4096) DEFAULT NULL,
-	deviceid bigint NOT NULL
+	path varchar(4096) DEFAULT NULL
 );
 
-CREATE SEQUENCE directory_tree_seq;
+CREATE SEQUENCE directory_seq;
 /* таблица directory_tree должна заполняться автоматически
    	 по триггеру в таблице directory_log
    	 содержит текущий список каталогов
    	 */
-CREATE TABLE IF NOT EXISTS directory_tree
+CREATE TABLE IF NOT EXISTS directory
 (
-	id bigint DEFAULT nextval('directory_tree_seq') PRIMARY KEY,
-	time timestamp with time zone NOT NULL DEFAULT now(),
-	checkpoint bigint NOT NULL DEFAULT trunc(extract(epoch from now())),
-	user_id bigint NOT NULL REFERENCES "user"(id),
-	rootdir_guid UUID NOT NULL,
+	id bigint DEFAULT nextval('directory_seq') PRIMARY KEY,
+	
+	rootdir_id bigint NOT NULL REFERENCES rootdir(id),
+
 	directory_guid UUID NOT NULL,
 	path varchar(4096) DEFAULT NULL,
-	deviceid bigint NOT NULL,
-	UNIQUE(user_id, rootdir_guid, directory_guid)
+
+	-- информацию по времени создания и чекпоинт можно получить из directory_log
+	log_id bigint REFERENCES directory_log(id),
+
+	UNIQUE(rootdir_id, directory_guid)
 );
 
 CREATE SEQUENCE file_seq;
@@ -149,7 +158,7 @@ CREATE TABLE IF NOT EXISTS file
 	filename varchar(4096) NOT NULL DEFAULT '',
 	pubkey varchar(4096) NOT NULL DEFAULT '',
 	/* обновляемые поля */
-	dir_id bigint REFERENCES directory_tree(id)
+	dir_id bigint REFERENCES directory(id)
 );
 
 CREATE SEQUENCE file_revision_seq;
@@ -183,37 +192,103 @@ CREATE TABLE IF NOT EXISTS file_chunk
 
 /* триггеры и процедурки */
 
-CREATE OR REPLACE FUNCTION directory_action()
+CREATE OR REPLACE FUNCTION directory_log_action()
 	RETURNS TRIGGER AS $$
 DECLARE
-	rows_affected integer default 0;
+	_row record;
+	_null record;
+	_message text;
+	_stack text;
+	_event_id bigint;
 BEGIN
+	-- теперь нужно получить checkpoint
+	WITH _row AS (
+		INSERT INTO event (rootdir_guid, "type", target_id)
+		VALUES ((SELECT rootdir_guid FROM rootdir WHERE id = new.rootdir_id),
+			'directory', new.id)
+		RETURNING *
+	) SELECT * FROM _row INTO _null;
+	new.checkpoint = _null.checkpoint;
+	_event_id = _null.id;
+	
 	IF NEW.path IS NULL THEN
-		DELETE FROM directory_tree
-		WHERE
-			username = NEW.username AND
-			rootdir_guid = NEW.rootdir_guid AND
-			directory_guid = NEW.directory_guid;
-		/* TODO: добавить событий удаления поддиректорий и файлов */
+		raise exception 'directory destroy not implement (user: %, rootdir: %)',
+			(SELECT username FROM "user" WHERE id = new.user_id),
+			new.directory_guid;
+		return new;
 	ELSE
+		-- требуется указавать directory_id или directory_guid
+		-- или оба вместе
+		IF new.directory_id IS NULL AND new.directory_guid IS NULL THEN
+			RAISE EXCEPTION 'directory update has both no directory_id and directory_guid';
+			return new;
+		END IF;
+
+		-- исправление пути, если пришло херня
 		IF substring(NEW.path from 1 for 1) != '/' THEN
 			NEW.path = concat('/', NEW.path);
 		END IF;
+		RAISE NOTICE 'dir: guid: %, id: %', new.directory_guid, new.directory_id;
+		-- нужно получить directory_id
+		-- если директория присутсвует, то нужно обновить параметры
+		WITH _row AS (
+			UPDATE directory SET path = new.path, log_id = new.id
+			WHERE 
+				rootdir_id = new.rootdir_id
+				AND (new.directory_id IS NOT NULL AND id = new.directory_id
+						OR (new.directory_id IS NULL AND TRUE))
+				AND (new.directory_guid IS NOT NULL
+					AND directory_guid = new.directory_guid
+						OR (new.directory_guid IS NULL AND TRUE))
+			RETURNING *
+		) SELECT * FROM _row INTO _null;
 
-		UPDATE directory_tree
-		SET
-			path = NEW.path, time = NEW.time,
-			checkpoint = NEW.checkpoint, deviceid = NEW.deviceid
-		WHERE username = NEW.username AND
-			rootdir_guid = NEW.rootdir_guid AND
-			directory_guid = NEW.directory_guid;
-		GET DIAGNOSTICS rows_affected = ROW_COUNT;
-		/* TODO: добавить события на переименование подкаталогов */
-		if rows_affected < 1 then
-			INSERT INTO directory_tree SELECT NEW.*;
-		end if;
+		-- директория отсутвует, нужно создать новую
+		IF _null IS NULL THEN
+			-- FIXME: если new.directory_id не пустой
+			-- и UPDATE ничего не вернул, то пришло какое-то говно
+			-- нужно сообщить или исправить
+			WITH _row AS (
+				INSERT INTO directory(rootdir_id, directory_guid, path, log_id)
+					VALUES(new.rootdir_id, new.directory_guid, new.path, new.id)
+				RETURNING *
+			) SELECT * FROM _row INTO _null;
+		END IF;
 	END IF;
+
+	-- ошибочка
+	IF _null IS NULL THEN
+
+		raise exception 'directory(% "%" id: %, user: %) update failed',
+			new.directory_guid, new.path, new.directory_id,
+			(SELECT username FROM "user" WHERE id = new.user_id);
+		return new;
+	END IF;
+
+	-- на всякий случай проверяем незаполненные поля
+	IF new.directory_id IS NULL AND _null.id IS NOT NULL THEN
+		new.directory_id = _null.id;
+	END IF;
+	IF new.directory_guid IS NULL AND _null.directory_guid IS NOT NULL THEN
+		new.directory_guid = _null.directory_guid;
+	END IF;
+
+	-- а теперь костыль: нужно обновить поля в directory_log
+	-- если бы триггер был не AFTER, а BEFORE, то выполнять это не было бы необходимости
+	-- но из-за log_id REFERENCES придётся выкручиваться
+	UPDATE directory_log
+	SET
+		directory_id = new.directory_id,
+		directory_guid = new.directory_guid,
+		checkpoint = new.checkpoint,
+		path = new.path
+	WHERE id = new.id;
+
 	RETURN NEW;
+EXCEPTION WHEN OTHERS THEN
+	GET STACKED DIAGNOSTICS _message = MESSAGE_TEXT;
+	GET STACKED DIAGNOSTICS _stack = PG_EXCEPTION_CONTEXT;
+	raise exception E'event_id = %, %\n%', _event_id, _message, _stack;
 END $$ LANGUAGE plpgsql;
 
 /*
@@ -223,16 +298,21 @@ CREATE OR REPLACE FUNCTION user_action()
 	RETURNS trigger AS $$
 DECLARE
 BEGIN
-	RAISE INFO 'try `SELECT user_init(%)` to initialize user', new.id;
+	INSERT INTO rootdir_log (user_id, title) VALUES (new.id, 'First');
 	return new;
 END $$ LANGUAGE plpgsql;
 
-CREATE OR REPLACE FUNCTION user_init(_id bigint)
-	RETURNS void AS $$
+CREATE OR REPLACE FUNCTION rootdir_action_insert()
+	RETURNS trigger AS $$
 DECLARE
+	_row record;
 BEGIN
-	/* в первую очередь, нужно создать корневую директорию */
-	INSERT INTO rootdir_log (user_id, title) VALUES (_id, 'First');
+	-- впихнуть стандартные директории в рутдиру
+	FOR _row IN SELECT value_c, value_u FROM options WHERE "key" LIKE '%_dir' LOOP
+		INSERT INTO directory_log(rootdir_id, directory_guid, path)
+		VALUES(new.id, _row.value_u, _row.value_c);
+	END LOOP;
+	return new;
 END $$ LANGUAGE plpgsql;
 
 -- обработчик добавления в rootdir_log
@@ -242,7 +322,20 @@ DECLARE
 	_row record;
 	_null record;
 	_checkpoint bigint;
+	_event_id bigint;
+	_message text;
+	_stack text;
 BEGIN
+	-- в логе событий нужно отметиться в самом начале
+	-- если в ходе заполнения произошла ошибка -- запись требуется удалить
+	with _row AS (
+		INSERT INTO event (rootdir_guid, "type", target_id)
+		VALUES (new.rootdir_guid, 'rootdir', new.id)
+		RETURNING *
+	) SELECT * INTO _null FROM _row;
+	new.checkpoint = _null.checkpoint;
+	_event_id = _null.id;
+
 	if new.title IS NOT NULL then
 		-- можно проверить на NULL new.rootdir_id и new.rootdir_guid
 		-- но пока проще сделать попытку апдейта
@@ -251,7 +344,7 @@ BEGIN
 			WHERE
 				user_id = new.user_id
 				AND (new.rootdir_id IS NULL AND rootdir_guid = new.rootdir_guid
-					OR id = new.rootdir_id)
+					OR (new.rootdir_id IS NOT NULL AND id = new.rootdir_id))
 			RETURNING *
 		) SELECT * FROM _row INTO _null;
 		-- а потом впихнуть запись, если не апдейтнулось
@@ -268,16 +361,6 @@ BEGIN
 				(SELECT username FROM "user" WHERE id = new.user_id);
 			return new;
 		end if;
-		/*
-		with _row AS (
-			DELETE FROM rootdir
-			WHERE
-				user_id = new.user_id
-				AND (new.rootdir_id IS NULL AND rootdir_guid = new.rootdir_guid
-					OR id = new.rootdir_id)
-			RETURNING *
-		) SELECT rootdir_guid INTO _row_id FROM _row;
-		*/
 		RAISE EXCEPTION 'rootdir destroy not implement (user: %, rootdir: %)',
 			(SELECT username FROM "user" WHERE id = new.user_id), new.rootdir_guid;
 	end if;
@@ -287,51 +370,31 @@ BEGIN
 	end if;
 
 	new.rootdir_id = _null.id;
-	-- добавление записи в события и получение чекпоинта
-	with _row AS (
-		INSERT INTO event (rootdir_guid, "type", target_id)
-		VALUES (_null.rootdir_guid, 'rootdir', new.id)
-		RETURNING *
-		) SELECT checkpoint INTO _checkpoint FROM _row;
-	new.checkpoint = _checkpoint;
+
 	return new;
+EXCEPTION WHEN OTHERS THEN
+	GET STACKED DIAGNOSTICS _message = MESSAGE_TEXT;
+	GET STACKED DIAGNOSTICS _stack = PG_EXCEPTION_CONTEXT;
+	raise exception E'event_id = %, %\n%', _event_id, _message, _stack;
+	-- вообще, вся транзация не выполнится, если в процедуре произойдёт ошибка,
+	-- потому удалять что-либо бессмысленно
+	--IF _event_id IS NOT NULL THEN
+	--	DELETE FROM event WHERE id = _event_id;
+	--END IF;
 END $$ LANGUAGE plpgsql;
 
-CREATE OR REPLACE FUNCTION chunk_insert(
-	_username varchar,
-	_rootdir UUID, _file UUID, _revision UUID, _chunk UUID,
-	_size integer, _data_size integer, _offset integer,
-	_hash varchar)
-RETURNS boolean AS $$
-DECLARE
-	_id RECORD;
-BEGIN
-	SELECT
-		file.id AS file_id,
-		file_revision.id AS revision_id,
-		directory_tree.id AS directory_id
-	INTO _id
-	FROM file, file_revision, directory_tree
-	WHERE
-		file.rootdir = _rootdir AND
-		file.file = _file AND
-		file_revision.file_id = file.id;
-	/* если id нет, то нужно впихнуть соотвествующие записи */
-	/*
-	if _id.file_id IS NULL then
-		INSERT INTO file (file, rootdir, dir_id, username)
-		VALUES ();
-	end if
-	*/
-END $$ LANGUAGE plpgsql;
+-- вешанье триггеров, инжекция базовых значений
+CREATE TRIGGER tr_directory_log_action AFTER INSERT ON directory_log
+	FOR EACH ROW EXECUTE PROCEDURE directory_log_action();
 
-/* вешанье триггеров, инжекция базовых значений */
-CREATE TRIGGER tr_directory_action BEFORE INSERT ON directory_log
-	FOR EACH ROW EXECUTE PROCEDURE directory_action();
 CREATE TRIGGER tr_user_action AFTER INSERT ON "user"
 	FOR EACH ROW EXECUTE PROCEDURE user_action();
+
 CREATE TRIGGER tr_rootdir_log_action BEFORE INSERT ON rootdir_log
 	FOR EACH ROW EXECUTE PROCEDURE rootdir_log_action();
+
+CREATE TRIGGER tr_rootdir_action_insert AFTER INSERT ON rootdir
+	FOR EACH ROW EXECUTE PROCEDURE rootdir_action_insert();
 
 INSERT INTO options ("key", value_c, value_u)
 	VALUES ('trash_dir', '.Trash', '10000002-3004-5006-7008-900000000000');
