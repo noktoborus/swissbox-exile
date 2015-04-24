@@ -384,6 +384,11 @@ BEGIN
 	return new;
 END $$ LANGUAGE plpgsql;
 
+
+-- TODO: insert_chunk() для добавления чанков
+-- TODO: insert_file() для сборки ревизии
+-- TODO: VIEW с INSTEAD OF INSERT для замены предыдущих двух
+
 -- вешанье триггеров, инжекция базовых значений
 
 CREATE TRIGGER tr_user_action AFTER INSERT ON "user"
@@ -415,7 +420,7 @@ INSERT INTO options ("key", value_c, value_u)
 	VALUES ('1_rootdir', 'First', 
 		'00000001-2003-5406-7008-900000000000');
 INSERT INTO options ("key", value_c, value_u)
-	VALUES ('2_rootdir', 'First', 
+	VALUES ('2_rootdir', 'Second',
 		'11000001-2003-5406-7008-900000000000');
 
 
