@@ -70,7 +70,7 @@ CREATE TABLE IF NOT EXISTS rootdir_log
 	checkpoint bigint NOT NULL,
 	rootdir_id bigint NOT NULL,
 
-	rootdir_guid UUID NOT NULL DEFAULT gen_random_uuid(),
+	rootdir UUID NOT NULL DEFAULT gen_random_uuid(),
 	title varchar(1024) DEFAULT NULL
 );
 
@@ -84,10 +84,10 @@ CREATE TABLE IF NOT EXISTS rootdir
 
 	log_id bigint NOT NULL REFERENCES rootdir_log(id),
 
-	rootdir_guid UUID NOT NULL,
+	rootdir UUID NOT NULL,
 	title varchar(1024) NOT NULL,
 	
-	UNIQUE (user_id, rootdir_guid)
+	UNIQUE (user_id, rootdir)
 );
 
 CREATE TABLE IF NOT EXISTS options
@@ -109,7 +109,7 @@ CREATE TABLE IF NOT EXISTS event
 	-- поле не ссылается на rootdir(id) потому что лог не особо полезен
 	-- и может в любой момент быть затёрт
 	-- (checkpoint так же хранится в состояниях каталогов/файлов и может быть получен оттуда)
-	rootdir_guid UUID NOT NULL,
+	rootdir UUID NOT NULL,
 	"type" event_type NOT NULL,
 	-- указатель на id в таблице, которая ицнициировала событие
 	target_id bigint NOT NULL
@@ -159,7 +159,7 @@ CREATE TABLE IF NOT EXISTS file
 	user_id bigint NOT NULL REFERENCES "user"(id),
 	id bigint DEFAULT nextval('file_seq') PRIMARY KEY,
 	file UUID NOT NULL,
-	rootdir UUID NOT NULL,
+	rootdir_id bigint REFERENCES rootdir(id),
 	filename varchar(4096) NOT NULL DEFAULT '',
 	pubkey varchar(4096) NOT NULL DEFAULT '',
 	/* обновляемые поля */
@@ -173,7 +173,10 @@ CREATE TABLE IF NOT EXISTS file_revision
 	file_id bigint NOT NULL REFERENCES file(id),
 
 	revision UUID NOT NULL,
-	parent_id bigint DEFAULT NULL REFERENCES file_revision(id)
+	parent_id bigint DEFAULT NULL REFERENCES file_revision(id),
+
+	-- количество чанков в ревизии
+	chunks integer NOT NULL DEFAULT 0
 );
 
 CREATE SEQUENCE file_chunk_seq;
@@ -181,18 +184,17 @@ CREATE TABLE IF NOT EXISTS file_chunk
 (
 	id bigint DEFAULT nextval('file_chunk_seq') PRIMARY KEY,
 	revision_id bigint NOT NULL REFERENCES file_revision(id),
-	
+	-- глобальный id чанка собирается из (rootdir_guid, file_guid, chunk_guid)
+	file_id bigint NOT NULL REFERENCES file(id),
+
 	chunk UUID NOT NULL,
 	
 	/* параметры чанка */
 	size integer NOT NULL,
 	"offset" integer NOT NULL,
-	/* размер оригинальных данных в зашифрованном чанке
-	 	не должно сдесь быть, но присутсвует из-за того,
-		что кто-то поленился добавить фиксированный заголовок в начало
-		кадождого чанка
-	 */
-	data_size integer NOT NULL
+	hash character varying(256) NOT NULL,
+	-- путь к файлу
+	address character varying(4096) NOT NULL
 );
 
 /* триггеры и процедурки */
@@ -205,7 +207,7 @@ DECLARE
 BEGIN
 	-- подсовывание стандартных рутдир пользователю
 	FOR _row IN SELECT value_c, value_u FROM options WHERE "key" LIKE '%\_rootdir' LOOP
-		INSERT INTO rootdir_log(user_id, rootdir_guid, title)
+		INSERT INTO rootdir_log(user_id, rootdir, title)
 		VALUES(new.id, _row.value_u, _row.value_c);
 	END LOOP;
 	return new;
@@ -370,7 +372,7 @@ BEGIN
 		UPDATE directory SET
 			log_id = new.id,
 			path = new.path
-		WHERE rootdir_id = new.rootdir_id
+		WHERE rootdir_id = new.rootdir_id 
 			AND ((new.directory_id IS NOT NULL AND id = new.directory_id)
 				OR (new.directory_id IS NULL AND TRUE))
 			AND ((new.directory_guid IS NOT NULL AND directory_guid = new.directory_guid)
@@ -382,6 +384,66 @@ BEGIN
 		WHERE NOT EXISTS (SELECT * FROM _row);
 
 	return new;
+END $$ LANGUAGE plpgsql;
+
+
+/* упрощалки жизни */
+CREATE OR REPLACE FUNCTION insert_chunk(_username varchar(1024),
+	_rootdir_guid UUID, _file_guid UUID, _chunk_guid UUID, _revision_guid UUID,
+	_chunk_hash varchar(1024), _chunk_size integer, _chunk_offset integer,
+	address varchar(4096))
+	RETURNS character varying AS $$
+DECLARE
+	_row record;
+	
+	_rootdir_id bigint;
+	_file_id bigint;
+
+BEGIN
+	-- 1. Получить: revision_id, file_id 
+
+	-- TODO:
+	return NULL;
+END $$ LANGUAGE plpgsql;
+
+-- линковка чанка из старой ревизии с новой ревизией
+CREATE OR REPLACE FUNCTION link_chunk(_username varchar(1024),
+	_rootdir_guid UUID, _file_guid UUID, _chunk_guid UUID,
+	_new_chunk_guid UUID, _new_revision_guid UUID)
+	RETURNS text AS $$
+DECLARE
+	_row record;
+BEGIN
+	-- 1. получить старые значение
+	-- 2. смешать старые и новые значения
+	SELECT
+		_username AS username,
+		rootdir.rootdir AS rootdir,
+		file.file AS file,
+		_new_chunk_guid AS chunk,
+		_new_revision_guid AS revision,
+		file_chunk.hash AS hash,
+		file_chunk.size AS size,
+		file_chunk.offset AS offset,
+		file_chunk.address AS address
+	INTO _row
+	FROM "user", rootdir, file, file_chunk
+	WHERE
+		"user".username = _username
+		AND rootdir.user_id = "user".id
+		AND rootdir.rootdir = _rootdir_guid
+		AND file.rootdir_id = rootdir.id
+		AND file.file = _file_guid
+		AND file_chunk.file_id = file.id
+		AND file_chunk.chunk = _chunk_guid;
+	-- 3. воспользоваться insert_chunk
+	IF _row IS NULL THEN
+		return concat('file "', _file_guid,
+			'" not found in rootdir "',
+			_rootdir_guid, '", file "', _file_guid, '"');
+	END IF;
+	return (SELECT insert_chunk(_row.username, _row.rootdir, _row.file, _row.chunk,
+		_row.revision, _row.hash, _row.size, _row.offset, _row.address));
 END $$ LANGUAGE plpgsql;
 
 
