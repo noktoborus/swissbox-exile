@@ -304,10 +304,6 @@ message End {
 	required uint32 session_id = 2;
 	/* смещение чанка в файле */
 	required uint32 offset = 3;
-	/* настоящая длина (расшифрованных) данных в чанке
-	 для костылинга
-	 */
-	required uint64 origin_len = 4;
 }
 
 /* 
