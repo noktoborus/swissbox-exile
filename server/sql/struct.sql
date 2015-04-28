@@ -128,7 +128,7 @@ CREATE TABLE IF NOT EXISTS directory_log
 	checkpoint bigint DEFAULT NULL,
 	directory_id bigint DEFAULT NULL,
 
-	directory_guid UUID NOT NULL,
+	directory UUID NOT NULL,
 	path varchar(4096) DEFAULT NULL
 );
 
@@ -145,10 +145,10 @@ CREATE TABLE IF NOT EXISTS directory
 	-- информацию по времени создания и чекпоинт можно получить из directory_log
 	log_id bigint NOT NULL REFERENCES directory_log(id),
 
-	directory_guid UUID NOT NULL,
+	directory UUID NOT NULL,
 	path varchar(4096) DEFAULT NULL,
 
-	UNIQUE(rootdir_id, directory_guid),
+	UNIQUE(rootdir_id, directory),
 	UNIQUE(rootdir_id, path)
 );
 
@@ -176,7 +176,8 @@ CREATE TABLE IF NOT EXISTS file_revision
 	parent_id bigint DEFAULT NULL REFERENCES file_revision(id),
 
 	-- количество чанков в ревизии
-	chunks integer NOT NULL DEFAULT 0
+	chunks integer NOT NULL DEFAULT 0,
+	UNIQUE(file_id, revision)
 );
 
 CREATE SEQUENCE file_chunk_seq;
@@ -194,7 +195,7 @@ CREATE TABLE IF NOT EXISTS file_chunk
 	"offset" integer NOT NULL,
 	hash character varying(256) NOT NULL,
 	-- путь к файлу
-	address character varying(4096) NOT NULL
+	address text NOT NULL
 );
 
 /* триггеры и процедурки */
@@ -221,7 +222,7 @@ DECLARE
 BEGIN
 	-- впихнуть стандартные директории в рутдиру
 	FOR _row IN SELECT value_c, value_u FROM options WHERE "key" LIKE '%\_dir' LOOP
-		INSERT INTO directory_log(rootdir_id, directory_guid, path)
+		INSERT INTO directory_log(rootdir_id, directory, path)
 		VALUES(new.id, _row.value_u, _row.value_c);
 	END LOOP;
 	return new;
@@ -235,7 +236,7 @@ DECLARE
 BEGIN
 	-- TODO: удаление рутдир не готово (1)
 	IF new.title IS NULL THEN
-		IF new.rootdir_guid IS NULL AND new.rootdir_id IS NULL THEN
+		IF new.rootdir IS NULL AND new.rootdir_id IS NULL THEN
 			RAISE EXCEPTION 'no rootdir_guid and rootdir_id for destroy';
 			return new;
 		END IF;
@@ -253,14 +254,14 @@ BEGIN
 		WHERE user_id = new.user_id AND id = new.rootdir_id;
 		-- вроде бы отсутвующая директория по rootdir_id и пустой
 		-- rootdir_guid означают что произошла какая-то ошибка
-	WHEN new.rootdir_guid IS NOT NULL THEN
+	WHEN new.rootdir IS NOT NULL THEN
 		SELECT * INTO _row FROM rootdir
-		WHERE user_id = new.user_id AND rootdir_guid = new.rootdir_guid;
+		WHERE user_id = new.user_id AND rootdir = new.rootdir;
 	END CASE;
 
 	IF _row IS NOT NULL THEN
 		new.rootdir_id = _row.id;
-		new.rootdir_guid = _row.rootdir_guid;
+		new.rootdir = _row.rootdir;
 	ELSE 
 		-- форсируем получение rootdir_id
 		new.rootdir_id = nextval('rootdir_seq');
@@ -268,8 +269,8 @@ BEGIN
 
 	-- отмечаемся в логе событий
 	with _row AS (
-		INSERT INTO event (rootdir_guid, "type", target_id)
-		VALUES (new.rootdir_guid, 'rootdir', new.id)
+		INSERT INTO event (rootdir, "type", target_id)
+		VALUES (new.rootdir, 'rootdir', new.id)
 		RETURNING *
 	) SELECT checkpoint INTO new.checkpoint FROM _row;
 
@@ -299,13 +300,13 @@ BEGIN
 			user_id = new.user_id
 			AND ((new.rootdir_id IS NOT NULL AND id = new.rootdir_id)
 				OR (new.rootdir_id IS NULL AND TRUE))
-			AND ((new.rootdir_guid IS NOT NULL
-				AND rootdir_guid = new.rootdir_guid)
-				OR (new.rootdir_guid IS NULL AND TRUE))
+			AND ((new.rootdir IS NOT NULL
+				AND rootdir = new.rootdir)
+				OR (new.rootdir IS NULL AND TRUE))
 		RETURNING *
 	)
-	INSERT INTO rootdir (id, user_id, log_id, rootdir_guid, title)
-		SELECT new.rootdir_id, new.user_id, new.id, new.rootdir_guid, new.title
+	INSERT INTO rootdir (id, user_id, log_id, rootdir, title)
+		SELECT new.rootdir_id, new.user_id, new.id, new.rootdir, new.title
 		WHERE NOT EXISTS (SELECT * FROM _row);
 
 	return new;
@@ -335,22 +336,22 @@ BEGIN
 	WHEN new.directory_id IS NOT NULL THEN
 		SELECT * INTO _row FROM directory
 		WHERE rootdir_id = new.rootdir_id AND id = new.directory_id;
-	WHEN new.directory_guid IS NOT NULL THEN
+	WHEN new.directory IS NOT NULL THEN
 		SELECT * INTO _row FROM directory
-		WHERE rootdir_id = new.rootdir_id AND directory_guid = new.directory_guid;
+		WHERE rootdir_id = new.rootdir_id AND directory = new.directory;
 	END CASE;
 
 	IF _row IS NOT NULL THEN
 		new.directory_id = _row.id;
-		new.directory_guid = _row.directory_guid;
+		new.directory = _row.directory;
 	ELSE
 		new.directory_id = nextval('directory_seq');
 	END IF;
 
 	-- получение checkpoint в логе
 	WITH _row AS (
-		INSERT INTO event (rootdir_guid, "type", target_id)
-		VALUES ((SELECT rootdir_guid FROM rootdir WHERE id = new.rootdir_id),
+		INSERT INTO event (rootdir, "type", target_id)
+		VALUES ((SELECT rootdir FROM rootdir WHERE id = new.rootdir_id),
 			'directory', new.id)
 		RETURNING *
 	) SELECT checkpoint FROM _row INTO new.checkpoint;
@@ -375,34 +376,95 @@ BEGIN
 		WHERE rootdir_id = new.rootdir_id 
 			AND ((new.directory_id IS NOT NULL AND id = new.directory_id)
 				OR (new.directory_id IS NULL AND TRUE))
-			AND ((new.directory_guid IS NOT NULL AND directory_guid = new.directory_guid)
-				OR (new.directory_guid IS NULL AND TRUE))
+			AND ((new.directory IS NOT NULL AND directory = new.directory)
+				OR (new.directory IS NULL AND TRUE))
 		RETURNING *
 	)
-	INSERT INTO directory (id, rootdir_id, log_id, directory_guid, path)
-		SELECT new.directory_id, new.rootdir_id, new.id, new.directory_guid, new.path
+	INSERT INTO directory (id, rootdir_id, log_id, directory, path)
+		SELECT new.directory_id, new.rootdir_id, new.id, new.directory, new.path
 		WHERE NOT EXISTS (SELECT * FROM _row);
 
 	return new;
 END $$ LANGUAGE plpgsql;
 
+-- обновляет счётчик чанков в file_revision
+CREATE OR REPLACE FUNCTION file_chunk_action_after()
+	RETURNS trigger AS $$
+BEGIN
+	UPDATE file_revision SET chunks = (chunks + 1)
+	WHERE file_revision.id = new.revision_id;
+	return new;
+END $$ LANGUAGE plpgsql;
 
 /* упрощалки жизни */
+
+-- внесение нового чанка в таблицу (с упреждающей записью информации о файле и ревизии)
 CREATE OR REPLACE FUNCTION insert_chunk(_username varchar(1024),
 	_rootdir_guid UUID, _file_guid UUID, _chunk_guid UUID, _revision_guid UUID,
 	_chunk_hash varchar(1024), _chunk_size integer, _chunk_offset integer,
-	address varchar(4096))
+	_address text)
 	RETURNS character varying AS $$
 DECLARE
 	_row record;
-	
-	_rootdir_id bigint;
+	-- user_id and rootdir_id
+	_ur record;
+
+	_dir_id bigint;
 	_file_id bigint;
-
+	_revision_id bigint;
 BEGIN
-	-- 1. Получить: revision_id, file_id 
+	-- 1. Получить user_id и rootdir_id
+	
+	-- для начала нужно выяснить rootdir_id
+	SELECT "user".id AS u, rootdir.id AS r INTO _ur FROM "user", rootdir
+	WHERE
+		"user".username = _username
+		AND rootdir.user_id = "user".id
+		AND rootdir.rootdir = _rootdir_guid;
+	IF _ur IS NULL THEN
+		return concat('rootdir "', _rootdir_guid, '" not found');
+	END IF;
 
-	-- TODO:
+	-- 2. получение file_id или вставка нового файла
+	SELECT file.id INTO _file_id FROM file
+	WHERE
+		file.rootdir_id = _ur.r
+		AND file.file = _file_guid;
+	IF _file_id IS NULL THEN
+		SELECT id INTO _dir_id FROM directory
+		WHERE
+			directory.rootdir_id = _ur.r
+			AND directory.directory =
+				(SELECT value_u FROM options WHERE "key" = 'incomplete_dir');
+		WITH _row AS (
+			INSERT INTO file (user_id, file, rootdir_id, dir_id)
+			VALUES(
+				_ur.u,
+				_file_guid,
+				_ur.r,
+				_dir_id
+			) RETURNING *
+		) SELECT id INTO _file_id FROM _row;
+	END IF;
+
+	-- 3. извлечение revision_id
+	SELECT id INTO _revision_id FROM file_revision
+	WHERE
+		file_revision.file_id = _file_id
+		AND file_revision.revision = _revision_guid;
+	IF _revision_id IS NULL THEN
+		WITH _row AS (
+			INSERT INTO file_revision (file_id, revision, chunks)
+			VALUES (_file_id, _revision_guid, 0)
+			RETURNING *
+		) SELECT id INTO _revision_id FROM _row;
+	END IF;
+
+	-- 3. вставка нового чанка
+	INSERT INTO file_chunk (revision_id, file_id, chunk, size, "offset", hash, address)
+		VALUES (_revision_id, _file_id, _chunk_guid,
+			_chunk_size, _chunk_offset, _chunk_hash, _address);
+	-- TODO
 	return NULL;
 END $$ LANGUAGE plpgsql;
 
@@ -472,6 +534,11 @@ CREATE TRIGGER tr_directory_log_action BEFORE INSERT ON directory_log
 
 CREATE TRIGGER tr_directory_log_action_after AFTER INSERT ON directory_log
 	FOR EACH ROW EXECUTE PROCEDURE directory_log_action_after();
+
+-- ?
+CREATE TRIGGER tr_file_chunk_action_after AFTER INSERT ON file_chunk
+	FOR EACH ROW EXECUTE PROCEDURE file_chunk_action_after();
+
 
 INSERT INTO options ("key", value_c, value_u)
 	VALUES ('trash_dir', '.Trash', '10000002-3004-5006-7008-900000000000');
