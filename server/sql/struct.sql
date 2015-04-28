@@ -398,12 +398,72 @@ END $$ LANGUAGE plpgsql;
 
 /* упрощалки жизни */
 
+CREATE OR REPLACE FUNCTION update_file(_username character varying(1024),
+	_rootdir_guid UUID, _file_guid UUID, _name character varying(1024),
+	_dir_guid UUID, _pubkey character varying(4096))
+	RETURNING text AS $$
+BEGIN
+	-- условия:
+	-- 1. если файл уже имеет ключ не нулевой длины, новый ключ
+	-- 2. любое поле из (_name, _dir_guid, pubkey) может быть NULL, остальные не могут
+
+	-- TODO:
+	return NULL;
+END $$ LANGUAGE plpgsql;
+
+-- впихивание ревизии, фактически -- обновление parent_id, ключа, имени и директории у файла
+CREATE OR REPLACE FUNCTION insert_revision(_username varchar(1024),
+	_rootdir_guid UUID, _file_guid UUID, _revision_guid UUID,
+	_filename character varying(4096), _pubkey character varying(4096), _dir_guid UUID,
+	_chunks integer)
+	RETURNING text AS $$
+DECLARE
+	_row record;
+
+	-- хранилище (user_id, rootdir_id, directory_id, file_id, revision_id)
+	_ur record;
+BEGIN
+	-- получение всякой информации
+	SELECT
+		"user".id AS user_id,
+		rootdir.id AS rootdir_id,
+		directory.id AS directory_id,
+		file.id AS file_id,
+		file_revision.id AS revision_id
+	INTO _ur
+	FROM "user", rootdir, directory, file, file_revision
+	WHERE
+		"user".username = _username
+		AND rootdir.user_id = "user".id
+		AND rootdir.rootdir = _rootdir_guid
+		AND directory.rootdir = rootdir.id
+		AND directory.directory = _dir_guid
+		AND file.rootdir_id = rootdir.id
+		AND file.file = _file_guid
+		AND file_revision.file_id = file.id
+		AND file_revision.revision = _revision_guid;
+
+	IF _ur IS NULL THEN
+		return concat('revision "', _revision_guid,
+			'" in rootdir "', _rootdir_guid, '" in file "', _file_guid,  '" not found');
+	END IF;
+
+	-- 1. проверка количества чанков
+	IF (SELECT COUNT(*)
+		FROM file_chunk
+		WHERE file_chunk.file_id = _ur.file_id
+			AND file_chunk.revision_id  = _ur.revision_id) != _chunks THEN
+		return concat('TODO:');
+	END IF;
+	-- TODO:
+END $$ LANGUAGE plpgsql;
+
 -- внесение нового чанка в таблицу (с упреждающей записью информации о файле и ревизии)
 CREATE OR REPLACE FUNCTION insert_chunk(_username varchar(1024),
-	_rootdir_guid UUID, _file_guid UUID, _chunk_guid UUID, _revision_guid UUID,
+	_rootdir_guid UUID, _file_guid UUID, _revision_guid UUID, _chunk_guid UUID, 
 	_chunk_hash varchar(1024), _chunk_size integer, _chunk_offset integer,
 	_address text)
-	RETURNS character varying AS $$
+	RETURNS text AS $$
 DECLARE
 	_row record;
 	-- user_id and rootdir_id
