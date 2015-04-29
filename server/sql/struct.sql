@@ -401,27 +401,29 @@ END $$ LANGUAGE plpgsql;
 CREATE OR REPLACE FUNCTION update_file(_username character varying(1024),
 	_rootdir_guid UUID, _file_guid UUID, _name character varying(1024),
 	_dir_guid UUID, _pubkey character varying(4096))
-	RETURNING text AS $$
+	RETURNS text AS $$
 BEGIN
 	-- условия:
 	-- 1. если файл уже имеет ключ не нулевой длины, новый ключ
 	-- 2. любое поле из (_name, _dir_guid, pubkey) может быть NULL, остальные не могут
 
 	-- TODO:
+	RAISE EXCEPTION 'not implemented';
 	return NULL;
 END $$ LANGUAGE plpgsql;
 
 -- впихивание ревизии, фактически -- обновление parent_id, ключа, имени и директории у файла
 CREATE OR REPLACE FUNCTION insert_revision(_username varchar(1024),
-	_rootdir_guid UUID, _file_guid UUID, _revision_guid UUID,
+	_rootdir_guid UUID, _file_guid UUID, _revision_guid UUID, _parent_revision_guid UUID,
 	_filename character varying(4096), _pubkey character varying(4096), _dir_guid UUID,
 	_chunks integer)
-	RETURNING text AS $$
+	RETURNS text AS $$
 DECLARE
 	_row record;
 
 	-- хранилище (user_id, rootdir_id, directory_id, file_id, revision_id)
 	_ur record;
+	_w bigint;
 BEGIN
 	-- получение всякой информации
 	SELECT
@@ -429,7 +431,12 @@ BEGIN
 		rootdir.id AS rootdir_id,
 		directory.id AS directory_id,
 		file.id AS file_id,
-		file_revision.id AS revision_id
+		file_revision.id AS revision_id,
+		CASE
+		WHEN file.pubkey != '' OR file.filename != '' OR file_revision.parent_id != NULL
+		THEN FALSE
+		ELSE TRUE
+		END AS permit
 	INTO _ur
 	FROM "user", rootdir, directory, file, file_revision
 	WHERE
@@ -444,16 +451,67 @@ BEGIN
 		AND file_revision.revision = _revision_guid;
 
 	IF _ur IS NULL THEN
+		-- уточняем из-за чего именно ошибка, возможно просто нет такой директории
+		SELECT COUNT(*) INTO _w
+		FROM "user", rootdir, directory
+		WHERE "user".username = _username
+			AND rootdir.user_id = "user".id
+			AND rootdir.rootdir = _rootdir_guid
+			AND directory.directory = _dir_guid;
+		IF _w = 0 THEN
+			return concat('directory "', _dir_guid, '" not found in',
+				'rootdir "', _rootdir_guid, '"');
+		END IF;
 		return concat('revision "', _revision_guid,
 			'" in rootdir "', _rootdir_guid, '" in file "', _file_guid,  '" not found');
 	END IF;
 
-	-- 1. проверка количества чанков
-	IF (SELECT COUNT(*)
-		FROM file_chunk
-		WHERE file_chunk.file_id = _ur.file_id
-			AND file_chunk.revision_id  = _ur.revision_id) != _chunks THEN
-		return concat('TODO:');
+
+	-- 1. проверка на перезапись
+	IF _ur.permit = FALSE THEN
+		return concat('revision "', _file_guid, '" ',
+			'already commited in rootdir "', _rootdir_guid, '" ',
+			'file "', _file_guid, '"');
+	END IF;
+
+	-- 2. проверка количества чанков
+	SELECT COUNT(*) INTO _w
+	FROM file_chunk
+	WHERE file_chunk.file_id = _ur.file_id
+		AND file_chunk.revision_id  = _ur.revision_id;
+	IF _w != _chunks THEN
+		return concat('different stored chunks count and wanted: ',
+			_w, ' != ', _chunks, ' ',
+			'in rootdir "', _rootdir_guid, '", ',
+			'file "', _file_guid, '", ',
+			'revision "', _revision_guid, '"');
+	END IF;
+
+	-- 3. обновление файла
+	-- если имя не задано, то в будущем оно всё равно сможет переименовать файл
+	-- а ключ нужно задавать обязательно (если он присутствует)
+	IF _filename IS NOT NULL OR  _pubkey IS NOT NULL OR _dir_guid IS NOT NULL THEN
+		UPDATE file
+		SET
+			filename = CASE WHEN _filename IS NULL THEN filename ELSE _filename END,
+			pubkey = CASE WHEN _pubkey IS NULL THEN pubkey ELSE _pubkey END,
+			directory_id =
+				CASE WHEN _dir_guid IS NULL THEN directory_id ELSE _ur.directory_id END
+		WHERE
+			id = _ur.file_id;
+	END IF;
+
+	-- 4. обновление ревизии
+	IF _parent_revision_guid IS NOT NULL THEN
+		SELECT NULL INTO _row;
+		SELECT * INTO _row FROM file_revision
+		WHERE id = _ur.revision_id;
+		IF _row IS NULL THEN
+			return concat('revision "', _parent_revision_guid, '" not found in ',
+				'file "', _file_guid, '" ',
+				'rootdir "', _rootdir_guid, '"');
+		END IF;
+		UPDATE file_revision SET parent_id = _row.id WHERE id = _ur.revision_id;
 	END IF;
 	-- TODO:
 END $$ LANGUAGE plpgsql;
