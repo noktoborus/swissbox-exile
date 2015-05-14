@@ -397,7 +397,10 @@ _active_sync(struct client *c, uint32_t session_id, bool locked)
 #endif
 
 	memset(&gs, 0, sizeof(struct logDirFile));
-	if (!spq_f_logDirFile(c->name, c->checkpoint, c->device_id, &gs)) {
+	/* TODO: NULL для листинга rootdir,
+	 * с указанием rootdir_guid - для файлов/дир
+	 */
+	if (!spq_f_logDirFile(c->name, NULL, c->checkpoint, c->device_id, &gs)) {
 		return false;
 	}
 
@@ -1585,6 +1588,9 @@ _client_iterate_result_logdf(struct client *c, struct logDirFile *ldf)
 			msg.session_id = c->rout->id;
 
 		return send_message(c->cev, FEP__TYPE__tFileUpdate, &msg);
+	} else if (ldf->type == 'r') {
+		xsyslog(LOG_INFO, "user '%s' send message TODO: rootdir",
+				c->name);
 	} else {
 		xsyslog(LOG_WARNING, "user '%s' with unknown log record '%c'",
 				c->name, ldf->type);

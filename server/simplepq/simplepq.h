@@ -10,6 +10,7 @@
 #include "junk/guid.h"
 #include "junk/utils.h"
 #include <stdbool.h>
+#include <libpq-fe.h>
 
 /* открытие подключений к бд, pool -- количество подключений */
 void spq_open(unsigned pool, char *pgstring);
@@ -117,8 +118,8 @@ struct logDirFile {
 };
 
 bool
-spq_f_logDirFile(char *username, uint64_t checkpoint, uint64_t deviceid,
-		struct logDirFile *state);
+spq_f_logDirFile(char *username, guid_t *rootdir, uint64_t checkpoint,
+		uint64_t deviceid, struct logDirFile *state);
 bool
 spq_f_logDirFile_it(struct logDirFile *state);
 void
@@ -194,6 +195,9 @@ spq_f_logFilePush(char *username, uint64_t device_id,
 uint64_t spq_f_logDirPush(char *username, uint64_t device_id,
 		guid_t *rootdir, guid_t *directory, char *path);
 
+
+/* помогалки */
+bool spq_begin_life(PGconn *pgc, char *username, uint64_t device_id);
 
 #endif /* _SIMPLEPQ_SIMPLEPQ_1426075906_H_ */
 

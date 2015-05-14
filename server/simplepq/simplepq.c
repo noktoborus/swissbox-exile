@@ -11,7 +11,6 @@
 #include <string.h>
 
 #include <time.h>
-#include <libpq-fe.h>
 #include <pthread.h>
 #include <sys/time.h>
 
@@ -1197,6 +1196,36 @@ spq_insert_revision(char *username,
 	}
 	return r;
 }
+
+bool
+spq_begin_life(PGconn *pgc, char *username, uint64_t device_id)
+{
+	PGresult *res;
+	const char tb[] = "SELECT begin_life($1::character varying, $2::integer);";
+	const int fmt[2] = {0, 0};
+
+	char _device_id[16];
+
+	char *val[2];
+	int len[2];
+
+	len[0] = strlen(username);
+	len[1] = snprintf(_device_id, sizeof(_device_id), "%"PRIu64, device_id);
+
+	val[0] = username;
+	val[1] = _device_id;
+
+	res = PQexecParams(pgc, tb, 2, NULL, (const char *const*)val, len, fmt, 0);
+	if (PQresultStatus(res) != PGRES_COMMAND_OK) {
+		xsyslog(LOG_INFO, "exec begin_life error: %s", PQresultErrorMessage(res));
+		PQclear(res);
+		return false;
+	}
+
+	PQclear(res);
+	return true;
+}
+
 
 #include "complex/getRevisions.c"
 #include "complex/getChunks.c"

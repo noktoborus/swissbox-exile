@@ -3,57 +3,25 @@
  */
 
 static inline PGresult*
-_spq_f_logDirFile_exec(PGconn *pgc, char *username, uint64_t checkpoint,
-		uint64_t deviceid)
+_spq_f_logDirFile_exec(PGconn *pgc, guid_t *rootdir, uint64_t checkpoint)
 {
 	PGresult *res;
 	ExecStatusType pqs;
 	char *tb =
-	"SELECT * FROM "
-	"	(SELECT"
-	"		'f' AS type,"
-	"		checkpoint,"
-	"		rootdir_guid,"
-	"		file_guid,"
-	"		revision_guid,"
-	"		directory_guid,"
-	"		parent_revision_guid,"
-	"		enc_filename,"
-	"		public_key,"
-	"		(SELECT COUNT(*) FROM file_records WHERE"
-	"			file_records.username = file_keys.username AND"
-	"			file_records.file_guid = file_keys.file_guid AND"
-	"			file_records.revision_guid = file_keys.revision_guid)"
-	"	FROM file_keys"
-	"	WHERE username = $1 AND checkpoint > $2 AND deviceid != $3 "
-	"	UNION SELECT 'd' AS type,"
-	"		checkpoint,"
-	"		rootdir_guid,"
-	"		NULL,"
-	"		NULL,"
-	"		directory_guid,"
-	"		NULL,"
-	"		path,"
-	"		NULL,"
-	"		0"
-	"	FROM directory_log"
-	"	WHERE username = $1 AND checkpoint > $2 AND deviceid != $3) "
-	"AS x ORDER BY checkpoint ASC;";
-	const int fmt[3] = {0, 0, 0};
+	"SELECT * FROM log_list($1::UUID, $2::bigint);";
+	const int fmt[2] = {0, 0};
 
-	char _unixtime[sizeof(uint64_t) * 8 + 1] = {0};
-	char _deviceid[sizeof(uint64_t) * 8 + 1] = {0};
+	char _rootdir[GUID_MAX + 1];
+	char _checkpoint[32] = {0};
 
-	char *val[3];
-	int len[3];
+	char *val[2];
+	int len[2];
 
-	len[0] = strlen(username);
-	len[1] = snprintf(_unixtime, sizeof(_unixtime), "%"PRIu64, checkpoint);
-	len[2] = snprintf(_deviceid, sizeof(_deviceid), "%"PRIu64, deviceid);
+	len[0] = guid2string(rootdir, PSIZE(_rootdir));
+	len[1] = snprintf(_checkpoint, sizeof(_checkpoint), "%"PRIu64, checkpoint);
 
-	val[0] = username;
-	val[1] = _unixtime;
-	val[2] = _deviceid;
+	val[0] = _rootdir;
+	val[1] = _checkpoint;
 
 	res = PQexecParams(pgc, tb, 3, NULL, (const char *const*)val, len, fmt, 0);
 	pqs = PQresultStatus(res);
@@ -71,7 +39,7 @@ _spq_f_logDirFile_exec(PGconn *pgc, char *username, uint64_t checkpoint,
 
 
 bool
-spq_f_logDirFile(char *username, uint64_t checkpoint, uint64_t deviceid,
+spq_f_logDirFile(char *username, guid_t *rootdir, uint64_t checkpoint, uint64_t deviceid,
 		struct logDirFile *state)
 {
 	struct spq *c;
@@ -80,8 +48,13 @@ spq_f_logDirFile(char *username, uint64_t checkpoint, uint64_t deviceid,
 	}
 	c = (struct spq*)state->p;
 
+	if (!spq_begin_life(c->conn, username, deviceid)) {
+		release_conn(&_spq, c);
+		return false;
+	}
+
 	if (!state->res && (state->res = _spq_f_logDirFile_exec(c->conn,
-					username, checkpoint, deviceid)) == NULL) {
+					rootdir, checkpoint)) == NULL) {
 		release_conn(&_spq, c);
 		memset(state, 0u, sizeof(struct logDirFile));
 		return false;
@@ -102,7 +75,7 @@ spq_f_logDirFile_it(struct logDirFile *state)
 		return false;
 
 	/* columns:
-	 * 0. type ("f" or "d")
+	 * 0. type ("f" or "d" or "r")
 	 * 1. checkpoint (f and d)
 	 * 2. rootdir_guid (f and d)
 	 * 3. file_guid (f only)
@@ -132,20 +105,23 @@ spq_f_logDirFile_it(struct logDirFile *state)
 		string2guid(NULL, 0, &state->rootdir);
 	}
 
-	/* directory_guid */
-	if ((len = PQgetlength(state->res, state->row, 5)) != 0u) {
-		val = PQgetvalue(state->res, state->row, 5);
-		string2guid(val, len, &state->directory);
-	} else {
-		string2guid(NULL, 0, &state->directory);
-	}
-
 	/* path */
 	if ((len = PQgetlength(state->res, state->row, 7)) != 0u) {
 		val = PQgetvalue(state->res, state->row, 7);
 		memcpy(state->path, val, MIN(len, PATH_MAX));
 	} else {
 		*state->path = '\0';
+	}
+
+	/* у всех видов сообщений есть directory_guid, кроме rootdir */
+	if (state->type != 'r') {
+		/* directory_guid */
+		if ((len = PQgetlength(state->res, state->row, 5)) != 0u) {
+			val = PQgetvalue(state->res, state->row, 5);
+			string2guid(val, len, &state->directory);
+		} else {
+			string2guid(NULL, 0, &state->directory);
+		}
 	}
 
 	if (state->type == 'f') {
