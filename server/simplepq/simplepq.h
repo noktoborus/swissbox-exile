@@ -23,6 +23,25 @@ bool spq_f_chunkRename(char *username,
 		guid_t *rootdir, guid_t *file, guid_t *chunk,
 		guid_t *chunk_new, guid_t *revision_new);
 
+/* v3 */
+bool spq_insert_chunk(char *username,
+		guid_t *rootdir, guid_t *file, guid_t *revision, guid_t *chunk,
+		char *chunk_hash, uint32_t chunk_size, uint32_t chunk_offset,
+		char *address);
+
+bool spq_link_chunk(char *username,
+		guid_t *rootdir, guid_t *file, guid_t *chunk,
+		guid_t *new_chunk, guid_t *new_revision);
+
+bool spq_insert_revision(char *username,
+		guid_t *rootdir, guid_t *file,
+		guid_t *revision, guid_t *parent_revision,
+		char *filename, uint8_t *pubkey,
+		guid_t *dir,
+		unsigned chunks);
+
+/* */
+
 bool spq_f_chunkNew(char *username, char *hash, char *path,
 		guid_t *rootdir, guid_t *revision, guid_t *chunk, guid_t *file,
 		uint32_t offset, uint32_t origin_len);

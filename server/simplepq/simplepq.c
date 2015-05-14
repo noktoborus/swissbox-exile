@@ -940,6 +940,264 @@ spq_f_getFileMeta_free(struct spq_FileMeta *fmeta)
 	memset(fmeta, 0u, sizeof(struct spq_FileMeta));
 }
 
+bool
+_spq_insert_chunk(PGconn *pgc,
+		char *username,
+		guid_t *rootdir, guid_t *file, guid_t *revision, guid_t *chunk,
+		char *chunk_hash, uint32_t chunk_size, uint32_t chunk_offset,
+		char *address)
+{
+	PGresult *res;
+	const char *tb = "SELECT insert_chunk"
+		"("
+		"	$1::character varying, "
+		"	$2::UUID, "
+		"	$3::UUID, "
+		"	$4::UUID, "
+		"	$5::UUID, "
+		"	$6::character varying, "
+		"	$7::integer, "
+		"	$8::integer, "
+		"	$9::text "
+		");";
+	const int fmt[9] = {0, 0, 0, 0, 0, 0, 0, 0, 0};
+
+	char _rootdir[GUID_MAX + 1];
+	char _file[GUID_MAX + 1];
+	char _revision[GUID_MAX + 1];
+	char _chunk[GUID_MAX + 1];
+	char _size[16];
+	char _offset[16];
+
+	char *val[9];
+	int len[9];
+
+	len[0] = strlen(username);
+	len[1] = guid2string(rootdir, PSIZE(_rootdir));
+	len[2] = guid2string(file, PSIZE(_file));
+	len[3] = guid2string(revision, PSIZE(_revision));
+	len[4] = guid2string(chunk, PSIZE(_chunk));
+	len[5] = strlen(chunk_hash);
+	len[6] = snprintf(_size, sizeof(_size), "%"PRIu32, chunk_size);
+	len[7] = snprintf(_offset, sizeof(_offset), "%"PRIu32, chunk_offset);
+	len[8] = strlen(address);
+
+	val[0] = username;
+	val[1] = _rootdir;
+	val[2] = _file;
+	val[3] = _revision;
+	val[4] = _chunk;
+	val[5] = chunk_hash;
+	val[6] = _size;
+	val[7] = _offset;
+	val[8] = address;
+
+	res = PQexecParams(pgc, tb, 9, NULL, (const char *const*)val, len, fmt, 0);
+
+	if (PQresultStatus(res) != PGRES_TUPLES_OK) {
+		xsyslog(LOG_INFO, "exec insert_chunk error: %s",
+				PQresultErrorMessage(res));
+		PQclear(res);
+		return false;
+	}
+
+	if (PQgetlength(res, 0, 0) != 0) {
+		xsyslog(LOG_INFO, "exec insert_chunk error: %s",
+				PQgetvalue(res, 0, 0));
+		PQclear(res);
+		return false;
+	}
+
+	PQclear(res);
+	return true;
+}
+
+bool
+spq_insert_chunk(char *username,
+		guid_t *rootdir, guid_t *file, guid_t *revision, guid_t *chunk,
+		char *chunk_hash, uint32_t chunk_size, uint32_t chunk_offset,
+		char *address)
+{
+	bool r = false;
+	struct spq *c;
+	if ((c = acquire_conn(&_spq)) != NULL) {
+		r = _spq_insert_chunk(c->conn, username,
+				rootdir, file, revision, chunk,
+				chunk_hash, chunk_size, chunk_offset, address);
+		release_conn(&_spq, c);
+	}
+	return r;
+}
+
+bool
+_spq_link_chunk(PGconn *pgc,
+		char *username,
+		guid_t *rootdir, guid_t *file, guid_t *chunk,
+		guid_t *new_chunk, guid_t *new_revision)
+{
+	PGresult *res;
+	ExecStatusType pqs;
+	const char tb[] = "SELECT link_chunk"
+		"("
+		"	$1::character varying,"
+		"	$2::UUID,"
+		"	$3::UUID,"
+		"	$4::UUID,"
+		"	$5::UUID,"
+		"	$6::UUID"
+		");";
+	const int fmt[6] = {0, 0, 0, 0, 0, 0};
+
+	char _rootdir[GUID_MAX + 1];
+	char _file[GUID_MAX + 1];
+	char _chunk[GUID_MAX + 1];
+	char _new_chunk[GUID_MAX + 1];
+	char _new_revision[GUID_MAX + 1];
+
+	char *val[6];
+	int len[6];
+
+	len[0] = strlen(username);
+	len[1] = guid2string(rootdir, PSIZE(_rootdir));
+	len[2] = guid2string(file, PSIZE(_file));
+	len[3] = guid2string(chunk, PSIZE(_chunk));
+	len[4] = guid2string(new_chunk, PSIZE(_new_chunk));
+	len[5] = guid2string(new_revision, PSIZE(_new_revision));
+
+	val[0] = username;
+	val[1] = _rootdir;
+	val[2] = _file;
+	val[3] = _chunk;
+	val[4] = _new_chunk;
+	val[5] = _new_revision;
+
+	res = PQexecParams(pgc, tb, 9, NULL, (const char *const*)val, len, fmt, 0);
+	pqs = PQresultStatus(res);
+	if (pqs != PGRES_TUPLES_OK) {
+		xsyslog(LOG_INFO, "exec link_chunk error: %s",
+				PQresultErrorMessage(res));
+		PQclear(res);
+		return false;
+	}
+
+	if (PQgetlength(res, 0, 0) > 0) {
+		xsyslog(LOG_INFO, "exec link_chunk error: %s",
+				PQgetvalue(res, 0, 0));
+		PQclear(res);
+		return false;
+	}
+
+	PQclear(res);
+	return true;
+}
+
+bool
+spq_link_chunk(char *username,
+		guid_t *rootdir, guid_t *file, guid_t *chunk,
+		guid_t *new_chunk, guid_t *new_revision)
+{
+	bool r = false;
+	struct spq *c;
+	if ((c = acquire_conn(&_spq)) != NULL) {
+		r = _spq_link_chunk(c->conn, username, rootdir, file, chunk,
+				new_chunk, new_revision);
+		release_conn(&_spq, c);
+	}
+	return r;
+}
+
+bool
+_spq_insert_revision(PGconn *pgc,
+		char *username,
+		guid_t *rootdir, guid_t *file,
+		guid_t *revision, guid_t *parent_revision,
+		char *filename, uint8_t *pubkey,
+		guid_t *dir,
+		unsigned chunks)
+{
+	PGresult *res;
+	ExecStatusType pqs;
+	const char tb[] = "SELECT insert_revision"
+		"("
+		"	$1::character varying,"
+		"	$2::UUID,"
+		"	$3::UUID,"
+		"	$4::UUID,"
+		"	$5::UUID,"
+		"	$6::character varying,"
+		"	$7::character varying,"
+		"	$8::UUID,"
+		"	$9::integer"
+		");";
+	const int fmt[9] = {0, 0, 0, 0, 0, 0, 0, 0, 0};
+
+	char _rootdir[GUID_MAX + 1];
+	char _file[GUID_MAX + 1];
+	char _revision[GUID_MAX + 1];
+	char _parent_revision[GUID_MAX + 1];
+	char _dir[GUID_MAX + 1];
+	char _chunks[16];
+
+	const char *_m = NULL;
+	char *val[9];
+	int len[9];
+
+	len[0] = strlen(username);
+	len[1] = guid2string(rootdir, PSIZE(_rootdir));
+	len[2] = guid2string(file, PSIZE(_file));
+	len[3] = guid2string(revision, PSIZE(_revision));
+	len[4] = guid2string(parent_revision, PSIZE(_parent_revision));
+	len[5] = strlen(filename);
+	len[6] = strlen((char*)pubkey);
+	len[7] = guid2string(dir, PSIZE(_dir));
+	len[8] = snprintf(_chunks, sizeof(_chunks), "%u", chunks);
+
+	val[0] = username;
+	val[1] = _rootdir;
+	val[2] = _file;
+	val[3] = _revision;
+	val[4] = _parent_revision;
+	val[5] = filename;
+	val[6] = (char*)pubkey;
+	val[7] = _dir;
+	val[8] = _chunks;
+
+	res = PQexecParams(pgc, tb, 9, NULL, (const char *const*)val, len, fmt, 0);
+	pqs = PQresultStatus(res);
+
+	if (pqs != PGRES_TUPLES_OK)
+		_m = PQresultErrorMessage(res);
+	else if (PQgetlength(res, 0, 0))
+		_m = PQgetvalue(res, 0, 0);
+
+	if (_m) {
+		xsyslog(LOG_INFO, "exec insert_revision error: %s", _m);
+		PQclear(res);
+		return false;
+	}
+
+	PQclear(res);
+	return true;
+}
+
+bool
+spq_insert_revision(char *username,
+		guid_t *rootdir, guid_t *file,
+		guid_t *revision, guid_t *parent_revision,
+		char *filename, uint8_t *pubkey,
+		guid_t *dir,
+		unsigned chunks)
+{
+	bool r = false;
+	struct spq *c;
+	if ((c = acquire_conn(&_spq)) != NULL) {
+		r = _spq_insert_revision(c->conn, username, rootdir, file, revision,
+				parent_revision, filename, pubkey, dir, chunks);
+		release_conn(&_spq, c);
+	}
+	return r;
+}
+
 #include "complex/getRevisions.c"
 #include "complex/getChunks.c"
 #include "complex/logDirFile.c"

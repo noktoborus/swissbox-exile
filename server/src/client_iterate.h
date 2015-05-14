@@ -78,9 +78,9 @@ struct chunk_send {
 
 	uint32_t session_id;
 
-	/* позиция чанка в файле и длиина даты в чанке */
+	/* позиция чанка в файле и размер чанка */
 	uint32_t file_offset;
-	uint32_t origin_len;
+	uint32_t chunk_size;
 
 	struct chunk_send *next;
 };

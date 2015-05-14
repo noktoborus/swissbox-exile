@@ -494,7 +494,7 @@ _handle_read_ask(struct client *c, unsigned type, Fep__ReadAsk *msg)
 	chs->session_id = msg->session_id;
 	chs->size = st.st_size;
 	chs->next = c->cout;
-	chs->origin_len = origin;
+	chs->chunk_size = chs->size;
 	chs->file_offset = offset;
 	c->cout = chs;
 #if DEEPDEBUG
@@ -1125,14 +1125,9 @@ _handle_end(struct client *c, unsigned type, Fep__End *end)
 					"invalid chunk hash: %s, expect: %s",
 					sha256_hex, chunk_hash);
 		/* чанк пришёл, теперь нужно попробовать обновить информацию в бд */
-		} else if (!spq_f_chunkNew(c->name, chunk_hash, wx->path, &wf->rootdir,
-					&wf->revision, &wx->chunk_guid, &wf->file,
-					end->offset, end->origin_len)) {
-			/* оказалось не всё просто */
-			snprintf(errmsg, sizeof(errmsg), "Internal error 1817");
-		} else {
-			/* обновляем состояние чанков */
-			wf->chunks_ok++;
+		} else if (!spq_insert_chunk(c->name, &wf->rootdir, &wf->file,
+					&wf->revision, &wx->chunk_guid, chunk_hash,
+					wx->size, end->offset, wx->path)) {
 		}
 	}
 	if (!*errmsg) {
@@ -1695,7 +1690,6 @@ _client_iterate_chunk(struct client *c)
 		msg.id = generate_id(c);
 		msg.session_id = c->cout->session_id;
 		msg.offset = c->cout->file_offset;
-		msg.origin_len = c->cout->origin_len;
 		cout_free(c);
 #if DEEPDEBUG
 		xsyslog(LOG_DEBUG, "client[%p] <- End id = %"PRIu64" sid = %"PRIu32,
