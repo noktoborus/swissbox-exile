@@ -48,77 +48,6 @@ static struct spq_root {
 	struct spq *first;
 } _spq;
 
-/* */
-static inline bool
-_spq_f_chunkRename(PGconn *pgc, char *username,
-		guid_t *rootdir, guid_t *file, guid_t *chunk,
-		guid_t *chunk_new, guid_t *revision_new)
-{
-	PGresult *res;
-	ExecStatusType pqs;
-	const char *tb = "INSERT INTO file_records "
-		"SELECT "
-		"	time,"
-		"	username,"
-		"	chunk_hash,"
-		"	$5,"
-		"	rootdir_guid,"
-		"	file_guid,"
-		"	$6,"
-		"	chunk_path,"
-		"	\"offset\","
-		"	origin "
-		"FROM file_records "
-		"WHERE "
-		"	username = $1 AND"
-		"	rootdir_guid = $2 AND"
-		"	file_guid = $3 AND"
-		"	chunk_guid =  $4"
-		"RETURNING time;";
-	const int format[6] = {0, 0, 0, 0, 0, 0};
-
-	char _rootdir_guid[GUID_MAX + 1];
-	char _chunk_guid[GUID_MAX + 1];
-	char _file_guid[GUID_MAX + 1];
-	char _chunk_new_guid[GUID_MAX + 1];
-	char _revision_new_guid[GUID_MAX + 1];
-
-	char *val[6];
-	int length[6];
-
-	length[0] = strlen(username);
-	length[1] = guid2string(rootdir, _rootdir_guid, sizeof(_rootdir_guid));
-	length[2] = guid2string(file, _file_guid, sizeof(_file_guid));
-	length[3] = guid2string(chunk, _chunk_guid, sizeof(_chunk_guid));
-	length[4] = guid2string(chunk_new,
-			_chunk_new_guid, sizeof(_chunk_new_guid));
-	length[5] = guid2string(revision_new,
-			_revision_new_guid, sizeof(_revision_new_guid));
-
-	val[0] = username;
-	val[1] = _rootdir_guid;
-	val[2] = _file_guid;
-	val[3] = _chunk_guid;
-	val[4] = _chunk_new_guid;
-	val[5] = _revision_new_guid;
-
-	res = PQexecParams(pgc, tb, 6, NULL,
-			(const char *const*)val, length, format, 0);
-	pqs = PQresultStatus(res);
-	if (pqs != PGRES_TUPLES_OK) {
-		xsyslog(LOG_INFO,
-				"chunkRename exec error: %s", PQresultErrorMessage(res));
-		PQclear(res);
-		return false;
-	}
-	if (PQntuples(res) <= 0) {
-		PQclear(res);
-		return false;
-	}
-	PQclear(res);
-	return true;
-}
-
 static inline bool
 _spq_f_getChunkPath(PGconn *pgc, char *username,
 		guid_t *rootdir, guid_t *file, guid_t *chunk,
@@ -178,141 +107,6 @@ _spq_f_getChunkPath(PGconn *pgc, char *username,
 
 	PQclear(res);
 	return true;
-}
-
-
-static inline bool
-_spq_f_chunkNew(PGconn *pgc, char *username, char *hash, char *path,
-		guid_t *rootdir, guid_t *revision, guid_t *chunk, guid_t *file,
-		uint32_t offset, uint32_t origin_len)
-{
-	PGresult *res;
-	const char *tb = "INSERT INTO file_records"
-		"("
-		"	username, "
-		"	rootdir_guid, "
-		"	file_guid,"
-		"	revision_guid, "
-		"	chunk_guid, "
-		"	chunk_hash, "
-		"	chunk_path, "
-		"	\"offset\","
-		"	origin"
-		") VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9);";
-	const int format[9] = {0, 0, 0, 0, 0, 0, 0, 0, 0};
-
-	char _rootdir_guid[GUID_MAX + 1];
-	char _revision_guid[GUID_MAX + 1];
-	char _chunk_guid[GUID_MAX + 1];
-	char _file_guid[GUID_MAX + 1];
-	char _offset[16];
-	char _origin[16];
-
-	char *val[9];
-	int length[9];
-
-	length[0] = strlen(username);
-	length[1] = guid2string(rootdir, _rootdir_guid, sizeof(_rootdir_guid));
-	length[2] = guid2string(file, _file_guid, sizeof(_file_guid));
-	length[3] = guid2string(revision, _revision_guid, sizeof(_revision_guid));
-	length[4] = guid2string(chunk, _chunk_guid, sizeof(_chunk_guid));
-	length[5] = strlen(hash);
-	length[6] = strlen(path);
-	length[7] = snprintf(_offset, sizeof(_offset), "%"PRIu32, offset);
-	length[8] = snprintf(_origin, sizeof(_origin),"%"PRIu32, origin_len);
-
-	val[0] = username;
-	val[1] = _rootdir_guid;
-	val[2] = _file_guid;
-	val[3] = _revision_guid;
-	val[4] = _chunk_guid;
-	val[5] = hash;
-	val[6] = path;
-	val[7] = _offset;
-	val[8] = _origin;
-
-	res = PQexecParams(pgc, tb, 9, NULL,
-			(const char *const*)val, length, format, 0);
-
-	if (PQresultStatus(res) != PGRES_COMMAND_OK) {
-		xsyslog(LOG_INFO, "chunkNew exec error: %s",
-			PQresultErrorMessage(res));
-		PQclear(res);
-		return false;
-	}
-
-	PQclear(res);
-	return true;
-}
-
-
-static inline uint64_t
-_spq_f_chunkFile(PGconn *pgc, char *username,
-		guid_t *rootdir, guid_t *file, guid_t *revision,
-		guid_t *parent_revision, guid_t *dir,
-		char *enc_filename, uint64_t deviceid, char *pkey)
-{
-	PGresult *res;
-	ExecStatusType pqs;
-	const char tb[] = "INSERT INTO file_keys"
-		"("
-		"	username,"
-		"	rootdir_guid,"
-		"	file_guid,"
-		"	revision_guid,"
-		"	parent_revision_guid,"
-		"	directory_guid,"
-		"	enc_filename,"
-		"	deviceid,"
-		"	public_key"
-		") VALUES ($1, $2, $3, $4::UUID, $5, $6, $7, $8, $9)"
-		"RETURNING trunc(extract(epoch from time));";
-	const int format[9] = {0, 0, 0, 0, 0, 0, 0, 0, 0};
-
-	char _s_rootdir[GUID_MAX + 1];
-	char _s_file[GUID_MAX + 1];
-	char _s_revision[GUID_MAX + 1];
-	char _s_parent[GUID_MAX + 1];
-	char _s_dir[GUID_MAX + 1];
-	char _deviceid[sizeof(uint64_t) * 8 + 1];
-
-	char *val[9];
-	int length[9];
-
-	uint64_t checkpoint = 0u;
-
-	length[0] = strlen(username);
-	length[1] = guid2string(rootdir, _s_rootdir, sizeof(_s_rootdir));
-	length[2] = guid2string(file, _s_file, sizeof(_s_file));
-	length[3] = guid2string(revision, _s_revision, sizeof(_s_revision));
-	length[4] = guid2string(parent_revision, _s_parent, sizeof(_s_parent));
-	length[5] = guid2string(dir, _s_dir, sizeof(_s_dir));
-	length[6] = strlen(enc_filename);
-	length[7] = snprintf(_deviceid, sizeof(_deviceid), "%"PRIu64, deviceid);
-	length[8] = strlen(pkey);
-
-	val[0] = username;
-	val[1] = _s_rootdir;
-	val[2] = _s_file;
-	val[3] = _s_revision;
-	val[4] = length[4] ? _s_parent : NULL;
-	val[5] = _s_dir;
-	val[6] = enc_filename;
-	val[7] = _deviceid;
-	val[8] = pkey;
-
-	res = PQexecParams(pgc, tb, 9, NULL,
-			(const char *const*)val, length, format, 0);
-	pqs = PQresultStatus(res);
-	if (pqs != PGRES_TUPLES_OK) {
-		xsyslog(LOG_INFO, "chunkFile exec error: %s",
-			PQresultErrorMessage(res));
-	} else if (PQgetlength(res, 0, 0)) {
-		checkpoint = strtoul(PQgetvalue(res, 0, 0), NULL, 10);
-	}
-
-	PQclear(res);
-	return checkpoint;
 }
 
 /* поиск и захват ближайшего доступного ресурса в пуле */
@@ -613,59 +407,6 @@ spq_create_tables()
 }
 
 bool
-spq_f_chunkRename(char *username,
-		guid_t *rootdir, guid_t *file, guid_t *chunk,
-		guid_t *chunk_new, guid_t *revision_new)
-{
-	bool r = false;
-	struct spq *c;
-	if ((c = acquire_conn(&_spq)) != NULL) {
-		r = _spq_f_chunkRename(c->conn, username, rootdir, file, chunk,
-				chunk_new, revision_new);
-		release_conn(&_spq, c);
-	}
-	return r;
-}
-
-bool
-spq_f_chunkNew(char *username, char *hash, char *path,
-		guid_t *rootdir, guid_t *revision, guid_t *chunk, guid_t *file,
-		uint32_t offset, uint32_t origin_len)
-{
-	bool r = false;
-	struct spq *c;
-	if ((c = acquire_conn(&_spq)) != NULL) {
-		r = _spq_f_chunkNew(c->conn, username, hash, path,
-				rootdir, revision, chunk, file, offset, origin_len);
-		release_conn(&_spq, c);
-	}
-	return r;
-}
-
-uint64_t
-spq_f_chunkFile(char *username,
-		guid_t *rootdir, guid_t *file, guid_t *revision,
-		guid_t *parent_revision, guid_t *dir,
-		char *enc_filename, uint64_t deviceid, uint8_t *pkey, size_t pkey_len)
-{
-	uint64_t r = 0u;
-	struct spq *c;
-	size_t pkeyhex_sz = pkey_len * 2 + 1;
-	char *pkeyhex = calloc(1, pkeyhex_sz);
-	if (pkeyhex) {
-		bin2hex((uint8_t*)pkey, pkey_len, pkeyhex, pkeyhex_sz);
-		if ((c = acquire_conn(&_spq)) != NULL) {
-			r = _spq_f_chunkFile(c->conn, username, rootdir, file, revision,
-					parent_revision, dir,
-					enc_filename, deviceid, pkeyhex);
-			release_conn(&_spq, c);
-		}
-		free(pkeyhex);
-	}
-	return r;
-}
-
-bool
 spq_f_getChunkPath(char *username,
 		guid_t *rootdir, guid_t *file, guid_t *chunk,
 		char *path, size_t path_len, size_t *offset, size_t *origin)
@@ -941,7 +682,6 @@ spq_f_getFileMeta_free(struct spq_FileMeta *fmeta)
 
 bool
 _spq_insert_chunk(PGconn *pgc,
-		char *username,
 		guid_t *rootdir, guid_t *file, guid_t *revision, guid_t *chunk,
 		char *chunk_hash, uint32_t chunk_size, uint32_t chunk_offset,
 		char *address)
@@ -949,49 +689,46 @@ _spq_insert_chunk(PGconn *pgc,
 	PGresult *res;
 	const char *tb = "SELECT insert_chunk"
 		"("
-		"	$1::character varying, "
+		"	$1::UUID, "
 		"	$2::UUID, "
 		"	$3::UUID, "
 		"	$4::UUID, "
-		"	$5::UUID, "
-		"	$6::character varying, "
+		"	$5::character varying, "
+		"	$6::integer, "
 		"	$7::integer, "
-		"	$8::integer, "
-		"	$9::text "
+		"	$8::text "
 		");";
-	const int fmt[9] = {0, 0, 0, 0, 0, 0, 0, 0, 0};
+	const int fmt[8] = {0, 0, 0, 0, 0, 0, 0, 0};
 
 	char _rootdir[GUID_MAX + 1];
 	char _file[GUID_MAX + 1];
 	char _revision[GUID_MAX + 1];
 	char _chunk[GUID_MAX + 1];
-	char _size[16];
-	char _offset[16];
+	char _size[32];
+	char _offset[32];
 
-	char *val[9];
-	int len[9];
+	char *val[8];
+	int len[8];
 
-	len[0] = strlen(username);
-	len[1] = guid2string(rootdir, PSIZE(_rootdir));
-	len[2] = guid2string(file, PSIZE(_file));
-	len[3] = guid2string(revision, PSIZE(_revision));
-	len[4] = guid2string(chunk, PSIZE(_chunk));
-	len[5] = strlen(chunk_hash);
-	len[6] = snprintf(_size, sizeof(_size), "%"PRIu32, chunk_size);
-	len[7] = snprintf(_offset, sizeof(_offset), "%"PRIu32, chunk_offset);
-	len[8] = strlen(address);
+	len[0] = guid2string(rootdir, PSIZE(_rootdir));
+	len[1] = guid2string(file, PSIZE(_file));
+	len[2] = guid2string(revision, PSIZE(_revision));
+	len[3] = guid2string(chunk, PSIZE(_chunk));
+	len[4] = strlen(chunk_hash);
+	len[5] = snprintf(_size, sizeof(_size), "%"PRIu32, chunk_size);
+	len[6] = snprintf(_offset, sizeof(_offset), "%"PRIu32, chunk_offset);
+	len[7] = strlen(address);
 
-	val[0] = username;
-	val[1] = _rootdir;
-	val[2] = _file;
-	val[3] = _revision;
-	val[4] = _chunk;
-	val[5] = chunk_hash;
-	val[6] = _size;
-	val[7] = _offset;
-	val[8] = address;
+	val[0] = _rootdir;
+	val[1] = _file;
+	val[2] = _revision;
+	val[3] = _chunk;
+	val[4] = chunk_hash;
+	val[5] = _size;
+	val[6] = _offset;
+	val[7] = address;
 
-	res = PQexecParams(pgc, tb, 9, NULL, (const char *const*)val, len, fmt, 0);
+	res = PQexecParams(pgc, tb, 8, NULL, (const char *const*)val, len, fmt, 0);
 
 	if (PQresultStatus(res) != PGRES_TUPLES_OK) {
 		xsyslog(LOG_INFO, "exec insert_chunk error: %s",
@@ -1012,7 +749,7 @@ _spq_insert_chunk(PGconn *pgc,
 }
 
 bool
-spq_insert_chunk(char *username,
+spq_insert_chunk(char *username, uint32_t device_id,
 		guid_t *rootdir, guid_t *file, guid_t *revision, guid_t *chunk,
 		char *chunk_hash, uint32_t chunk_size, uint32_t chunk_offset,
 		char *address)
@@ -1020,8 +757,8 @@ spq_insert_chunk(char *username,
 	bool r = false;
 	struct spq *c;
 	if ((c = acquire_conn(&_spq)) != NULL) {
-		r = _spq_insert_chunk(c->conn, username,
-				rootdir, file, revision, chunk,
+		r = spq_begin_life(c->conn, username, device_id) &&
+			_spq_insert_chunk(c->conn, rootdir, file, revision, chunk,
 				chunk_hash, chunk_size, chunk_offset, address);
 		release_conn(&_spq, c);
 	}
@@ -1030,7 +767,6 @@ spq_insert_chunk(char *username,
 
 bool
 _spq_link_chunk(PGconn *pgc,
-		char *username,
 		guid_t *rootdir, guid_t *file, guid_t *chunk,
 		guid_t *new_chunk, guid_t *new_revision)
 {
@@ -1038,14 +774,13 @@ _spq_link_chunk(PGconn *pgc,
 	ExecStatusType pqs;
 	const char tb[] = "SELECT link_chunk"
 		"("
-		"	$1::character varying,"
+		"	$1::UUID,"
 		"	$2::UUID,"
 		"	$3::UUID,"
 		"	$4::UUID,"
-		"	$5::UUID,"
-		"	$6::UUID"
+		"	$5::UUID"
 		");";
-	const int fmt[6] = {0, 0, 0, 0, 0, 0};
+	const int fmt[5] = {0, 0, 0, 0, 0};
 
 	char _rootdir[GUID_MAX + 1];
 	char _file[GUID_MAX + 1];
@@ -1053,24 +788,22 @@ _spq_link_chunk(PGconn *pgc,
 	char _new_chunk[GUID_MAX + 1];
 	char _new_revision[GUID_MAX + 1];
 
-	char *val[6];
-	int len[6];
+	char *val[5];
+	int len[5];
 
-	len[0] = strlen(username);
-	len[1] = guid2string(rootdir, PSIZE(_rootdir));
-	len[2] = guid2string(file, PSIZE(_file));
-	len[3] = guid2string(chunk, PSIZE(_chunk));
-	len[4] = guid2string(new_chunk, PSIZE(_new_chunk));
-	len[5] = guid2string(new_revision, PSIZE(_new_revision));
+	len[0] = guid2string(rootdir, PSIZE(_rootdir));
+	len[1] = guid2string(file, PSIZE(_file));
+	len[2] = guid2string(chunk, PSIZE(_chunk));
+	len[3] = guid2string(new_chunk, PSIZE(_new_chunk));
+	len[4] = guid2string(new_revision, PSIZE(_new_revision));
 
-	val[0] = username;
-	val[1] = _rootdir;
-	val[2] = _file;
-	val[3] = _chunk;
-	val[4] = _new_chunk;
-	val[5] = _new_revision;
+	val[0] = _rootdir;
+	val[1] = _file;
+	val[2] = _chunk;
+	val[3] = _new_chunk;
+	val[4] = _new_revision;
 
-	res = PQexecParams(pgc, tb, 9, NULL, (const char *const*)val, len, fmt, 0);
+	res = PQexecParams(pgc, tb, 5, NULL, (const char *const*)val, len, fmt, 0);
 	pqs = PQresultStatus(res);
 	if (pqs != PGRES_TUPLES_OK) {
 		xsyslog(LOG_INFO, "exec link_chunk error: %s",
@@ -1091,77 +824,75 @@ _spq_link_chunk(PGconn *pgc,
 }
 
 bool
-spq_link_chunk(char *username,
+spq_link_chunk(char *username, uint32_t device_id,
 		guid_t *rootdir, guid_t *file, guid_t *chunk,
 		guid_t *new_chunk, guid_t *new_revision)
 {
 	bool r = false;
 	struct spq *c;
 	if ((c = acquire_conn(&_spq)) != NULL) {
-		r = _spq_link_chunk(c->conn, username, rootdir, file, chunk,
+		r = spq_begin_life(c->conn, username, device_id) &&
+			_spq_link_chunk(c->conn, rootdir, file, chunk,
 				new_chunk, new_revision);
 		release_conn(&_spq, c);
 	}
 	return r;
 }
 
-bool
+uint64_t
 _spq_insert_revision(PGconn *pgc,
-		char *username,
 		guid_t *rootdir, guid_t *file,
 		guid_t *revision, guid_t *parent_revision,
-		char *filename, uint8_t *pubkey,
+		char *filename, char *pubkey,
 		guid_t *dir,
 		unsigned chunks)
 {
+	uint64_t result;
 	PGresult *res;
 	ExecStatusType pqs;
 	const char tb[] = "SELECT insert_revision"
 		"("
-		"	$1::character varying,"
+		"	$1::UUID,"
 		"	$2::UUID,"
 		"	$3::UUID,"
 		"	$4::UUID,"
-		"	$5::UUID,"
+		"	$5::character varying,"
 		"	$6::character varying,"
-		"	$7::character varying,"
-		"	$8::UUID,"
-		"	$9::integer"
+		"	$7::UUID,"
+		"	$8::integer"
 		");";
-	const int fmt[9] = {0, 0, 0, 0, 0, 0, 0, 0, 0};
+	const int fmt[8] = {0, 0, 0, 0, 0, 0, 0, 0};
 
 	char _rootdir[GUID_MAX + 1];
 	char _file[GUID_MAX + 1];
 	char _revision[GUID_MAX + 1];
 	char _parent_revision[GUID_MAX + 1];
 	char _dir[GUID_MAX + 1];
-	char _chunks[16];
+	char _chunks[32];
 
 	const char *_m = NULL;
-	char *val[9];
-	int len[9];
+	char *val[8];
+	int len[8];
 
-	len[0] = strlen(username);
-	len[1] = guid2string(rootdir, PSIZE(_rootdir));
-	len[2] = guid2string(file, PSIZE(_file));
-	len[3] = guid2string(revision, PSIZE(_revision));
-	len[4] = guid2string(parent_revision, PSIZE(_parent_revision));
-	len[5] = strlen(filename);
-	len[6] = strlen((char*)pubkey);
-	len[7] = guid2string(dir, PSIZE(_dir));
-	len[8] = snprintf(_chunks, sizeof(_chunks), "%u", chunks);
+	len[0] = guid2string(rootdir, PSIZE(_rootdir));
+	len[1] = guid2string(file, PSIZE(_file));
+	len[2] = guid2string(revision, PSIZE(_revision));
+	len[3] = guid2string(parent_revision, PSIZE(_parent_revision));
+	len[4] = strlen(filename);
+	len[5] = strlen(pubkey);
+	len[6] = guid2string(dir, PSIZE(_dir));
+	len[7] = snprintf(_chunks, sizeof(_chunks), "%u", chunks);
 
-	val[0] = username;
-	val[1] = _rootdir;
-	val[2] = _file;
-	val[3] = _revision;
-	val[4] = _parent_revision;
-	val[5] = filename;
-	val[6] = (char*)pubkey;
-	val[7] = _dir;
-	val[8] = _chunks;
+	val[0] = _rootdir;
+	val[1] = _file;
+	val[2] = _revision;
+	val[3] = _parent_revision;
+	val[4] = filename;
+	val[5] = pubkey;
+	val[6] = _dir;
+	val[7] = _chunks;
 
-	res = PQexecParams(pgc, tb, 9, NULL, (const char *const*)val, len, fmt, 0);
+	res = PQexecParams(pgc, tb, 8, NULL, (const char *const*)val, len, fmt, 0);
 	pqs = PQresultStatus(res);
 
 	if (pqs != PGRES_TUPLES_OK)
@@ -1172,26 +903,28 @@ _spq_insert_revision(PGconn *pgc,
 	if (_m) {
 		xsyslog(LOG_INFO, "exec insert_revision error: %s", _m);
 		PQclear(res);
-		return false;
+		return 0;
 	}
-
+	result = strtoul(PQgetvalue(res, 0, 1), NULL, 10);
 	PQclear(res);
-	return true;
+	return result;
 }
 
-bool
-spq_insert_revision(char *username,
+uint64_t
+spq_insert_revision(char *username, uint32_t device_id,
 		guid_t *rootdir, guid_t *file,
 		guid_t *revision, guid_t *parent_revision,
-		char *filename, uint8_t *pubkey,
+		char *filename, char *pubkey,
 		guid_t *dir,
 		unsigned chunks)
 {
-	bool r = false;
+	uint64_t r = 0lu;
 	struct spq *c;
 	if ((c = acquire_conn(&_spq)) != NULL) {
-		r = _spq_insert_revision(c->conn, username, rootdir, file, revision,
-				parent_revision, filename, pubkey, dir, chunks);
+		if (spq_begin_life(c->conn, username, device_id)) {
+			r = _spq_insert_revision(c->conn, rootdir, file,
+					revision, parent_revision, filename, pubkey, dir, chunks);
+		}
 		release_conn(&_spq, c);
 	}
 	return r;

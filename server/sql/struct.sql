@@ -520,7 +520,7 @@ CREATE OR REPLACE FUNCTION insert_revision(
 	_rootdir_guid UUID, _file_guid UUID, _revision_guid UUID, _parent_revision_guid UUID,
 	_filename character varying(4096), _pubkey character varying(4096), _dir_guid UUID,
 	_chunks integer)
-	RETURNS text AS $$
+	RETURNS TABLE(r_error text, r_checkpoint bigint) AS $$
 DECLARE
 	_username character varying(1024);
 	_row record;
@@ -573,19 +573,22 @@ BEGIN
 			AND rootdir.rootdir = _rootdir_guid
 			AND directory.directory = _dir_guid;
 		IF _w = 0 THEN
-			return concat('directory "', _dir_guid, '" not found in',
+			r_error := concat('directory "', _dir_guid, '" not found in',
 				'rootdir "', _rootdir_guid, '"');
+			return;
 		END IF;
-		return concat('revision "', _revision_guid,
+		r_error := concat('revision "', _revision_guid,
 			'" in rootdir "', _rootdir_guid, '" in file "', _file_guid,  '" not found');
+		return;
 	END IF;
 
 
 	-- 1. проверка на перезапись
 	IF _ur.permit = FALSE THEN
-		return concat('revision "', _file_guid, '" ',
+		r_error := concat('revision "', _file_guid, '" ',
 			'already commited in rootdir "', _rootdir_guid, '" ',
 			'file "', _file_guid, '"');
+		return;
 	END IF;
 
 	-- 2. проверка количества чанков
@@ -594,11 +597,12 @@ BEGIN
 	WHERE file_chunk.file_id = _ur.file_id
 		AND file_chunk.revision_id  = _ur.revision_id;
 	IF _w != _chunks THEN
-		return concat('different stored chunks count and wanted: ',
+		r_error := concat('different stored chunks count and wanted: ',
 			_w, ' != ', _chunks, ' ',
 			'in rootdir "', _rootdir_guid, '", ',
 			'file "', _file_guid, '", ',
 			'revision "', _revision_guid, '"');
+		return;
 	END IF;
 
 	-- 3. обновление файла
@@ -621,9 +625,10 @@ BEGIN
 		SELECT * INTO _row FROM file_revision
 		WHERE id = _ur.revision_id;
 		IF _row IS NULL THEN
-			return concat('revision "', _parent_revision_guid, '" not found in ',
+			r_error := concat('revision "', _parent_revision_guid, '" not found in ',
 				'file "', _file_guid, '" ',
 				'rootdir "', _rootdir_guid, '"');
+			return;
 		END IF;
 		UPDATE file_revision SET parent_id = _row.id WHERE id = _ur.revision_id;
 	END IF;

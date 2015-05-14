@@ -384,7 +384,8 @@ _handle_query_chunks(struct client *c, unsigned type, Fep__QueryChunks *msg)
  * блокировку c->cum->lock
  */
 static inline bool
-_active_sync(struct client *c, uint32_t session_id, bool locked)
+_active_sync(struct client *c, guid_t *rootdir,
+		uint32_t session_id, bool locked)
 {
 	/* генерация списка последних обновлений директорий и файлов */
 	struct logDirFile gs;
@@ -400,7 +401,7 @@ _active_sync(struct client *c, uint32_t session_id, bool locked)
 	/* TODO: NULL для листинга rootdir,
 	 * с указанием rootdir_guid - для файлов/дир
 	 */
-	if (!spq_f_logDirFile(c->name, NULL, c->checkpoint, c->device_id, &gs)) {
+	if (!spq_f_logDirFile(c->name, rootdir, c->checkpoint, c->device_id, &gs)) {
 		return false;
 	}
 
@@ -435,6 +436,7 @@ _active_sync(struct client *c, uint32_t session_id, bool locked)
 bool
 _handle_want_sync(struct client *c, unsigned type, Fep__WantSync *msg)
 {
+	guid_t rootdir;
 	if (!c->status.auth_ok)
 		return send_error(c, msg->id, "Unauthorized", -1);
 
@@ -443,8 +445,12 @@ _handle_want_sync(struct client *c, unsigned type, Fep__WantSync *msg)
 		c->cum = client_cum_create(hash_pjw(c->name, strlen(c->name)));
 	}
 
+	if (msg->rootdir_guid)
+		string2guid(PSLEN(msg->rootdir_guid), &rootdir);
+
 	c->checkpoint = msg->checkpoint;
-	if (!_active_sync(c, msg->session_id, false)) {
+	if (!_active_sync(c, rootdir.not_null ? &rootdir : NULL,
+				msg->session_id, false)) {
 		return send_error(c, msg->id, "Internal error 1653", -1);
 	}
 	c->status.log_active = true;
@@ -870,10 +876,14 @@ _file_complete(struct client *c, struct wait_file *wf)
 		return true;
 	}
 	/* файл собрался */
-	checkpoint = spq_f_chunkFile(c->name, &wf->rootdir,
-			&wf->file, &wf->revision, &wf->parent, &wf->dir,
-			wf->enc_filename, c->device_id, wf->key, wf->key_len);
-
+	{
+		size_t pkeysize = wf->key_len * 2 + 1;
+		char *pkeyhex = alloca(pkeysize);
+		bin2hex(wf->key, wf->key_len, pkeyhex, wf->key_len);
+		checkpoint = spq_insert_revision(c->name, c->device_id,
+				&wf->rootdir, &wf->file, &wf->revision, &wf->parent,
+				wf->enc_filename, pkeyhex, &wf->dir, wf->chunks);
+	}
 	if (!checkpoint) {
 		retval = send_error(c, wf->msg_id, "Internal error 1785", -1);
 	} else {
@@ -1068,7 +1078,7 @@ _handle_rename_chunk(struct client *c, unsigned type, Fep__RenameChunk *msg)
 			msg->chunk_guid, msg->to_chunk_guid, msg->to_revision_guid);
 #endif
 	/* манипуляция данными в бд */
-	if (!spq_f_chunkRename(c->name, &rootdir, &file, &chunk,
+	if (!spq_link_chunk(c->name, c->device_id, &rootdir, &file, &chunk,
 				&chunk_new, &revision_new)) {
 		wf->chunks_fail++;
 		errmsg = "Original chunk not found";
@@ -1128,7 +1138,7 @@ _handle_end(struct client *c, unsigned type, Fep__End *end)
 					"invalid chunk hash: %s, expect: %s",
 					sha256_hex, chunk_hash);
 		/* чанк пришёл, теперь нужно попробовать обновить информацию в бд */
-		} else if (!spq_insert_chunk(c->name, &wf->rootdir, &wf->file,
+		} else if (!spq_insert_chunk(c->name, c->device_id, &wf->rootdir, &wf->file,
 					&wf->revision, &wx->chunk_guid, chunk_hash,
 					wx->size, end->offset, wx->path)) {
 		}
@@ -1939,7 +1949,8 @@ client_iterate(struct sev_ctx *cev, bool last, void **p)
 		/* если чекпоинт "уехал", то нам тоже нужно двигаться вперёд */
 		if (c->cum->new_checkpoint > c->checkpoint &&
 				c->cum->from_device != c->device_id) {
-			_active_sync(c, C_NOSESSID, true);
+			/* TODO: разделение по rootdir
+			 _active_sync(c, C_NOSESSID, true); */
 		}
 		pthread_mutex_unlock(&c->cum->lock);
 	}

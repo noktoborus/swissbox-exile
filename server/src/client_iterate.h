@@ -40,7 +40,7 @@ struct fdb_fileUpdate {
 	char parent_revision_guid[GUID_MAX + 1];
 	char revision_guid[GUID_MAX + 1];
 
-	char *key;
+	uint8_t *key;
 	size_t key_len;
 	char *hash_filename;
 	char *enc_filename;

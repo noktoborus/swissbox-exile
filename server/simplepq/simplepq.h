@@ -20,38 +20,24 @@ void spq_close();
 
 bool spq_create_tables();
 
-bool spq_f_chunkRename(char *username,
-		guid_t *rootdir, guid_t *file, guid_t *chunk,
-		guid_t *chunk_new, guid_t *revision_new);
-
 /* v3 */
-bool spq_insert_chunk(char *username,
+bool spq_insert_chunk(char *username, uint32_t device_id,
 		guid_t *rootdir, guid_t *file, guid_t *revision, guid_t *chunk,
 		char *chunk_hash, uint32_t chunk_size, uint32_t chunk_offset,
 		char *address);
 
-bool spq_link_chunk(char *username,
+bool spq_link_chunk(char *username, uint32_t device_id,
 		guid_t *rootdir, guid_t *file, guid_t *chunk,
 		guid_t *new_chunk, guid_t *new_revision);
 
-bool spq_insert_revision(char *username,
+uint64_t spq_insert_revision(char *username, uint32_t device_id,
 		guid_t *rootdir, guid_t *file,
 		guid_t *revision, guid_t *parent_revision,
-		char *filename, uint8_t *pubkey,
+		char *filename, char *pubkey,
 		guid_t *dir,
 		unsigned chunks);
 
 /* */
-
-bool spq_f_chunkNew(char *username, char *hash, char *path,
-		guid_t *rootdir, guid_t *revision, guid_t *chunk, guid_t *file,
-		uint32_t offset, uint32_t origin_len);
-
-uint64_t
-spq_f_chunkFile(char *username,
-		guid_t *rootdir, guid_t *file, guid_t *revision,
-		guid_t *parent_revision, guid_t *dir,
-		char *enc_filename, uint64_t deviceid, uint8_t *pkey, size_t pkey_len);
 
 bool spq_f_getChunkPath(char *username,
 		guid_t *rootdir, guid_t *file, guid_t *chunk,
