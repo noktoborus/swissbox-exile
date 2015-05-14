@@ -50,6 +50,7 @@ DROP SEQUENCE IF EXISTS event_seq CASCADE;
 DROP SEQUENCE IF EXISTS rootdir_log_seq CASCADE;
 DROP SEQUENCE IF EXISTS rootdir_seq CASCADE;
 DROP SEQUENCE IF EXISTS file_log_seq CASCADE;
+DROP SEQUENCE IF EXISTS event_checkpoint_seq CASCADE;
 
 DROP TYPE IF EXISTS event_type CASCADE;
 
@@ -57,7 +58,8 @@ CREATE SEQUENCE user_seq;
 CREATE TABLE IF NOT EXISTS "user"
 (
 	id bigint NOT NULL DEFAULT nextval('user_seq') PRIMARY KEY,
-	username varchar(1024) NOT NULL CHECK(char_length(username) > 0)
+	username varchar(1024) NOT NULL CHECK(char_length(username) > 0),
+	UNIQUE(username)
 );
 
 CREATE SEQUENCE rootdir_log_seq;
@@ -106,12 +108,13 @@ CREATE TABLE IF NOT EXISTS options
 -- rootdir: создание/удаление корневой директории
 CREATE TYPE event_type AS ENUM ('directory', 'file', 'rootdir');
 
+CREATE SEQUENCE event_checkpoint_seq;
 CREATE SEQUENCE event_seq;
 CREATE TABLE IF NOT EXISTS event
 (
 	id bigint NOT NULL DEFAULT nextval('event_seq') PRIMARY KEY,
 	user_id bigint NOT NULL REFERENCES "user"(id),
-	checkpoint bigint NOT NULL DEFAULT trunc(extract(epoch from now())),
+	checkpoint bigint NOT NULL DEFAULT nextval('event_checkpoint_seq'),
 	-- требуется для фильтрации событий
 	-- поле не ссылается на rootdir(id) потому что лог не особо полезен
 	-- и может в любой момент быть затёрт
@@ -241,11 +244,13 @@ BEGIN
 		BEGIN
 			-- проверочка нужна что бы не произошло лишнего смешения
 			SELECT INTO new.device_id device_id
-			FROM _life_, "user"
+			FROM _life_, "user", options
 			WHERE
-				"user".id = new.user_id
-				AND _life_.user_id = new.user_id
-				AND _life_.username = "user".username;
+				"user".id = new.user_id AND
+				_life_.user_id = new.user_id AND
+				_life_.username = "user".username AND
+				options."key" = 'life_mark' AND
+				_life_.mark = options.value_u;
 		EXCEPTION
 			WHEN undefined_table THEN -- nothing
 		END;
@@ -462,13 +467,21 @@ CREATE OR REPLACE FUNCTION begin_life(_username character varying(1024),
 	RETURNS void AS $$
 DECLARE
 	_x integer;
+	_n record;
 BEGIN
 	-- создаём временную таблицу
 	-- использовать .. ON COMMIT DROP нельзя
 	-- потому что COMMIT произойдёт в конце этой процедуры
 	-- FIXME: эффект кеша
+	BEGIN
+		SELECT INTO _n * FROM _life_;
+		DROP TABLE _life_;
+	EXCEPTION
+		WHEN undefined_table THEN -- nothing
+	END;
 	CREATE TEMP TABLE IF NOT EXISTS _life_
 	(
+		mark UUID,
 		username character varying(1024),
 		user_id bigint,
 		device_id integer
@@ -477,8 +490,8 @@ BEGIN
 	TRUNCATE TABLE _life_;
 
 	INSERT INTO _life_
-		SELECT _username, "user".id, _device_id FROM "user"
-		WHERE "user".username = _username;
+		SELECT options.value_u, _username, "user".id, _device_id FROM "user", options
+		WHERE "user".username = _username AND options."key" = 'life_mark';
 
 	GET DIAGNOSTICS _x = ROW_COUNT;
 	IF _x = 0 THEN
@@ -518,10 +531,14 @@ DECLARE
 BEGIN
 	-- получение базовой информации
 	BEGIN
-		SELECT INTO _username username FROM _life_;
-	EXCEPTION WHEN undefined_table THEN
-		RAISE EXCEPTION 'try to use begin_life() before call this';
+		SELECT INTO _username username FROM _life_, options
+		WHERE options."key" = 'life_mark'
+			AND _life_.mark = options.value_u;
+	EXCEPTION WHEN undefined_table THEN -- nothing
 	END;
+	IF _username IS NULL THEN
+		RAISE EXCEPTION 'try to use begin_life() before call this';
+	END IF;
 	-- получение всякой информации
 	SELECT
 		"user".id AS user_id,
@@ -631,10 +648,14 @@ DECLARE
 BEGIN
 	-- получение базовой информации
 	BEGIN
-		SELECT INTO _user_id user_id FROM _life_;
-	EXCEPTION WHEN undefined_table THEN
-		RAISE EXCEPTION 'try to use begin_life() before call this';
+		SELECT INTO _user_id user_id FROM _life_, options
+		WHERE options."key" = 'life_mark' AND
+			_life_.mark = options.value_u;
+	EXCEPTION WHEN undefined_table THEN -- nothing
 	END;
+	IF _user_id IS NULL THEN
+		RAISE EXCEPTION 'try to use begin_life() before call this';
+	END IF;
 	-- 1. Получить user_id и rootdir_id
 	
 	-- для начала нужно выяснить rootdir_id
@@ -699,10 +720,14 @@ DECLARE
 BEGIN
 	-- получение базовой информации
 	BEGIN
-		SELECT INTO _username username FROM _life_;
-	EXCEPTION WHEN undefined_table THEN
-		RAISE EXCEPTION 'try to use begin_life() before call this';
+		SELECT INTO _username username FROM _life_, options
+		WHERE options."key" = 'life_mark' AND
+			_life_.mark = options.value_u;
+	EXCEPTION WHEN undefined_table THEN -- nothing
 	END;
+	IF _username IS NULL THEN
+		RAISE EXCEPTION 'try to use begin_life() before call this';
+	END IF;
 	-- 1. получить старые значение
 	-- 2. смешать старые и новые значения
 	SELECT
@@ -746,7 +771,7 @@ CREATE OR REPLACE FUNCTION log_list(_rootdir UUID, _checkpoint bigint)
 		r_revision UUID,
 		r_directory UUID,
 		r_parent_revision UUID,
-		r_name UUID,
+		r_name text,
 		r_pubkey UUID,
 		r_count integer
 	) AS $$
@@ -757,24 +782,31 @@ DECLARE
 BEGIN
 	-- получение базовой информации
 	BEGIN
-		SELECT INTO _ur user_id, device_id FROM _life_;
-	EXCEPTION WHEN undefined_table THEN
-		RAISE EXCEPTION 'try to use begin_life() before call this';
+		SELECT INTO _ur user_id, device_id FROM _life_, options
+		WHERE options."key" = 'life_mark' AND
+			_life_.mark = options.value_u;
+	EXCEPTION WHEN undefined_table THEN -- nothing
 	END;
+	IF _ur IS NULL THEN
+		RAISE EXCEPTION 'try to use begin_life() before call this';
+	END IF;
 
 	-- варианты:
 	-- TODO: 1. checkpoint IS NULL or == 0: отсылается текущее состояние
 	FOR _row IN
 		SELECT * FROM event
-		WHERE user_id = _ur.userid AND
+		WHERE user_id = _ur.user_id AND
 			checkpoint > _checkpoint AND
-			device_id != _ur.device_id
+			((_rootdir IS NOT NULL AND rootdir = _rootdir) OR
+			(_rootdir IS NULL AND "type" = 'rootdir')) AND
+			(device_id != _ur.device_id OR
+			device_id IS NULL)
 		ORDER BY checkpoint ASC
 	LOOP
 		r_type := _row."type";
 		r_checkpoint := _row.checkpoint;
 		r_rootdir := _row.rootdir;
-		CASE "type"
+		CASE _row."type"
 		WHEN 'rootdir'
 		THEN
 			SELECT INTO _xrow title FROM rootdir_log
@@ -809,9 +841,9 @@ BEGIN
 				file_revision.chunks AS chunks
 			FROM file_log, file, file_revision, directory
 			WHERE
-				file_log.id = _row.target_id,
-				file_revision.id = file_log.revision_id,
-				file.id = file_log.file_id,
+				file_log.id = _row.target_id AND
+				file_revision.id = file_log.revision_id AND
+				file.id = file_log.file_id AND
 				directory.id = file_log.directory_id;
 			r_file := _xrow.file;
 			r_revision := _xrow.revision;
@@ -870,5 +902,7 @@ INSERT INTO options ("key", value_c, value_u)
 INSERT INTO options ("key", value_c, value_u)
 	VALUES ('2_rootdir', 'Second',
 		'11000001-2003-5406-7008-900000000000');
-
+-- опция для костыля, что бы не возникло наложения данных из таблицы _life_ при обновлении бд
+INSERT INTO options ("key", value_u)
+	VALUES ('life_mark', gen_random_uuid());
 
