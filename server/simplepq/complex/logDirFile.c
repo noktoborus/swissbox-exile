@@ -20,7 +20,7 @@ _spq_f_logDirFile_exec(PGconn *pgc, guid_t *rootdir, uint64_t checkpoint)
 	len[0] = guid2string(rootdir, PSIZE(_rootdir));
 	len[1] = snprintf(_checkpoint, sizeof(_checkpoint), "%"PRIu64, checkpoint);
 
-	val[0] = _rootdir;
+	val[0] = len[0] ? _rootdir : NULL;
 	val[1] = _checkpoint;
 
 	res = PQexecParams(pgc, tb, 3, NULL, (const char *const*)val, len, fmt, 0);
