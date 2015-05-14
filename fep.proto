@@ -447,9 +447,11 @@ message WantSync {
 	required uint64 id = 1 [default = 0];
 
 	/*
-		WantSync должен быть на каждый rootdir
-
-	required string rootdir_guid = 3;*/
+		WantSync должен быть на каждый rootdir,
+		если rootdir не указан,
+		то возвращается лог создания rootdir (список рутдир)
+	*/
+	optional string rootdir_guid = 3;
 	/* чекпоинт для лога */
 	required uint64 checkpoint = 5 [default = 0];
 
