@@ -55,6 +55,10 @@ c_auth_cb(struct client *c, uint64_t id, unsigned int msgtype, void *msg, void *
 		errmsg = "Username or Token has zero lenght";
 	}
 
+	if (!spq_check_user(amsg->username, amsg->authtoken)) {
+		errmsg = "Incorrect auth data";
+	}
+
 	if (errmsg) {
 		lval = sendlog_error(c, id, errmsg, --c->count_error);
 		if (c->count_error <= 0) {
@@ -64,6 +68,7 @@ c_auth_cb(struct client *c, uint64_t id, unsigned int msgtype, void *msg, void *
 		}
 		return lval;
 	}
+
 	c->state++;
 	c->status.auth_ok = true;
 	c->device_id = amsg->device_id;
