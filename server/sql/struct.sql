@@ -876,7 +876,11 @@ CREATE OR REPLACE FUNCTION check_user(_username "user".username%TYPE,
 	_secret "user".username%TYPE, _drop_ _drop_ default 'drop')
 	RETURNS boolean AS $$
 BEGIN
-	return True;
+	IF (SELECT COUNT(*) FROM "user" WHERE username = _username
+		AND secret = _secret) = 1 THEN
+		return True;
+	END IF;
+	return False;
 END $$ LANGUAGE plpgsql;
 
 

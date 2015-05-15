@@ -950,7 +950,8 @@ spq_begin_life(PGconn *pgc, char *username, uint64_t device_id)
 
 	res = PQexecParams(pgc, tb, 2, NULL, (const char *const*)val, len, fmt, 0);
 	if (PQresultStatus(res) != PGRES_COMMAND_OK) {
-		xsyslog(LOG_INFO, "exec begin_life error: %s", PQresultErrorMessage(res));
+		xsyslog(LOG_INFO, "exec begin_life error: %s",
+				PQresultErrorMessage(res));
 		PQclear(res);
 		return false;
 	}
@@ -959,6 +960,47 @@ spq_begin_life(PGconn *pgc, char *username, uint64_t device_id)
 	return true;
 }
 
+static inline bool
+_spq_check_user(PGconn *pgc, char *username, char *secret)
+{
+	bool r = false;
+	PGresult *res;
+	const char tb[] =
+		"SELECT check_user($1::character varying, $2::character varying);";
+	const int fmt[2] = {0, 0};
+	char *val[2];
+	int len[2];
+
+	len[0] = strlen(username);
+	len[1] = strlen(secret);
+
+	val[0] = username;
+	val[1] = secret;
+
+	res = PQexecParams(pgc, tb, 2, NULL, (const char *const*)val, len, fmt, 0);
+	if (PQresultStatus(res) != PGRES_TUPLES_OK) {
+		xsyslog(LOG_INFO, "exec check_user error: %s",
+				PQresultErrorMessage(res));
+	} else if (PQgetlength(res, 0, 0)) {
+		if (PQgetvalue(res, 0, 0)[0] == 't')
+			r = true;
+	}
+
+	PQclear(res);
+	return r;
+}
+
+bool
+spq_check_user(char *username, char *secret)
+{
+	bool r = false;
+	struct spq *c;
+	if ((c = acquire_conn(&_spq)) != NULL) {
+		r = _spq_check_user(c->conn, username, secret);
+		release_conn(&_spq, c);
+	}
+	return r;
+}
 
 #include "complex/getRevisions.c"
 #include "complex/getChunks.c"

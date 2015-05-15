@@ -181,6 +181,8 @@ spq_f_logFilePush(char *username, uint64_t device_id,
 uint64_t spq_f_logDirPush(char *username, uint64_t device_id,
 		guid_t *rootdir, guid_t *directory, char *path);
 
+/* проверка наличия пользователя в бд */
+bool spq_check_user(char *username, char *secret);
 
 /* помогалки */
 bool spq_begin_life(PGconn *pgc, char *username, uint64_t device_id);
