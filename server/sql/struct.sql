@@ -28,17 +28,18 @@ END $$ LANGUAGE plpgsql;
 /* обновление табличного пространства */
 
 -- удаление таблиц не должно вызывать NOTICE с нерзрешёнными CONSTRAINT
+DROP TABLE IF EXISTS file_log CASCADE;
 DROP TABLE IF EXISTS file_chunk CASCADE;
 DROP TABLE IF EXISTS file_revision CASCADE;
 DROP TABLE IF EXISTS options CASCADE;
 DROP TABLE IF EXISTS file CASCADE;
-DROP TABLE IF EXISTS file_log CASCADE;
 DROP TABLE IF EXISTS directory CASCADE;
 DROP TABLE IF EXISTS directory_log CASCADE;
 DROP TABLE IF EXISTS event CASCADE;
 DROP TABLE IF EXISTS rootdir CASCADE;
 DROP TABLE IF EXISTS rootdir_log CASCADE;
 DROP TABLE IF EXISTS "user" CASCADE;
+
 
 DROP SEQUENCE IF EXISTS directory_seq CASCADE;
 DROP SEQUENCE IF EXISTS directory_log_seq CASCADE;
@@ -52,13 +53,18 @@ DROP SEQUENCE IF EXISTS rootdir_seq CASCADE;
 DROP SEQUENCE IF EXISTS file_log_seq CASCADE;
 DROP SEQUENCE IF EXISTS event_checkpoint_seq CASCADE;
 
+DROP TYPE IF EXISTS _drop_ CASCADE;
 DROP TYPE IF EXISTS event_type CASCADE;
+
+-- костыль для гроханья всех хранимых процедур
+CREATE TYPE _drop_ AS ENUM ('drop');
 
 CREATE SEQUENCE user_seq;
 CREATE TABLE IF NOT EXISTS "user"
 (
 	id bigint NOT NULL DEFAULT nextval('user_seq') PRIMARY KEY,
 	username varchar(1024) NOT NULL CHECK(char_length(username) > 0),
+	secret varchar(96) NOT NULL,
 	UNIQUE(username)
 );
 
@@ -462,8 +468,8 @@ END $$ LANGUAGE plpgsql;
 -- облегчающий жизнь костыль, должен вызываться перед началом всех
 -- "простых" операций, сохраняет значение текущего имени пользователя 
 -- и id устройства
-CREATE OR REPLACE FUNCTION begin_life(_username character varying(1024),
-	_device_id integer)
+CREATE OR REPLACE FUNCTION begin_life(_username "user".username%TYPE,
+	_device_id integer, _drop_ _drop_ DEFAULT 'drop')
 	RETURNS void AS $$
 DECLARE
 	_x integer;
@@ -503,7 +509,8 @@ END $$ LANGUAGE plpgsql;
 
 CREATE OR REPLACE FUNCTION update_file(
 	_rootdir_guid UUID, _file_guid UUID, _name character varying(1024),
-	_dir_guid UUID, _pubkey character varying(4096))
+	_dir_guid UUID, _pubkey character varying(4096),
+	_drop_ _drop_ DEFAULT 'drop')
 	RETURNS text AS $$
 BEGIN
 	-- условия:
@@ -519,10 +526,10 @@ END $$ LANGUAGE plpgsql;
 CREATE OR REPLACE FUNCTION insert_revision(
 	_rootdir_guid UUID, _file_guid UUID, _revision_guid UUID, _parent_revision_guid UUID,
 	_filename character varying(4096), _pubkey character varying(4096), _dir_guid UUID,
-	_chunks integer)
+	_chunks integer, _drop_ _drop_ DEFAULT 'drop')
 	RETURNS TABLE(r_error text, r_checkpoint bigint) AS $$
 DECLARE
-	_username character varying(1024);
+	_username "user".username%TYPE;
 	_row record;
 
 	-- хранилище (user_id, rootdir_id, directory_id, file_id, revision_id)
@@ -639,7 +646,7 @@ END $$ LANGUAGE plpgsql;
 CREATE OR REPLACE FUNCTION insert_chunk(
 	_rootdir_guid UUID, _file_guid UUID, _revision_guid UUID, _chunk_guid UUID, 
 	_chunk_hash varchar(1024), _chunk_size integer, _chunk_offset integer,
-	_address text)
+	_address text, _drop_ _drop_ DEFAULT 'drop')
 	RETURNS text AS $$
 DECLARE
 	_user_id bigint;
@@ -717,7 +724,8 @@ END $$ LANGUAGE plpgsql;
 -- линковка чанка из старой ревизии с новой ревизией
 CREATE OR REPLACE FUNCTION link_chunk(
 	_rootdir_guid UUID, _file_guid UUID, _chunk_guid UUID,
-	_new_chunk_guid UUID, _new_revision_guid UUID)
+	_new_chunk_guid UUID, _new_revision_guid UUID,
+	_drop_ _drop_ DEFAULT 'drop')
 	RETURNS text AS $$
 DECLARE
 	_username character varying(1024);
@@ -766,7 +774,8 @@ BEGIN
 END $$ LANGUAGE plpgsql;
 
 -- листинг лога
-CREATE OR REPLACE FUNCTION log_list(_rootdir UUID, _checkpoint bigint)
+CREATE OR REPLACE FUNCTION log_list(_rootdir UUID, _checkpoint bigint,
+	_drop_ _drop_ DEFAULT 'drop')
 	RETURNS TABLE
 	(
 		r_type event_type,
@@ -860,6 +869,14 @@ BEGIN
 		END CASE;
 		return next;
 	END LOOP;
+END $$ LANGUAGE plpgsql;
+
+-- проверка имени пользователя
+CREATE OR REPLACE FUNCTION check_user(_username "user".username%TYPE,
+	_secret "user".username%TYPE, _drop_ _drop_ default 'drop')
+	RETURNS boolean AS $$
+BEGIN
+	return True;
 END $$ LANGUAGE plpgsql;
 
 
