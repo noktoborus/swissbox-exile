@@ -142,7 +142,7 @@ def proto(s, user, secret, devid):
         c = input('help> ');
 
         if c == "help":
-            write_std("ping, wait\n")
+            write_std("ping, wait sync\n")
             continue
         if c == "ping":
             msg = FEP.Ping()
@@ -155,6 +155,15 @@ def proto(s, user, secret, devid):
             continue
         if c == "wait":
             recv_message(s)
+            continue
+        if c == "sync":
+            msg = FEP.WantSync()
+            msg.id = 200
+            msg.checkpoint = 0
+            msg.session_id = 100
+            while True:
+                pass
+                # TODO:
             continue
 
 def connect(host, user, secret, devid):
