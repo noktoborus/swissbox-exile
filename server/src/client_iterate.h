@@ -54,8 +54,11 @@ typedef enum _result_send {
 
 struct result_send {
 	void *res;
-
+	/* id сессии (или C_NOSESSID) */
 	uint64_t id;
+	/* счётчик отосланных пакетов */
+	uint32_t packets;
+	/* тип результата */
 	result_send_t type;
 
 	union {
@@ -76,6 +79,7 @@ struct chunk_send {
 	off_t sent;
 	off_t size;
 
+	uint32_t packets;
 	uint32_t session_id;
 
 	/* позиция чанка в файле и размер чанка */

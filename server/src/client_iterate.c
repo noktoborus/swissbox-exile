@@ -662,6 +662,19 @@ _handle_write_ask(struct client *c, unsigned type, Fep__WriteAsk *msg)
 /* простые сообщения */
 
 bool
+send_end(struct client *c, uint32_t session_id, uint32_t packets)
+{
+	Fep__End msg = FEP__END__INIT;
+
+	msg.id = generate_id(c);
+	msg.session_id = session_id;
+	msg.has_packets = true;
+	msg.packets = packets;
+
+	return send_message(c->cev, FEP__TYPE__tEnd, &msg);
+}
+
+bool
 send_ping(struct client *c)
 {
 	Fep__Ping ping = FEP__PING__INIT;
@@ -1533,8 +1546,13 @@ bool static inline
 _client_iterate_result_logdf(struct client *c, struct logDirFile *ldf)
 {
 	if (!spq_f_logDirFile_it(ldf)) {
+		uint32_t sessid = c->rout->id;
+		uint32_t packets = c->rout->packets;
 		rout_free(c);
-		return true;
+		if (sessid != C_NOSESSID)
+			return send_end(c, sessid, packets);
+		else
+			return true;
 	}
 #if DEEPDEBUG
 	xsyslog(LOG_DEBUG,
@@ -1567,6 +1585,7 @@ _client_iterate_result_logdf(struct client *c, struct logDirFile *ldf)
 		if (c->rout->id != C_NOSESSID)
 			msg.session_id = c->rout->id;
 
+		c->rout->packets++;
 		return send_message(c->cev, FEP__TYPE__tDirectoryUpdate, &msg);
 	} else if (ldf->type == 'f') {
 		Fep__FileUpdate msg = FEP__FILE_UPDATE__INIT;
@@ -1599,6 +1618,7 @@ _client_iterate_result_logdf(struct client *c, struct logDirFile *ldf)
 		if (c->rout->id != C_NOSESSID)
 			msg.session_id = c->rout->id;
 
+		c->rout->packets++;
 		return send_message(c->cev, FEP__TYPE__tFileUpdate, &msg);
 	} else if (ldf->type == 'r') {
 		xsyslog(LOG_INFO, "user '%s' send message TODO: rootdir",
@@ -1622,9 +1642,13 @@ _client_iterate_result(struct client *c)
 		uint8_t hash[HASH_MAX + 1];
 		size_t hash_len;
 		if (!spq_f_getChunks_it(&c->rout->v.c)) {
-			/* итерироваться больше некуда, потому подчищаем */
-			rout_free(c);
-			return true;
+			/* итерироваться больше некуда, потому отправляем end и чистим
+			 *
+			 * если сообщение не отправится, то очередь подчиститься при
+			 * общем выходе из треда
+			 */
+			return send_end(c, c->rout->id, c->rout->packets) &&
+				(rout_free(c) || true);
 		}
 		guid2string(&c->rout->v.c.chunk, guid, sizeof(guid));
 		hash_len = hex2bin(c->rout->v.c.hash, strlen(c->rout->v.c.hash),
@@ -1642,14 +1666,15 @@ _client_iterate_result(struct client *c)
 				(void*)c->cev, msg.id, msg.session_id,
 				msg.chunk_no, msg.chunk_max);
 #endif
+		c->rout->packets++;
 		return send_message(c->cev, FEP__TYPE__tResultChunk, &msg);
 	} else if (c->rout->type == RESULT_REVISIONS) {
 		Fep__ResultRevision msg = FEP__RESULT_REVISION__INIT;
 		char guid[GUID_MAX + 1];
 		char parent[GUID_MAX + 1];
 		if (!spq_f_getRevisions_it(&c->rout->v.r)) {
-			rout_free(c);
-			return true;
+			return send_end(c, c->rout->id, c->rout->packets) &&
+				(rout_free(c) || true);
 		}
 		if (c->rout->v.r.parent.not_null) {
 			guid2string(&c->rout->v.r.parent, parent, sizeof(guid));
@@ -1667,6 +1692,7 @@ _client_iterate_result(struct client *c)
 				(void*)c->cev, msg.id, msg.session_id,
 				msg.rev_no, msg.rev_max);
 #endif
+		c->rout->packets++;
 		return send_message(c->cev, FEP__TYPE__tResultRevision, &msg);
 	} else if (c->rout->type == RESULT_LOGDIRFILE) {
 		return _client_iterate_result_logdf(c, &c->rout->v.df);
@@ -1704,15 +1730,10 @@ _client_iterate_chunk(struct client *c)
 	}
 	/* если прочитали всё что можно -- шлём End и деаллочимся */
 	if (c->cout->sent == c->cout->size) {
-		Fep__End msg = FEP__END__INIT;
-		msg.id = generate_id(c);
-		msg.session_id = c->cout->session_id;
+		uint32_t _sessid = c->cout->session_id;
+		uint32_t _packets = c->cout->packets;
 		cout_free(c);
-#if DEEPDEBUG
-		xsyslog(LOG_DEBUG, "client[%p] <- End id = %"PRIu64" sid = %"PRIu32,
-				(void*)c->cev, msg.id, msg.session_id);
-#endif
-		return send_message(c->cev, FEP__TYPE__tEnd, &msg);
+		return send_end(c, _sessid, _packets);
 	} else {
 		/* чтение файла */
 		readsz = MIN(c->cout_bfsz, c->cout->size - c->cout->sent);
@@ -1744,6 +1765,7 @@ _client_iterate_chunk(struct client *c)
 					(void*)c->cev, xfer_msg.id, xfer_msg.session_id,
 					xfer_msg.offset, xfer_msg.data.len);
 #endif
+			c->cout->packets++;
 			return send_message(c->cev, FEP__TYPE__txfer, &xfer_msg);
 		}
 	}
