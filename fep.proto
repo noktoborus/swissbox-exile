@@ -270,11 +270,6 @@ message FileMeta {
 */
 message WriteAsk {
 	required uint64 id = 1 [default = 0];
-	/* требуемое пространство в байтах для сохранения,
-		пространство резервируется и идентификатор резервации указывается
-		в поле session_id в ответе OkWrite
-	*/
-	required uint64 size = 2;
 	/* название рутдиры */
 	required string rootdir_guid = 3;
 	required string file_guid = 5;
@@ -282,6 +277,14 @@ message WriteAsk {
 	required string revision_guid = 7;
 	/* sha256 хеш чанка */
 	required bytes chunk_hash = 10;
+
+	/* требуемое пространство в байтах для сохранения,
+		пространство резервируется и идентификатор резервации указывается
+		в поле session_id в ответе OkWrite
+	*/
+	required uint32 size = 20;
+	required uint32 offset = 21;
+
 }
 
 message OkWrite {
