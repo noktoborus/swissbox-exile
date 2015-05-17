@@ -24,12 +24,14 @@ option optimize_for = SPEED;
 
  Последовательность инициализации:
  до момента отправки WantSync клинтом сообщения об обновлении не отсылаются
- C: WantSync
- S: DirectoryUpdate
+ C: WantSync (id = 30, session_id = 400)
+ S: RootdirUpdate (id = 31, session_id = 400, no = 1, max = 3)
+ S: DirectoryUpdate (id = 32, session_id = 400, no = 2, max = 3)
  S: (DirectoryUpdate)
  S: ...
- S: FileUpdate
+ S: FileUpdate (id = 33, session_id = 400, no = 2, max = 3)
  S: (FileUpdate)
+ S: End (id = 34, session_id = 400)
  ...
 
  Создание/удаление/переименование директории:
@@ -53,7 +55,7 @@ option optimize_for = SPEED;
 
  Последовательность чтения:
  C: ReadAsk (id = 2051, session_id = 331)
- S: Ok (id = 2051)
+ S: ReadOk (id = 2051)
  S: xfer (id = 440, session_id = 331)
  S: xfer (id = 441, session_id = 331)
  ...
@@ -65,6 +67,7 @@ option optimize_for = SPEED;
  S: ResultChunk (id = 101, session_id = 200, chunk_no = 1, chunk_max = 3)
  S: ResultChunk (id = 102, session_id = 200, chunk_no = 2, chunk_max = 3)
  S: ResultChunk (id = 103, session_id = 200, chunk_no = 3, chunk_max = 3)
+ S: End(id = 104, session_id = 200)
 
  Получение списка ревизий
  C: QueryRevisions (id = 107, session_id = 201, depth = 3, offset = 0)
@@ -72,7 +75,7 @@ option optimize_for = SPEED;
  S: ResultRevision (id = 108, session_id = 201, rev_no = 1, rev_max = 3)
  S: ResultRevision (id = 109, session_id = 201, rev_no = 2, rev_max = 3)
  S: ResultRevision (id = 110, session_id = 201, rev_no = 3, rev_max = 3)
-
+ S: End(id = 111, session_id = 201)
 */
 
 enum Type {
@@ -99,6 +102,7 @@ enum Type {
 	tWantSync = 21;
 	tOkUpdate = 22;
 	tRootdirUpdate = 23;
+	tReadOk = 24;
 }
 
 /*
@@ -292,8 +296,8 @@ message WriteOk {
 
 }
 
-/* Ответ сервера на запрос записи:
- Ответы: Ok, Error
+/*
+   Предложение сервера или клиента завершить сессию
 */
 message End {
 	required uint64 id = 1 [default = 0];
@@ -302,7 +306,16 @@ message End {
 	   и этот идентификатор нужен для последующей записи в это пространство
 	   */
 	required uint32 session_id = 2;
-	/* смещение чанка в файле */
+
+	/* опциональное поле-контролёр: сколько пакетов было отослано в сессии */
+	optional uint32 packets = 4;
+}
+
+/* ответ на запрос чтения */
+message ReadOk {
+	required uint64 id = 1 [default = 0];
+
+	required uint32 size = 2;
 	required uint32 offset = 3;
 }
 
