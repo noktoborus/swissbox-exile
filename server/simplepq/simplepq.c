@@ -749,7 +749,7 @@ _spq_insert_chunk(PGconn *pgc,
 }
 
 bool
-spq_insert_chunk(char *username, uint32_t device_id,
+spq_insert_chunk(char *username, uint64_t device_id,
 		guid_t *rootdir, guid_t *file, guid_t *revision, guid_t *chunk,
 		char *chunk_hash, uint32_t chunk_size, uint32_t chunk_offset,
 		char *address)
@@ -824,7 +824,7 @@ _spq_link_chunk(PGconn *pgc,
 }
 
 bool
-spq_link_chunk(char *username, uint32_t device_id,
+spq_link_chunk(char *username, uint64_t device_id,
 		guid_t *rootdir, guid_t *file, guid_t *chunk,
 		guid_t *new_chunk, guid_t *new_revision)
 {
@@ -911,7 +911,7 @@ _spq_insert_revision(PGconn *pgc,
 }
 
 uint64_t
-spq_insert_revision(char *username, uint32_t device_id,
+spq_insert_revision(char *username, uint64_t device_id,
 		guid_t *rootdir, guid_t *file,
 		guid_t *revision, guid_t *parent_revision,
 		char *filename, char *pubkey,
@@ -934,7 +934,7 @@ bool
 spq_begin_life(PGconn *pgc, char *username, uint64_t device_id)
 {
 	PGresult *res;
-	const char tb[] = "SELECT begin_life($1::character varying, $2::integer);";
+	const char tb[] = "SELECT begin_life($1::character varying, $2::bigint);";
 	const int fmt[2] = {0, 0};
 
 	char _device_id[16];

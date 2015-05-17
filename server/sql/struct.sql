@@ -130,7 +130,7 @@ CREATE TABLE IF NOT EXISTS event
 	-- указатель на id в таблице, которая ицнициировала событие
 	target_id bigint NOT NULL,
 	-- идентификатор устройства
-	device_id integer DEFAULT NULL,
+	device_id bigint DEFAULT NULL,
 	UNIQUE(checkpoint)
 );
 CREATE SEQUENCE directory_log_seq;
@@ -469,7 +469,7 @@ END $$ LANGUAGE plpgsql;
 -- "простых" операций, сохраняет значение текущего имени пользователя 
 -- и id устройства
 CREATE OR REPLACE FUNCTION begin_life(_username "user".username%TYPE,
-	_device_id integer, _drop_ _drop_ DEFAULT 'drop')
+	_device_id event.device_id%TYPE, _drop_ _drop_ DEFAULT 'drop')
 	RETURNS void AS $$
 DECLARE
 	_x integer;
@@ -490,7 +490,7 @@ BEGIN
 		mark UUID,
 		username character varying(1024),
 		user_id bigint,
-		device_id integer
+		device_id bigint
 	);
 	-- и чистим её, что бы не было случайных наложений
 	TRUNCATE TABLE _life_;

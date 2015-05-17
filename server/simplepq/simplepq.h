@@ -21,16 +21,16 @@ void spq_close();
 bool spq_create_tables();
 
 /* v3 */
-bool spq_insert_chunk(char *username, uint32_t device_id,
+bool spq_insert_chunk(char *username, uint64_t device_id,
 		guid_t *rootdir, guid_t *file, guid_t *revision, guid_t *chunk,
 		char *chunk_hash, uint32_t chunk_size, uint32_t chunk_offset,
 		char *address);
 
-bool spq_link_chunk(char *username, uint32_t device_id,
+bool spq_link_chunk(char *username, uint64_t device_id,
 		guid_t *rootdir, guid_t *file, guid_t *chunk,
 		guid_t *new_chunk, guid_t *new_revision);
 
-uint64_t spq_insert_revision(char *username, uint32_t device_id,
+uint64_t spq_insert_revision(char *username, uint64_t device_id,
 		guid_t *rootdir, guid_t *file,
 		guid_t *revision, guid_t *parent_revision,
 		char *filename, char *pubkey,
