@@ -500,17 +500,17 @@ _handle_read_ask(struct client *c, unsigned type, Fep__ReadAsk *msg)
 	}
 
 	chs->fd = fd;
-	chs->session_id = msg->session_id;
+	chs->session_id = generate_id(c);
 	chs->size = st.st_size;
 	chs->next = c->cout;
 	chs->chunk_size = chs->size;
 	chs->file_offset = offset;
 	c->cout = chs;
 #if DEEPDEBUG
-	xsyslog(LOG_DEBUG, "client[%p] -> ReadAsk id = %"PRIu64", sid = %"PRIu32,
-			(void*)c->cev, msg->id, msg->session_id);
+	xsyslog(LOG_DEBUG, "client[%p] -> ReadAsk id = %"PRIu64,
+			(void*)c->cev, msg->id);
 #endif
-
+	/* TODO: OkRead */
 	return send_ok(c, msg->id, C_OK_SIMPLE);
 }
 
@@ -525,7 +525,7 @@ _handle_write_ask(struct client *c, unsigned type, Fep__WriteAsk *msg)
 	uint64_t hash;
 	struct wait_store *fid_ws;
 	struct wait_file *wf;
-	Fep__WriteOk wrok = FEP__WRITE_OK__INIT;
+	Fep__OkWrite wrok = FEP__OK_WRITE__INIT;
 
 	if (!c->status.auth_ok)
 		return send_error(c, msg->id, "Unauthorized", -1);
@@ -613,6 +613,7 @@ _handle_write_ask(struct client *c, unsigned type, Fep__WriteAsk *msg)
 		wx.wf->ref++;
 		wx.hash_len = msg->chunk_hash.len;
 		memcpy(wx.hash, (void*)msg->chunk_hash.data, msg->chunk_hash.len);
+		wx.offset = msg->offset;
 		/* логический костыль */
 		if (fid_in)
 			fid_ws = NULL;
@@ -655,7 +656,7 @@ _handle_write_ask(struct client *c, unsigned type, Fep__WriteAsk *msg)
 		wait_id(c, &c->fid, hash, fid_ws);
 	}
 
-	return send_message(c->cev, FEP__TYPE__tWriteOk, &wrok);
+	return send_message(c->cev, FEP__TYPE__tOkWrite, &wrok);
 }
 
 /* простые сообщения */
@@ -1140,7 +1141,7 @@ _handle_end(struct client *c, unsigned type, Fep__End *end)
 		/* чанк пришёл, теперь нужно попробовать обновить информацию в бд */
 		} else if (!spq_insert_chunk(c->name, c->device_id, &wf->rootdir, &wf->file,
 					&wf->revision, &wx->chunk_guid, chunk_hash,
-					wx->size, end->offset, wx->path)) {
+					wx->size, wx->offset, wx->path)) {
 		}
 	}
 	if (!*errmsg) {
@@ -1236,7 +1237,7 @@ static struct handle handle[] =
 	TYPICAL_HANDLE_S(FEP__TYPE__tReadAsk, "ReadAsk", read_ask), /* 9 */
 	TYPICAL_HANDLE_S(FEP__TYPE__tWriteAsk, "WriteAsk", write_ask), /* 10 */
 	TYPICAL_HANDLE_S(FEP__TYPE__tEnd, "End", end), /* 11 */
-	INVALID_P_HANDLE_S(FEP__TYPE__tWriteOk, "WriteOk", write_ok), /* 12 */
+	INVALID_P_HANDLE_S(FEP__TYPE__tOkWrite, "OkWrite", ok_write), /* 12 */
 	TYPICAL_HANDLE_S(FEP__TYPE__tFileUpdate, "FileUpdate",
 			file_update), /* 13 */
 	TYPICAL_HANDLE_S(FEP__TYPE__tRenameChunk, "RenameChunk",
@@ -1254,6 +1255,7 @@ static struct handle handle[] =
 	TYPICAL_HANDLE_S(FEP__TYPE__tFileMeta, "FileMeta", file_meta), /* 20 */
 	TYPICAL_HANDLE_S(FEP__TYPE__tWantSync, "WantSync", want_sync), /* 21 */
 	INVALID_P_HANDLE_S(FEP__TYPE__tOkUpdate, "OkUpdate", ok_update), /* 22 */
+	INVALID_P_HANDLE_S(FEP__TYPE__tOkWrite, "OkRead", ok_read), /* 23 */
 };
 
 const char*
@@ -1705,7 +1707,6 @@ _client_iterate_chunk(struct client *c)
 		Fep__End msg = FEP__END__INIT;
 		msg.id = generate_id(c);
 		msg.session_id = c->cout->session_id;
-		msg.offset = c->cout->file_offset;
 		cout_free(c);
 #if DEEPDEBUG
 		xsyslog(LOG_DEBUG, "client[%p] <- End id = %"PRIu64" sid = %"PRIu32,
