@@ -23,7 +23,7 @@ _spq_f_logDirFile_exec(PGconn *pgc, guid_t *rootdir, uint64_t checkpoint)
 	val[0] = len[0] ? _rootdir : NULL;
 	val[1] = _checkpoint;
 
-	res = PQexecParams(pgc, tb, 3, NULL, (const char *const*)val, len, fmt, 0);
+	res = PQexecParams(pgc, tb, 2, NULL, (const char *const*)val, len, fmt, 0);
 	pqs = PQresultStatus(res);
 	if (pqs != PGRES_COMMAND_OK && pqs != PGRES_TUPLES_OK) {
 		char errstr[1024];
