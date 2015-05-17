@@ -40,13 +40,13 @@ option optimize_for = SPEED;
 
  Последовательность записи:
  C: WriteAsk (id = 1000)
- S: WriteOk (id = 1000, session_id = 2344)
+ S: OkWrite (id = 1000, session_id = 2344)
  C: xfer (session_id = 2344)
  C: xfer (session_id = 2344)
  ...
  C: End (session_id = 2344)
  C: WriteAsk...
- S: WriteOk...
+ S: OkWrite...
  C: xfer...
  C: End...
  ...
@@ -55,7 +55,7 @@ option optimize_for = SPEED;
 
  Последовательность чтения:
  C: ReadAsk (id = 2051, session_id = 331)
- S: ReadOk (id = 2051)
+ S: OkRead (id = 2051)
  S: xfer (id = 440, session_id = 331)
  S: xfer (id = 441, session_id = 331)
  ...
@@ -90,7 +90,7 @@ enum Type {
 	tReadAsk = 9;
 	tWriteAsk = 10;
 	tEnd = 11;
-	tWriteOk = 12;
+	tOkWrite = 12;
 	tFileUpdate = 13;
 	tRenameChunk = 14;
 	tQueryChunks = 15;
@@ -102,7 +102,7 @@ enum Type {
 	tWantSync = 21;
 	tOkUpdate = 22;
 	tRootdirUpdate = 23;
-	tReadOk = 24;
+	tOkRead = 24;
 }
 
 /*
@@ -266,13 +266,13 @@ message FileMeta {
  * Запрос разрешения на запись
  * ответы:
  *  Error: неудача
- *  WriteOk: запись разрешена
+ *  OkWrite: запись разрешена
 */
 message WriteAsk {
 	required uint64 id = 1 [default = 0];
 	/* требуемое пространство в байтах для сохранения,
 		пространство резервируется и идентификатор резервации указывается
-		в поле session_id в ответе WriteOk
+		в поле session_id в ответе OkWrite
 	*/
 	required uint64 size = 2;
 	/* название рутдиры */
@@ -284,7 +284,7 @@ message WriteAsk {
 	required bytes chunk_hash = 10;
 }
 
-message WriteOk {
+message OkWrite {
 	required uint64 id = 1 [default = 0];
 
 	/*
@@ -312,7 +312,7 @@ message End {
 }
 
 /* ответ на запрос чтения */
-message ReadOk {
+message OkRead {
 	required uint64 id = 1 [default = 0];
 
 	required uint32 size = 2;
