@@ -1,5 +1,8 @@
 /*	vim: syntax=pgsql
 	текущая версия задаётся в fepserver_installed()
+
+! При изменении полей в таблицах не забывай исправлять процедуру begin_life
+
 */
 
 CREATE OR REPLACE FUNCTION fepserver_installed()
