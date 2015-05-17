@@ -83,7 +83,7 @@ def recv_message(s, expected = None):
                 write_std("# recv error: %s (%s)\n" %(msg.message, msg.remain))
             if type(expected) in (list, tuple):
                 if msg.__class__.__name__ not in expected:
-                    write_std("# message %s not in %s\n" %(msg.__class__.__name__, expected))
+                    write_std("# message %s (id: %s) not in %s\n" %(msg.__class__.__name__, hasattr(msg, 'id') and msg.id or None, expected))
                     #__import__("pdb").set_trace()
                     return recv_message(s, expected)
             return msg
@@ -161,9 +161,33 @@ def proto(s, user, secret, devid):
             msg.id = 200
             msg.checkpoint = 0
             msg.session_id = 100
+            send_message(s, msg)
             while True:
-                pass
-                # TODO:
+                rmsg = recv_message(s, ("FileUpdate", "RootdirUpdate", "DirectoryUpdate", "Error", "Ok", "End"))
+                if not rmsg:
+                    write_std("# eof\n")
+                    break
+                if rmsg.__class__.__name__ == "Ok":
+                    if rmsg.id != msg.id:
+                        write_std("# sync exception: ok id: %s, expected: %s\n" %(rmsg.id, msg.id))
+                        break
+                    else:
+                        write_std("# sync ok\n")
+                        continue
+                if rmsg.__class__.__name__ == "End":
+                    write_std("# sync ended, messages: %s\n" %rmsg.packets)
+                    break
+                if rmsg.__class__.__name__ == "Error":
+                    write_std("# sync error: %s\n" %rmsg.message)
+                    break
+                elif rmsg.session_id != msg.session_id:
+                    write_std("# sync exception: sessid got %s, expect %s" %(rmsg.session_id, msg.session_id))
+                    break
+                if rmsg.__class__.__name__ in ("FileUpdate", "DirectoryUpdate", "RootdirUpdate"):
+                    write_std("%s checkpoint: %s (rootdir: %s) %s/%s\n" %(rmsg.__class__.__name__, rmsg.checkpoint, rmsg.rootdir_guid, rmsg.no, rmsg.max))
+
+                if rmsg.no == rmsg.max:
+                    break
             continue
 
 def connect(host, user, secret, devid):
