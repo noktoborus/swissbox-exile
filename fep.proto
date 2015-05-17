@@ -314,9 +314,11 @@ message End {
 /* ответ на запрос чтения */
 message OkRead {
 	required uint64 id = 1 [default = 0];
+	
+	required uint32 session_id = 2;
 
-	required uint32 size = 2;
-	required uint32 offset = 3;
+	required uint32 size = 5;
+	required uint32 offset = 6;
 }
 
 /* 
