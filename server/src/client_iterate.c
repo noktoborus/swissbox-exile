@@ -500,7 +500,7 @@ _handle_read_ask(struct client *c, unsigned type, Fep__ReadAsk *msg)
 	}
 
 	chs->fd = fd;
-	chs->session_id = generate_id(c);
+	chs->session_id = generate_sid(c);
 	chs->size = st.st_size;
 	chs->next = c->cout;
 	chs->chunk_size = chs->size;
@@ -636,7 +636,7 @@ _handle_write_ask(struct client *c, unsigned type, Fep__WriteAsk *msg)
 
 	/* пакуем структуры */
 	wrok.id = msg->id;
-	wrok.session_id = generate_id(c);
+	wrok.session_id = generate_sid(c);
 
 	ws->data = ws + 1;
 	memcpy(ws->data, &wx, sizeof(struct wait_xfer));
@@ -825,6 +825,12 @@ uint64_t
 generate_id(struct client *c)
 {
 	return ++c->genid;
+}
+
+uint32_t
+generate_sid(struct client *c)
+{
+	return ++c->gensid;
 }
 
 bool

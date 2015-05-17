@@ -134,6 +134,7 @@ struct client {
 	uint32_t h_len;
 
 	uint64_t genid;
+	uint32_t gensid;
 	enum cev_state state;
 
 	struct fdbCursor *fdb;
@@ -187,6 +188,7 @@ bool _send_message(struct sev_ctx *cev, unsigned type, void *msg, char *name);
 	_send_message(cev, type, msg, #type)
 
 uint64_t generate_id(struct client*);
+uint32_t generate_sid(struct client*);
 
 /*
  * Отсылает сообщение об ошибке
