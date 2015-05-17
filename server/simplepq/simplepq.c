@@ -949,7 +949,7 @@ spq_begin_life(PGconn *pgc, char *username, uint64_t device_id)
 	val[1] = _device_id;
 
 	res = PQexecParams(pgc, tb, 2, NULL, (const char *const*)val, len, fmt, 0);
-	if (PQresultStatus(res) != PGRES_COMMAND_OK) {
+	if (PQresultStatus(res) != PGRES_TUPLES_OK) {
 		xsyslog(LOG_INFO, "exec begin_life error: %s",
 				PQresultErrorMessage(res));
 		PQclear(res);
