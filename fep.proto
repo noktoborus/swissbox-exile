@@ -54,8 +54,8 @@ option optimize_for = SPEED;
  S: OkUpdate (id = 1002)
 
  Последовательность чтения:
- C: ReadAsk (id = 2051, session_id = 331)
- S: OkRead (id = 2051)
+ C: ReadAsk (id = 2051)
+ S: OkRead (id = 2051, session_id = 331)
  S: xfer (id = 440, session_id = 331)
  S: xfer (id = 441, session_id = 331)
  ...
@@ -348,8 +348,6 @@ message xfer {
 */
 message ReadAsk {
 	required uint64 id = 1 [default = 0];
-	/* аналогично записи, резервируемая область у клиента */
-	required uint32 session_id = 2;
 
 	required string rootdir_guid = 3;
 	required string file_guid = 4;
