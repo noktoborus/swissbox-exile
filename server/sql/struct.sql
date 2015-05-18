@@ -206,6 +206,8 @@ CREATE TABLE IF NOT EXISTS file_revision
 
 	-- количество чанков в ревизии
 	chunks integer NOT NULL DEFAULT 0,
+	-- количество сохранённых чанков
+	strored_chunks integer NOT NULL DEFAULT 0,
 	UNIQUE(file_id, revision)
 );
 
@@ -461,8 +463,38 @@ END $$ LANGUAGE plpgsql;
 CREATE OR REPLACE FUNCTION file_chunk_action_after()
 	RETURNS trigger AS $$
 BEGIN
-	UPDATE file_revision SET chunks = (chunks + 1)
+	UPDATE file_revision SET stored_chunks = (stored_chunks + 1)
 	WHERE file_revision.id = new.revision_id;
+	return new;
+END $$ LANGUAGE plpgsql;
+
+
+-- обновление file_log при внесении новых записей в file
+--CREATE OR REPLACE FUNCTION file_action()
+--	RETURNS trigger AS $$
+--BEGIN
+--	return new;
+--END $$ LANGUAGE plpgsql;
+
+--CREATE OR REPLACE FUNCTION file_update_action()
+--	RETURNS trigger AS $$
+--BEGIN
+--	return new;
+--END $$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION file_revision_update_action()
+	RETURNS trigger AS $$
+BEGIN
+	-- костыль -_-
+	-- происходит инкремент только счётчика, но не обновления
+	-- данных ревизии
+	IF new.chunks = old.chunks AND new.stored_chunks = (old.stored_chunks + 1)
+		THEN
+		return new;
+	END IF;
+
+
+	--IF new.chunks = old.stored_chunks
 	return new;
 END $$ LANGUAGE plpgsql;
 
@@ -511,7 +543,7 @@ BEGIN
 END $$ LANGUAGE plpgsql;
 
 CREATE OR REPLACE FUNCTION update_file(
-	_rootdir_guid UUID, _file_guid UUID, _name character varying(1024),
+	_rootdir_guid UUID, _file_guid UUID, _filename character varying(1024),
 	_dir_guid UUID, _pubkey character varying(4096),
 	_drop_ _drop_ DEFAULT 'drop')
 	RETURNS text AS $$
@@ -567,7 +599,7 @@ BEGIN
 		"user".username = _username
 		AND rootdir.user_id = "user".id
 		AND rootdir.rootdir = _rootdir_guid
-		AND directory.rootdir = rootdir.id
+		AND directory.rootdir_id = rootdir.id
 		AND directory.directory = _dir_guid
 		AND file.rootdir_id = rootdir.id
 		AND file.file = _file_guid
@@ -602,11 +634,10 @@ BEGIN
 	END IF;
 
 	-- 2. проверка количества чанков
-	SELECT COUNT(*) INTO _w
-	FROM file_chunk
-	WHERE file_chunk.file_id = _ur.file_id
-		AND file_chunk.revision_id  = _ur.revision_id;
-	IF _w != _chunks THEN
+	SELECT stored_chunks INTO _w
+	FROM file_revision
+	WHERE id = _ur.revision_id;
+	IF _w != _chunks OR _w IS NULL THEN
 		r_error := concat('different stored chunks count and wanted: ',
 			_w, ' != ', _chunks, ' ',
 			'in rootdir "', _rootdir_guid, '", ',
@@ -640,9 +671,15 @@ BEGIN
 				'rootdir "', _rootdir_guid, '"');
 			return;
 		END IF;
-		UPDATE file_revision SET parent_id = _row.id WHERE id = _ur.revision_id;
+
+		UPDATE file_revision
+		SET parent_id = _row.id, chunks = _chunks
+		WHERE id = _ur.revision_id;
+	ELSE 
+		UPDATE file_revision SET chunks = _chunks WHERE id = _ur.revision_id;
 	END IF;
-	-- TODO:
+
+	return;
 END $$ LANGUAGE plpgsql;
 
 -- внесение нового чанка в таблицу (с упреждающей записью информации о файле и ревизии)
@@ -694,7 +731,7 @@ BEGIN
 			AND directory.directory =
 				(SELECT value_u FROM options WHERE "key" = 'incomplete_dir');
 		WITH _row AS (
-			INSERT INTO file (file, rootdir_id, dir_id)
+			INSERT INTO file (file, rootdir_id, directory_id)
 			VALUES(
 				_file_guid,
 				_ur.r,
@@ -720,7 +757,7 @@ BEGIN
 	INSERT INTO file_chunk (revision_id, file_id, chunk, size, "offset", hash, address)
 		VALUES (_revision_id, _file_id, _chunk_guid,
 			_chunk_size, _chunk_offset, _chunk_hash, _address);
-	-- TODO
+
 	return NULL;
 END $$ LANGUAGE plpgsql;
 
@@ -914,6 +951,12 @@ CREATE TRIGGER tr_event_action BEFORE INSERT ON event
 	FOR EACH ROW EXECUTE PROCEDURE event_action();
 
 -- TODO: tr_file_log_action BEFORE INSERT
+--CREATE TRIGGER tr_file_action BEFORE INSERT ON file
+--	FOR EACH ROW EXECUTE PROCEDURE file_action();
+
+-- file_revision
+CREATE TRIGGER tr_file_revision_update_action BEFORE UPDATE ON file_revision
+	FOR EACH ROW EXECUTE PROCEDURE file_revision_update_action();
 
 -- ?
 CREATE TRIGGER tr_file_chunk_action_after AFTER INSERT ON file_chunk
@@ -934,4 +977,54 @@ INSERT INTO options ("key", value_c, value_u)
 -- опция для костыля, что бы не возникло наложения данных из таблицы _life_ при обновлении бд
 INSERT INTO options ("key", value_u)
 	VALUES ('life_mark', gen_random_uuid());
+
+
+-- Test
+
+CREATE OR REPLACE FUNCTION t(_drop_ _drop_ DEFAULT 'drop')
+	RETURNS void AS $$
+DECLARE
+	_user_id bigint;
+	_rootdir record;
+	_dir record;
+	_file record;
+BEGIN
+	-- добавление нового пользователя
+	INSERT INTO "user" (username, secret) VALUES ('bob', 'bob');
+	SELECT INTO _user_id id FROM "user" WHERE username = 'bob';
+	
+	-- получение рутовой директории и создания подпапки
+	SELECT INTO _rootdir rootdir AS guid, id
+	FROM rootdir WHERE user_id = _user_id LIMIT 1;
+
+	-- создаём новую директорию
+	INSERT INTO directory_log (rootdir_id, directory, path)
+	VALUES (_rootdir.id, gen_random_uuid(), '/bla-bla');
+	
+	-- получении информации о директории
+	-- (нужно искать по guid, но в тесте не имеет значения)
+	SELECT INTO _dir directory AS guid, id
+	FROM directory WHERE path = '/bla-bla';
+	
+	-- регистрируемся
+	PERFORM begin_life('bob', 120);
+
+	-- сохраняем мету для файла
+	SELECT INTO _file
+		gen_random_uuid() AS guid,
+		gen_random_uuid() AS revision_guid;
+
+	-- впихиваем файл почанково (два чанка)
+	PERFORM insert_chunk(_rootdir.guid,
+		_file.guid, _file.revision_guid, gen_random_uuid(),
+		'hexhash', 1024, 0, 'host/none');
+	PERFORM insert_chunk(_rootdir.guid,
+		_file.guid, _file.revision_guid, gen_random_uuid(),
+		'hexhash', 1024, 1024, 'host/none');
+	
+	-- закрываем ревизию
+	PERFORM insert_revision(_rootdir.guid, _file.guid, _file.revision_guid,
+		NULL, 'purpur.raw', '', _dir.guid, 2);
+
+END $$ LANGUAGE plpgsql;
 
