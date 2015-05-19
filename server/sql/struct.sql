@@ -201,6 +201,7 @@ CREATE TABLE IF NOT EXISTS file_revision
 	id bigint DEFAULT nextval('file_revision_seq') PRIMARY KEY,
 	file_id bigint NOT NULL REFERENCES file(id),
 
+	checkpoint bigint NOT NULL,
 	revision UUID NOT NULL,
 	parent_id bigint DEFAULT NULL REFERENCES file_revision(id),
 
@@ -250,11 +251,13 @@ CREATE TABLE IF NOT EXISTS file_chunk
 -- автозаполнение полей
 CREATE OR REPLACE FUNCTION event_action()
 	RETURNS trigger AS $$
+DECLARE
+	_user record;
 BEGIN
-	IF new.device_id IS NULL THEN
+	IF new.device_id IS NULL OR new.user_id IS NULL THEN
 		BEGIN
 			-- проверочка нужна что бы не произошло лишнего смешения
-			SELECT INTO new.device_id device_id
+			SELECT INTO _user device_id, user_id
 			FROM _life_, "user", options
 			WHERE
 				"user".id = new.user_id AND
@@ -265,6 +268,8 @@ BEGIN
 		EXCEPTION
 			WHEN undefined_table THEN -- nothing
 		END;
+		new.device_id := _user.device_id;
+		new.user_id := _user.user_id;
 	END IF;
 	return new;
 END $$ LANGUAGE plpgsql;
@@ -484,6 +489,8 @@ END $$ LANGUAGE plpgsql;
 
 CREATE OR REPLACE FUNCTION file_revision_update_action()
 	RETURNS trigger AS $$
+DECLARE
+	_user record;
 BEGIN
 	-- костыль -_-
 	-- происходит инкремент только счётчика, но не обновления
@@ -493,6 +500,14 @@ BEGIN
 		return new;
 	END IF;
 
+	-- файл собрался
+	IF new.chunks = new.stored_chunks THEN
+		-- нужно добавить запись в event
+		-- WITH _row AS (
+		--	INSERT INTO event
+		--	RETURNING *
+		--) SELECT INTO new.checkpoint FROM _row;
+	END IF;
 
 	--IF new.chunks = old.stored_chunks
 	return new;
