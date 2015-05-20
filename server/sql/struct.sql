@@ -115,7 +115,9 @@ CREATE TABLE IF NOT EXISTS options
 -- directory: переименование/удаление директории
 -- file: создание/удаление/ревизия файла
 -- rootdir: создание/удаление корневой директории
-CREATE TYPE event_type AS ENUM ('directory', 'file', 'rootdir');
+CREATE TYPE event_type AS ENUM ('directory',
+	'file_log', 'file_revision',
+	'rootdir');
 
 CREATE SEQUENCE event_checkpoint_seq;
 CREATE SEQUENCE event_seq;
@@ -201,14 +203,14 @@ CREATE TABLE IF NOT EXISTS file_revision
 	id bigint DEFAULT nextval('file_revision_seq') PRIMARY KEY,
 	file_id bigint NOT NULL REFERENCES file(id),
 
-	checkpoint bigint NOT NULL,
+	checkpoint bigint DEFAULT NULL,
 	revision UUID NOT NULL,
 	parent_id bigint DEFAULT NULL REFERENCES file_revision(id),
 
 	-- количество чанков в ревизии
 	chunks integer NOT NULL DEFAULT 0,
 	-- количество сохранённых чанков
-	strored_chunks integer NOT NULL DEFAULT 0,
+	stored_chunks integer NOT NULL DEFAULT 0,
 	UNIQUE(file_id, revision)
 );
 
@@ -265,11 +267,16 @@ BEGIN
 				_life_.username = "user".username AND
 				options."key" = 'life_mark' AND
 				_life_.mark = options.value_u;
+			RAISE NOTICE 'asdasd %:%', _user.user_id, _user.device_id;
+			IF _user.device_id IS NOT NULL THEN
+				new.device_id := _user.device_id;
+			END IF;
+			IF _user.user_id IS NOT NULL THEN
+				new.user_id := _user.user_id;
+			END IF;
 		EXCEPTION
 			WHEN undefined_table THEN -- nothing
 		END;
-		new.device_id := _user.device_id;
-		new.user_id := _user.user_id;
 	END IF;
 	return new;
 END $$ LANGUAGE plpgsql;
@@ -491,6 +498,7 @@ CREATE OR REPLACE FUNCTION file_revision_update_action()
 	RETURNS trigger AS $$
 DECLARE
 	_user record;
+	_rootdir UUID;
 BEGIN
 	-- костыль -_-
 	-- происходит инкремент только счётчика, но не обновления
@@ -502,11 +510,15 @@ BEGIN
 
 	-- файл собрался
 	IF new.chunks = new.stored_chunks THEN
+		SELECT INTO _rootdir rootdir FROM rootdir, file
+		WHERE file.id = new.file_id AND
+			rootdir.id = file.rootdir_id;
 		-- нужно добавить запись в event
-		-- WITH _row AS (
-		--	INSERT INTO event
-		--	RETURNING *
-		--) SELECT INTO new.checkpoint FROM _row;
+		WITH _row AS (
+			INSERT INTO event (rootdir, "type", target_id)
+			VALUES (_rootdir, 'file_revision', new.id)
+			RETURNING *
+		) SELECT INTO new.checkpoint FROM _row;
 	END IF;
 
 	--IF new.chunks = old.stored_chunks
@@ -686,12 +698,18 @@ BEGIN
 				'rootdir "', _rootdir_guid, '"');
 			return;
 		END IF;
-
-		UPDATE file_revision
-		SET parent_id = _row.id, chunks = _chunks
-		WHERE id = _ur.revision_id;
+		WITH _row AS (
+			UPDATE file_revision
+			SET parent_id = _row.id, chunks = _chunks
+			WHERE id = _ur.revision_id
+			RETURNING *
+		) SELECT INTO r_checkpoint checkpoint FROM _row;
 	ELSE 
-		UPDATE file_revision SET chunks = _chunks WHERE id = _ur.revision_id;
+		WITH _row AS (
+			UPDATE file_revision SET chunks = _chunks
+			WHERE id = _ur.revision_id
+			RETURNING *
+		) SELECT INTO r_checkpoint checkpoint FROM _row;
 	END IF;
 
 	return;
@@ -898,7 +916,7 @@ BEGIN
 			r_name := _xrow.path;
 			r_pubkey := NULL;
 			r_count := 0;
-		WHEN 'file'
+		WHEN 'file_revision'
 		THEN
 			SELECT INTO _xrow
 				file.file AS file,
