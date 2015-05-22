@@ -225,8 +225,8 @@ CREATE TABLE IF NOT EXISTS file_log
 	checkpoint bigint DEFAULT NULL,
 
 	filename varchar(4096) NOT NULL DEFAULT '',
-	pubkey varchar (4096) NOT NULL DEFAULT '',
 	directory_id bigint NOT NULL,
+
 	UNIQUE(checkpoint)
 );
 
@@ -256,18 +256,14 @@ CREATE OR REPLACE FUNCTION event_action()
 DECLARE
 	_user record;
 BEGIN
+
 	IF new.device_id IS NULL OR new.user_id IS NULL THEN
 		BEGIN
 			-- проверочка нужна что бы не произошло лишнего смешения
-			SELECT INTO _user device_id, user_id
+			SELECT INTO _user _life_.device_id, _life_.user_id
 			FROM _life_, "user", options
-			WHERE
-				"user".id = new.user_id AND
-				_life_.user_id = new.user_id AND
-				_life_.username = "user".username AND
-				options."key" = 'life_mark' AND
+			WHERE options."key" = 'life_mark' AND
 				_life_.mark = options.value_u;
-			RAISE NOTICE 'asdasd %:%', _user.user_id, _user.device_id;
 			IF _user.device_id IS NOT NULL THEN
 				new.device_id := _user.device_id;
 			END IF;
@@ -481,18 +477,30 @@ BEGIN
 END $$ LANGUAGE plpgsql;
 
 
--- обновление file_log при внесении новых записей в file
+-- на INSERT реагировать не нужно, т.к. он происходит при внесении
+-- первого чанка в бд
 --CREATE OR REPLACE FUNCTION file_action()
 --	RETURNS trigger AS $$
 --BEGIN
 --	return new;
 --END $$ LANGUAGE plpgsql;
 
---CREATE OR REPLACE FUNCTION file_update_action()
---	RETURNS trigger AS $$
---BEGIN
---	return new;
---END $$ LANGUAGE plpgsql;
+-- обновление file_log при внесении новых записей в file
+CREATE OR REPLACE FUNCTION file_update_action()
+	RETURNS trigger AS $$
+BEGIN
+	-- пропускаем, если имя и директория не изменились
+	IF new.filename = old.filename AND new.directory_id = old.directory_id
+		THEN
+		return new;
+	END IF;
+	
+	--WITH _x AS (
+	--	INSERT INTO event (rootdir, "type", target_id)
+	--	VALUES (new.user_id, new.rootdir
+	--INSERT INTO file_log (rootdir_id, file_id, 
+	return new;
+END $$ LANGUAGE plpgsql;
 
 CREATE OR REPLACE FUNCTION file_revision_update_action()
 	RETURNS trigger AS $$
@@ -560,7 +568,14 @@ BEGIN
 	INSERT INTO _life_
 		SELECT options.value_u, _username, "user".id, _device_id FROM "user", options
 		WHERE "user".username = _username AND options."key" = 'life_mark';
-
+	-- DEBUG
+	DECLARE
+		_r record;
+	BEGIN
+		SELECT INTO _r user_id, device_id, mark FROM _life_;
+		RAISE NOTICE '@@ mark: %, %:%', _r.mark, _r.user_id, _r.device_id;
+	END;
+	-- DEBUG
 	GET DIAGNOSTICS _x = ROW_COUNT;
 	IF _x = 0 THEN
 		DROP TABLE _life_;
@@ -893,6 +908,7 @@ BEGIN
 		r_type := _row."type";
 		r_checkpoint := _row.checkpoint;
 		r_rootdir := _row.rootdir;
+		RAISE NOTICE 'type: %', r_type;
 		CASE _row."type"
 		WHEN 'rootdir'
 		THEN
@@ -922,7 +938,9 @@ BEGIN
 				file.file AS file,
 				file_revision.revision AS revision,
 				directory.directory AS directory,
-				file_revision.parent_revision AS parent_revision,
+				--file_revision.parent_revision AS parent_revision,
+				(SELECT revision FROM file_revision
+					WHERE file_revision.id = parent_id) AS parent_revision,
 				file_log.filename AS filename,
 				file_log.pubkey AS pubkey,
 				file_revision.chunks AS chunks
@@ -932,6 +950,7 @@ BEGIN
 				file_revision.id = file_log.revision_id AND
 				file.id = file_log.file_id AND
 				directory.id = file_log.directory_id;
+
 			r_file := _xrow.file;
 			r_revision := _xrow.revision;
 			r_directory := _xrow.directory;
@@ -978,6 +997,11 @@ CREATE TRIGGER tr_directory_log_action BEFORE INSERT ON directory_log
 
 CREATE TRIGGER tr_directory_log_action_after AFTER INSERT ON directory_log
 	FOR EACH ROW EXECUTE PROCEDURE directory_log_action_after();
+
+-- file
+
+CREATE TRIGGER tr_file_update_action BEFORE UPDATE ON file
+	FOR EACH ROW EXECUTE PROCEDURE file_update_action();
 
 -- event
 CREATE TRIGGER tr_event_action BEFORE INSERT ON event
