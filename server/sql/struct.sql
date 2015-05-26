@@ -618,6 +618,7 @@ BEGIN
 		RAISE EXCEPTION 'try to use begin_life() before call this';
 	END IF;
 	-- получение всякой информации
+	-- TODO: исправить стыковку по parent_revision_id
 	SELECT
 		"user".id AS user_id,
 		rootdir.id AS rootdir_id,
