@@ -568,14 +568,7 @@ BEGIN
 	INSERT INTO _life_
 		SELECT options.value_u, _username, "user".id, _device_id FROM "user", options
 		WHERE "user".username = _username AND options."key" = 'life_mark';
-	-- DEBUG
-	DECLARE
-		_r record;
-	BEGIN
-		SELECT INTO _r user_id, device_id, mark FROM _life_;
-		RAISE NOTICE '@@ mark: %, %:%', _r.mark, _r.user_id, _r.device_id;
-	END;
-	-- DEBUG
+
 	GET DIAGNOSTICS _x = ROW_COUNT;
 	IF _x = 0 THEN
 		DROP TABLE _life_;
@@ -613,6 +606,7 @@ DECLARE
 	_ur record;
 	_w bigint;
 BEGIN
+	RAISE NOTICE 'XX %', _parent_revision_guid;
 	-- получение базовой информации
 	BEGIN
 		SELECT INTO _username username FROM _life_, options
@@ -659,10 +653,12 @@ BEGIN
 		IF _w = 0 THEN
 			r_error := concat('directory "', _dir_guid, '" not found in',
 				'rootdir "', _rootdir_guid, '"');
+			return next;
 			return;
 		END IF;
 		r_error := concat('revision "', _revision_guid,
 			'" in rootdir "', _rootdir_guid, '" in file "', _file_guid,  '" not found');
+		return next;
 		return;
 	END IF;
 
@@ -672,6 +668,7 @@ BEGIN
 		r_error := concat('revision "', _file_guid, '" ',
 			'already commited in rootdir "', _rootdir_guid, '" ',
 			'file "', _file_guid, '"');
+		return next;
 		return;
 	END IF;
 
@@ -685,6 +682,7 @@ BEGIN
 			'in rootdir "', _rootdir_guid, '", ',
 			'file "', _file_guid, '", ',
 			'revision "', _revision_guid, '"');
+		return next;
 		return;
 	END IF;
 
@@ -704,6 +702,7 @@ BEGIN
 
 	-- 4. обновление ревизии
 	IF _parent_revision_guid IS NOT NULL THEN
+		RAISE NOTICE '@ %', _parent_revision_guid;
 		SELECT NULL INTO _row;
 		SELECT * INTO _row FROM file_revision
 		WHERE id = _ur.revision_id;
@@ -711,6 +710,7 @@ BEGIN
 			r_error := concat('revision "', _parent_revision_guid, '" not found in ',
 				'file "', _file_guid, '" ',
 				'rootdir "', _rootdir_guid, '"');
+			return next;
 			return;
 		END IF;
 		WITH _row AS (
@@ -727,7 +727,7 @@ BEGIN
 		) SELECT INTO r_checkpoint checkpoint FROM _row;
 	END IF;
 
-	return;
+	return next;
 END $$ LANGUAGE plpgsql;
 
 -- внесение нового чанка в таблицу (с упреждающей записью информации о файле и ревизии)
@@ -874,7 +874,7 @@ CREATE OR REPLACE FUNCTION log_list(_rootdir UUID, _checkpoint bigint,
 		r_directory UUID,
 		r_parent_revision UUID,
 		r_name text,
-		r_pubkey UUID,
+		r_pubkey text,
 		r_count integer
 	) AS $$
 DECLARE
@@ -941,16 +941,18 @@ BEGIN
 				--file_revision.parent_revision AS parent_revision,
 				(SELECT revision FROM file_revision
 					WHERE file_revision.id = parent_id) AS parent_revision,
-				file_log.filename AS filename,
-				file_log.pubkey AS pubkey,
+				file.filename AS filename,
+				file.pubkey AS pubkey,
 				file_revision.chunks AS chunks
-			FROM file_log, file, file_revision, directory
+			FROM file, file_revision, directory
 			WHERE
-				file_log.id = _row.target_id AND
-				file_revision.id = file_log.revision_id AND
-				file.id = file_log.file_id AND
-				directory.id = file_log.directory_id;
-
+				file_revision.id = _row.target_id AND
+				file.id = file_revision.file_id AND
+				directory.id = file.directory_id;
+			IF _xrow IS NULL THEN
+				RAISE EXCEPTION 'zero result';
+				return;
+			END IF;
 			r_file := _xrow.file;
 			r_revision := _xrow.revision;
 			r_directory := _xrow.directory;
@@ -1039,12 +1041,13 @@ INSERT INTO options ("key", value_u)
 -- Test
 
 CREATE OR REPLACE FUNCTION t(_drop_ _drop_ DEFAULT 'drop')
-	RETURNS void AS $$
+	RETURNS TABLE (r1 text, r2 bigint) AS $$
 DECLARE
 	_user_id bigint;
 	_rootdir record;
 	_dir record;
 	_file record;
+	_res record;
 BEGIN
 	-- добавление нового пользователя
 	INSERT INTO "user" (username, secret) VALUES ('bob', 'bob');
@@ -1080,8 +1083,37 @@ BEGIN
 		'hexhash', 1024, 1024, 'host/none');
 	
 	-- закрываем ревизию
-	PERFORM insert_revision(_rootdir.guid, _file.guid, _file.revision_guid,
+	SELECT INTO _res * FROM insert_revision(_rootdir.guid,
+		_file.guid, _file.revision_guid,
 		NULL, 'purpur.raw', '', _dir.guid, 2);
+
+	r1 := _res.r_error;
+	r2 := _res.r_checkpoint;
+	return next;
+
+	-- новая ревизия c parent_revision
+	SELECT INTO _file
+		_file.guid AS guid,
+		_file.revision_guid AS parent_guid,
+		gen_random_uuid() AS revision_guid;
+
+	PERFORM insert_chunk(_rootdir.guid,
+		_file.guid, _file.revision_guid, gen_random_uuid(),
+		'hexhash', 1024, 0, 'host/none');
+	PERFORM insert_chunk(_rootdir.guid,
+		_file.guid, _file.revision_guid, gen_random_uuid(),
+		'hexhash', 1024, 1024, 'host/none');
+
+	SELECT INTO _res * FROM insert_revision(_rootdir.guid,
+		_file.guid, _file.revision_guid,
+		_file.parent_guid, 'purpur.raw', '', _dir.guid, 2);
+	
+	r1 := _res.r_error;
+	r2 := _res.r_checkpoint;
+	return next;
+
+	-- смена устройства
+	PERFORM begin_life('bob', 121);
 
 END $$ LANGUAGE plpgsql;
 
