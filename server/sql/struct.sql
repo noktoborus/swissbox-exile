@@ -31,7 +31,7 @@ END $$ LANGUAGE plpgsql;
 /* обновление табличного пространства */
 
 -- удаление таблиц не должно вызывать NOTICE с нерзрешёнными CONSTRAINT
-DROP TABLE IF EXISTS file_log CASCADE;
+DROP TABLE IF EXISTS file_meta CASCADE;
 DROP TABLE IF EXISTS file_chunk CASCADE;
 DROP TABLE IF EXISTS file_revision CASCADE;
 DROP TABLE IF EXISTS options CASCADE;
@@ -53,7 +53,7 @@ DROP SEQUENCE IF EXISTS user_seq CASCADE;
 DROP SEQUENCE IF EXISTS event_seq CASCADE;
 DROP SEQUENCE IF EXISTS rootdir_log_seq CASCADE;
 DROP SEQUENCE IF EXISTS rootdir_seq CASCADE;
-DROP SEQUENCE IF EXISTS file_log_seq CASCADE;
+DROP SEQUENCE IF EXISTS file_meta_seq CASCADE;
 DROP SEQUENCE IF EXISTS event_checkpoint_seq CASCADE;
 
 DROP TYPE IF EXISTS _drop_ CASCADE;
@@ -116,7 +116,7 @@ CREATE TABLE IF NOT EXISTS options
 -- file: создание/удаление/ревизия файла
 -- rootdir: создание/удаление корневой директории
 CREATE TYPE event_type AS ENUM ('directory',
-	'file_log', 'file_revision',
+	'file_meta', 'file_revision',
 	'rootdir');
 
 CREATE SEQUENCE event_checkpoint_seq;
@@ -196,7 +196,6 @@ CREATE TABLE IF NOT EXISTS file
 	UNIQUE(directory_id, filename)
 );
 
--- доступ к чекпоинту ревизии через file_log
 CREATE SEQUENCE file_revision_seq;
 CREATE TABLE IF NOT EXISTS file_revision
 (
@@ -217,10 +216,10 @@ CREATE TABLE IF NOT EXISTS file_revision
 	UNIQUE(file_id, revision)
 );
 
-CREATE SEQUENCE file_log_seq;
-CREATE TABLE IF NOT EXISTS file_log
+CREATE SEQUENCE file_meta_seq;
+CREATE TABLE IF NOT EXISTS file_meta
 (
-	id bigint DEFAULT nextval('file_log_seq') PRIMARY KEY,
+	id bigint DEFAULT nextval('file_meta_seq') PRIMARY KEY,
 	time timestamp with time zone NOT NULL DEFAULT now(),
 	file_id bigint NOT NULL REFERENCES file(id),
 	revision_id bigint NOT NULL REFERENCES file_revision(id),
@@ -488,7 +487,7 @@ END $$ LANGUAGE plpgsql;
 --	return new;
 --END $$ LANGUAGE plpgsql;
 
--- обновление file_log при внесении новых записей в file
+-- обновление file_meta при внесении новых записей в file
 CREATE OR REPLACE FUNCTION file_update_action()
 	RETURNS trigger AS $$
 BEGIN
@@ -501,7 +500,7 @@ BEGIN
 	--WITH _x AS (
 	--	INSERT INTO event (rootdir, "type", target_id)
 	--	VALUES (new.user_id, new.rootdir
-	--INSERT INTO file_log (rootdir_id, file_id,
+	--INSERT INTO file_meta (rootdir_id, file_id,
 	return new;
 END $$ LANGUAGE plpgsql;
 
@@ -580,21 +579,6 @@ BEGIN
 
 END $$ LANGUAGE plpgsql;
 
-CREATE OR REPLACE FUNCTION update_file(
-	_rootdir_guid UUID, _file_guid UUID, _filename character varying(1024),
-	_dir_guid UUID, _pubkey character varying(4096),
-	_drop_ _drop_ DEFAULT 'drop')
-	RETURNS text AS $$
-BEGIN
-	-- условия:
-	-- 1. если файл уже имеет ключ не нулевой длины, новый ключ
-	-- 2. любое поле из (_name, _dir_guid, pubkey) может быть NULL, остальные не могут
-
-	-- TODO:
-	RAISE EXCEPTION 'not implemented';
-	return NULL;
-END $$ LANGUAGE plpgsql;
-
 -- впихивание ревизии, фактически -- обновление parent_id, ключа, имени и директории у файла
 CREATE OR REPLACE FUNCTION insert_revision(
 	_rootdir_guid UUID, _file_guid UUID, _revision_guid UUID, _parent_revision_guid UUID,
@@ -602,7 +586,7 @@ CREATE OR REPLACE FUNCTION insert_revision(
 	_chunks integer, _drop_ _drop_ DEFAULT 'drop')
 	RETURNS TABLE(r_error text, r_checkpoint bigint) AS $$
 DECLARE
-	_username "user".username%TYPE;
+	_user_id "user".id%TYPE;
 	_row record;
 
 	-- хранилище (user_id, rootdir_id, directory_id, file_id, revision_id)
@@ -611,28 +595,24 @@ DECLARE
 BEGIN
 	-- получение базовой информации
 	BEGIN
-		SELECT INTO _username username FROM _life_, options
+		SELECT INTO _user_id user_id FROM _life_, options
 		WHERE options."key" = 'life_mark'
 			AND _life_.mark = options.value_u;
 	EXCEPTION WHEN undefined_table THEN -- nothing
 	END;
-	IF _username IS NULL THEN
+	IF _user_id IS NULL THEN
 		RAISE EXCEPTION 'try to use begin_life() before call this';
 	END IF;
 	-- получение всякой информации
-	-- TODO: исправить стыковку по parent_revision_id
 	SELECT
-		"user".id AS user_id,
 		rootdir.id AS rootdir_id,
 		directory.id AS directory_id,
 		file.id AS file_id,
 		file_revision.id AS revision_id,
 		NOT file_revision.fin AS permit
 	INTO _ur
-	FROM "user", rootdir, directory, file, file_revision
-	WHERE
-		"user".username = _username
-		AND rootdir.user_id = "user".id
+	FROM rootdir, directory, file, file_revision
+	WHERE rootdir.user_id = _user_id
 		AND rootdir.rootdir = _rootdir_guid
 		AND directory.rootdir_id = rootdir.id
 		AND directory.directory = _dir_guid
@@ -644,9 +624,8 @@ BEGIN
 	IF _ur IS NULL THEN
 		-- уточняем из-за чего именно ошибка, возможно просто нет такой директории
 		SELECT COUNT(*) INTO _w
-		FROM "user", rootdir, directory
-		WHERE "user".username = _username
-			AND rootdir.user_id = "user".id
+		FROM rootdir, directory
+		WHERE rootdir.user_id = user_id
 			AND rootdir.rootdir = _rootdir_guid
 			AND directory.directory = _dir_guid;
 		IF _w = 0 THEN
@@ -725,6 +704,10 @@ BEGIN
 		) SELECT INTO r_checkpoint checkpoint FROM _row;
 	END IF;
 
+	-- добавление инициирующей записи
+	INSERT INTO file_meta (file_id, revision_id, filename, directory_id)
+	VALUES (_ur.file_id, _ur.revision_id, _filename, directory_id);
+
 	return next;
 END $$ LANGUAGE plpgsql;
 
@@ -735,7 +718,7 @@ CREATE OR REPLACE FUNCTION insert_chunk(
 	_address text, _drop_ _drop_ DEFAULT 'drop')
 	RETURNS text AS $$
 DECLARE
-	_user_id bigint;
+	_user_id "user".id%TYPE;
 	_row record;
 	-- user_id and rootdir_id
 	_ur record;
@@ -814,23 +797,22 @@ CREATE OR REPLACE FUNCTION link_chunk(
 	_drop_ _drop_ DEFAULT 'drop')
 	RETURNS text AS $$
 DECLARE
-	_username character varying(1024);
+	_user_id "user".id%TYPE;
 	_row record;
 BEGIN
 	-- получение базовой информации
 	BEGIN
-		SELECT INTO _username username FROM _life_, options
+		SELECT INTO _user_id user_id FROM _life_, options
 		WHERE options."key" = 'life_mark' AND
 			_life_.mark = options.value_u;
 	EXCEPTION WHEN undefined_table THEN -- nothing
 	END;
-	IF _username IS NULL THEN
+	IF _user_id IS NULL THEN
 		RAISE EXCEPTION 'try to use begin_life() before call this';
 	END IF;
 	-- 1. получить старые значение
 	-- 2. смешать старые и новые значения
 	SELECT
-		_username AS username,
 		rootdir.rootdir AS rootdir,
 		file.file AS file,
 		_new_chunk_guid AS chunk,
@@ -840,10 +822,8 @@ BEGIN
 		file_chunk.offset AS offset,
 		file_chunk.address AS address
 	INTO _row
-	FROM "user", rootdir, file, file_chunk
-	WHERE
-		"user".username = _username
-		AND rootdir.user_id = "user".id
+	FROM rootdir, file, file_chunk
+	WHERE rootdir.user_id = _user_id
 		AND rootdir.rootdir = _rootdir_guid
 		AND file.rootdir_id = rootdir.id
 		AND file.file = _file_guid
@@ -855,8 +835,74 @@ BEGIN
 			'" not found in rootdir "',
 			_rootdir_guid, '", file "', _file_guid, '"');
 	END IF;
-	return (SELECT insert_chunk(_row.username, _row.rootdir, _row.file, _row.chunk,
-		_row.revision, _row.hash, _row.size, _row.offset, _row.address));
+	return (SELECT insert_chunk(_row.rootdir, _row.file, _row.revision,
+		_row.chunk, _row.hash, _row.size, _row.offset, _row.address));
+END $$ LANGUAGE plpgsql;
+
+-- переименование и перемещение файла
+CREATE OR REPLACE FUNCTION update_file(_rootdir UUID, _file UUID, 
+	_new_directory UUID, _new_filename file.filename%TYPE)
+	RETURNS TABLE(r_error text, r_checkpoint bigint) AS $$
+DECLARE
+	_user_id "user".id%TYPE$;
+	_file record;
+BEGIN
+	-- получение базовой информации о клиенте
+	BEGIN
+		SELECT INTO _user_id user_id FROM _life_, options
+		WHERE options."key" = 'life_mark'
+			AND _life_.mark = options.value_u;
+	EXCEPTION WHEN undefined_table THEN -- nothing
+	END;
+	IF _user_id IS NULL THEN
+		RAISE EXCEPTION 'try to use begin_life() before call this';
+	END IF;
+	
+	-- получение текущий информации о файле
+	SELECT INTO _file
+		file.id, filename, directory_id, directory, file.rootdir_id
+	FROM rootdir, file, directory
+	WHERE rootdir.user_id = _user_id AND
+		rootdir.rootdir = _rootdir AND
+		file.rootdir_id = rootdir.id AND
+		file.file = _file AND
+		directory.id = file.directory_id;
+
+	IF _file IS NULL THEN
+		r_error := concat('file ', _file, ' not found in rootdir ', _rootdir);
+		return next;
+		return;
+	END IF;
+
+	IF _new_filename = _file.filename AND _new_directory = _file.directory THEN
+		SELECT INTO r_checkpoint MAX(checkpoint)
+		FROM file_log
+		WHERE file_id = _file.id;
+		return next;
+		return;
+	END;
+
+	IF _new_filename IS NOT NULL THEN
+		_file.filename := _new_filename;
+	END IF;
+
+	IF _new_directory IS NOT NULL THEN
+		SELECT INTO _file.directory_id id FROM directory
+		WHERE directory.rootdir_id = _file.rootdir_id AND
+			directory.directory = _new_directory;
+	END IF;
+
+	IF _file.directory_id IS NULL THEN
+		r_error := concat('directory ', _new_directory, ' not found in rootdir ',
+			_rootdir);
+		return next;
+		return;
+	END IF;
+
+	-- внесение новых значений и выход
+	WITH _row AS (
+		-- TODO:
+	) SELECT INTO r_checkpoint checkpoint FROM _row;
 END $$ LANGUAGE plpgsql;
 
 -- листинг лога
@@ -1006,7 +1052,7 @@ CREATE TRIGGER tr_file_update_action BEFORE UPDATE ON file
 CREATE TRIGGER tr_event_action BEFORE INSERT ON event
 	FOR EACH ROW EXECUTE PROCEDURE event_action();
 
--- TODO: tr_file_log_action BEFORE INSERT
+-- TODO: tr_file_meta_action BEFORE INSERT
 --CREATE TRIGGER tr_file_action BEFORE INSERT ON file
 --	FOR EACH ROW EXECUTE PROCEDURE file_action();
 
