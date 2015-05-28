@@ -221,9 +221,9 @@ CREATE TABLE IF NOT EXISTS file_meta
 (
 	id bigint DEFAULT nextval('file_meta_seq') PRIMARY KEY,
 	time timestamp with time zone NOT NULL DEFAULT now(),
+
 	file_id bigint NOT NULL REFERENCES file(id),
 	revision_id bigint NOT NULL REFERENCES file_revision(id),
-	-- file_guid здесь не нужен
 	checkpoint bigint DEFAULT NULL,
 
 	filename varchar(4096) NOT NULL DEFAULT '',
@@ -479,28 +479,35 @@ BEGIN
 END $$ LANGUAGE plpgsql;
 
 
--- на INSERT реагировать не нужно, т.к. он происходит при внесении
--- первого чанка в бд
---CREATE OR REPLACE FUNCTION file_action()
---	RETURNS trigger AS $$
---BEGIN
---	return new;
---END $$ LANGUAGE plpgsql;
-
--- обновление file_meta при внесении новых записей в file
-CREATE OR REPLACE FUNCTION file_update_action()
+-- обновление полей в file, добавление записи в event
+CREATE OR REPLACE FUNCTION file_meta_action()
 	RETURNS trigger AS $$
+DECLARE
+	_rootdir rootdir.rootdir%TYPE;
 BEGIN
-	-- пропускаем, если имя и директория не изменились
-	IF new.filename = old.filename AND new.directory_id = old.directory_id
-		THEN
-		return new;
+	-- костыль: если checkpoint == 0, то события в event не создаётся
+	IF new.checkpoint IS NULL OR new.checkpoint != 0 THEN
+		-- получение rootdir_guid
+		SELECT INTO _rootdir rootdir.rootdir FROM file, rootdir
+		WHERE file.id = new.file_id AND
+			rootdir.id = file.rootdir_id;
+		-- добавление евента в лог
+		WITH _row AS (
+			INSERT INTO event (rootdir, "type", target_id)
+			VALUES (_rootdir, 'file_meta', new.id)
+			RETURNING *
+		) SELECT INTO new.checkpoint checkpoint FROM _row;
+
 	END IF;
 
-	--WITH _x AS (
-	--	INSERT INTO event (rootdir, "type", target_id)
-	--	VALUES (new.user_id, new.rootdir
-	--INSERT INTO file_meta (rootdir_id, file_id,
+	-- обновление значений в file
+	UPDATE file SET filename = new.filename, directory_id = new.directory_id
+	WHERE id = new.file_id;
+
+	IF new.checkpoint = 0 THEN
+		new.checkpoint := NULL;
+	END IF;
+
 	return new;
 END $$ LANGUAGE plpgsql;
 
@@ -667,15 +674,22 @@ BEGIN
 	-- 3. обновление файла
 	-- если имя не задано, то в будущем оно всё равно сможет переименовать файл
 	-- а ключ нужно задавать обязательно (если он присутствует)
-	IF _filename IS NOT NULL OR  _pubkey IS NOT NULL OR _dir_guid IS NOT NULL THEN
-		UPDATE file
-		SET
-			filename = CASE WHEN _filename IS NULL THEN filename ELSE _filename END,
-			pubkey = CASE WHEN _pubkey IS NULL THEN pubkey ELSE _pubkey END,
-			directory_id =
-				CASE WHEN _dir_guid IS NULL THEN directory_id ELSE _ur.directory_id END
-		WHERE
-			id = _ur.file_id;
+	IF _pubkey IS NOT NULL THEN
+		WITH __x AS (
+			UPDATE file
+			SET
+				pubkey = CASE WHEN _pubkey IS NULL THEN pubkey ELSE _pubkey END
+			WHERE id = _ur.file_id
+			RETURNING *
+		) INSERT INTO file_meta
+		SELECT nextval('file_meta_seq'),
+			now(),
+			_ur.file_id,
+			_ur.revision_id,
+			0,
+			_filename, _ur.directory_id
+		FROM __x
+		WHERE __x.filename != _filename OR __x.directory_id != _ur.directory_id;
 	END IF;
 
 	-- 4. обновление ревизии
@@ -703,10 +717,6 @@ BEGIN
 			RETURNING *
 		) SELECT INTO r_checkpoint checkpoint FROM _row;
 	END IF;
-
-	-- добавление инициирующей записи
-	INSERT INTO file_meta (file_id, revision_id, filename, directory_id)
-	VALUES (_ur.file_id, _ur.revision_id, _filename, directory_id);
 
 	return next;
 END $$ LANGUAGE plpgsql;
@@ -833,19 +843,20 @@ BEGIN
 	IF _row IS NULL THEN
 		return concat('file "', _file_guid,
 			'" not found in rootdir "',
-			_rootdir_guid, '", file "', _file_guid, '"');
+		_rootdir_guid, '", file "', _file_guid, '"');
 	END IF;
 	return (SELECT insert_chunk(_row.rootdir, _row.file, _row.revision,
 		_row.chunk, _row.hash, _row.size, _row.offset, _row.address));
 END $$ LANGUAGE plpgsql;
 
 -- переименование и перемещение файла
-CREATE OR REPLACE FUNCTION update_file(_rootdir UUID, _file UUID, 
+CREATE OR REPLACE FUNCTION update_file(_rootdir UUID, _file UUID,
 	_new_directory UUID, _new_filename file.filename%TYPE)
 	RETURNS TABLE(r_error text, r_checkpoint bigint) AS $$
 DECLARE
-	_user_id "user".id%TYPE$;
-	_file record;
+	_user_id "user".id%TYPE;
+	_rfile record;
+	_revision_id file_revision.id%TYPE;
 BEGIN
 	-- получение базовой информации о клиенте
 	BEGIN
@@ -857,10 +868,14 @@ BEGIN
 	IF _user_id IS NULL THEN
 		RAISE EXCEPTION 'try to use begin_life() before call this';
 	END IF;
-	
+
 	-- получение текущий информации о файле
-	SELECT INTO _file
-		file.id, filename, directory_id, directory, file.rootdir_id
+	SELECT INTO _rfile
+		file.id,
+		filename,
+		directory_id,
+		directory,
+		file.rootdir_id
 	FROM rootdir, file, directory
 	WHERE rootdir.user_id = _user_id AND
 		rootdir.rootdir = _rootdir AND
@@ -868,41 +883,49 @@ BEGIN
 		file.file = _file AND
 		directory.id = file.directory_id;
 
-	IF _file IS NULL THEN
+	IF _rfile IS NULL THEN
 		r_error := concat('file ', _file, ' not found in rootdir ', _rootdir);
 		return next;
 		return;
 	END IF;
 
-	IF _new_filename = _file.filename AND _new_directory = _file.directory THEN
+	IF _new_filename = _rfile.filename AND _new_directory = _rfile.directory THEN
 		SELECT INTO r_checkpoint MAX(checkpoint)
 		FROM file_log
-		WHERE file_id = _file.id;
+		WHERE file_id = _rfile.id;
 		return next;
 		return;
-	END;
+	END IF;
 
 	IF _new_filename IS NOT NULL THEN
-		_file.filename := _new_filename;
+		_rfile.filename := _new_filename;
 	END IF;
 
 	IF _new_directory IS NOT NULL THEN
-		SELECT INTO _file.directory_id id FROM directory
-		WHERE directory.rootdir_id = _file.rootdir_id AND
+		SELECT INTO _rfile.directory_id id FROM directory
+		WHERE directory.rootdir_id = _rfile.rootdir_id AND
 			directory.directory = _new_directory;
 	END IF;
 
-	IF _file.directory_id IS NULL THEN
+	IF _rfile.directory_id IS NULL THEN
 		r_error := concat('directory ', _new_directory, ' not found in rootdir ',
 			_rootdir);
 		return next;
 		return;
 	END IF;
 
-	-- внесение новых значений и выход
+	-- получение текущей ревизии
+	SELECT INTO _revision_id MAX(id) FROM file_revision
+	WHERE fin = TRUE AND file_id = _rfile.id;
+
+	-- внесение новых значений
 	WITH _row AS (
-		-- TODO:
+		INSERT INTO file_meta (file_id, revision_id, filename, directory_id)
+		VALUES (_rfile.id, _revision_id, _rfile.filename, _rfile.directory_id)
+		RETURNING *
 	) SELECT INTO r_checkpoint checkpoint FROM _row;
+
+	return next;
 END $$ LANGUAGE plpgsql;
 
 -- листинг лога
@@ -993,7 +1016,34 @@ BEGIN
 				file.id = file_revision.file_id AND
 				directory.id = file.directory_id;
 			IF _xrow IS NULL THEN
-				RAISE EXCEPTION 'zero result';
+				RAISE EXCEPTION 'zero result on file_revision';
+				return;
+			END IF;
+			r_file := _xrow.file;
+			r_revision := _xrow.revision;
+			r_directory := _xrow.directory;
+			r_parent_revision := _xrow.parent_revision;
+			r_name := _xrow.filename;
+			r_pubkey := _xrow.pubkey;
+			r_count := _xrow.chunks;
+		WHEN 'file_meta'
+		THEN
+			SELECT INTO _xrow
+				file.file AS file,
+				file_revision.revision AS revision,
+				directory.directory AS directory,
+				(SELECT revision FROM file_revision
+					WHERE file_revision.id = parent_id) AS parent_revision,
+				file.filename AS filename,
+				file.pubkey AS pubkey,
+				file_revision.chunks AS chunks
+			FROM file, file_revision, directory, file_meta
+			WHERE file_meta.id = _row.target_id AND
+				file_revision.id = file_meta.revision_id AND
+				file.id = file_meta.file_id AND
+				directory.id = file.directory_id;
+			IF _xrow IS NULL THEN
+				RAISE EXCEPTION 'zero result on file_meta';
 				return;
 			END IF;
 			r_file := _xrow.file;
@@ -1043,18 +1093,13 @@ CREATE TRIGGER tr_directory_log_action BEFORE INSERT ON directory_log
 CREATE TRIGGER tr_directory_log_action_after AFTER INSERT ON directory_log
 	FOR EACH ROW EXECUTE PROCEDURE directory_log_action_after();
 
--- file
-
-CREATE TRIGGER tr_file_update_action BEFORE UPDATE ON file
-	FOR EACH ROW EXECUTE PROCEDURE file_update_action();
+-- file_meta
+CREATE TRIGGER tr_file_meta_action BEFORE INSERT ON file_meta
+	FOR EACH ROW EXECUTE PROCEDURE file_meta_action();
 
 -- event
 CREATE TRIGGER tr_event_action BEFORE INSERT ON event
 	FOR EACH ROW EXECUTE PROCEDURE event_action();
-
--- TODO: tr_file_meta_action BEFORE INSERT
---CREATE TRIGGER tr_file_action BEFORE INSERT ON file
---	FOR EACH ROW EXECUTE PROCEDURE file_action();
 
 -- file_revision
 CREATE TRIGGER tr_file_revision_update_action BEFORE UPDATE ON file_revision
