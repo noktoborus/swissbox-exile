@@ -157,37 +157,65 @@ def proto(s, user, secret, devid):
             recv_message(s)
             continue
         if c == "sync":
+            _sessions = []
+            _oks = []
+            _session_id = 100
+            _id = 200
             msg = FEP.WantSync()
-            msg.id = 200
+            msg.id = _id
             msg.checkpoint = 0
-            msg.session_id = 100
+            msg.session_id = _session_id
             send_message(s, msg)
+            _sessions.append(msg.session_id)
+            _oks.append(msg.id)
             while True:
                 rmsg = recv_message(s, ("FileUpdate", "RootdirUpdate", "DirectoryUpdate", "Error", "Ok", "End"))
                 if not rmsg:
                     write_std("# eof\n")
                     break
                 if rmsg.__class__.__name__ == "Ok":
-                    if rmsg.id != msg.id:
-                        write_std("# sync exception: ok id: %s, expected: %s\n" %(rmsg.id, msg.id))
+                    if rmsg.id not in _oks:
+                        write_std("# sync exception: ok id: %s, expected: %s\n" %(rmsg.id, str(_oks)))
                         break
                     else:
-                        write_std("# sync ok\n")
+                        write_std("# sync id=% ok\n" %rmsg.id)
+                        _oks.remove(rmsg.id)
                         continue
                 if rmsg.__class__.__name__ == "End":
-                    write_std("# sync ended, messages: %s\n" %rmsg.packets)
-                    break
+                    write_std("# sync sid=%s ended, messages: %s\n" %(rmsg.session_id, rmsg.packets))
+                    continue
+
                 if rmsg.__class__.__name__ == "Error":
                     write_std("# sync error: %s\n" %rmsg.message)
                     break
-                elif rmsg.session_id != msg.session_id:
-                    write_std("# sync exception: sessid got %s, expect %s" %(rmsg.session_id, msg.session_id))
+
+                elif rmsg.session_id not in _sessions:
+                    write_std("# sync exception: sessid got %s, expect %s\n" %(rmsg.session_id, str(_sessions)))
                     break
+
                 if rmsg.__class__.__name__ in ("FileUpdate", "DirectoryUpdate", "RootdirUpdate"):
-                    write_std("%s checkpoint: %s (rootdir: %s) %s/%s\n" %(rmsg.__class__.__name__, rmsg.checkpoint, rmsg.rootdir_guid, rmsg.no, rmsg.max))
+                    write_std("%s checkpoint: %s (rootdir: %s) [%s: %s/%s]\n" %(rmsg.__class__.__name__, rmsg.checkpoint, rmsg.rootdir_guid, rmsg.session_id, rmsg.no, rmsg.max))
+
+                if rmsg.__class__.__name__ in ("RootdirUpdate"):
+                    _id += 1
+                    _session_id += 1
+                    nmsg = FEP.WantSync()
+                    nmsg.id = _id
+                    nmsg.rootdir_guid = rmsg.rootdir_guid
+                    nmsg.checkpoint = rmsg.checkpoint
+                    nmsg.session_id = _session_id
+                    _sessions.append(nmsg.session_id)
+                    _oks.append(nmsg.id)
+                    write_std("Sync in %s (%s): sid -> %s\n" %(rmsg.rootdir_guid, rmsg.name, nmsg.session_id))
+                    send_message(s, nmsg)
 
                 if rmsg.no == rmsg.max:
-                    break
+                    write_std("# sync sid=%s complete\n" %(rmsg.session_id))
+                    _sessions.remove(rmsg.session_id)
+                
+                if not _sessions:
+                    break;
+
             continue
 
 def connect(host, user, secret, devid):
