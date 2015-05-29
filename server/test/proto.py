@@ -134,15 +134,24 @@ def proto_bootstrap(s, user, secret, devid):
             break
     return False
 
+
+def sendFile(s, rootdir, directory, path):
+    _hash = None
+    fmsg = FEP.FileMeta()
+    wmsg = FEP.WriteAsk()
+
+
 def proto(s, user, secret, devid):
     write_std("# orpot\n")
+    X_rootdir = None
+    X_directory = None
     if not proto_bootstrap(s, user, secret, devid):
         return
     while True:
         c = input('help> ');
 
         if c == "help":
-            write_std("ping, wait sync\n")
+            write_std("ping, wait sync write mkdir\n")
             continue
         if c == "ping":
             msg = FEP.Ping()
@@ -155,6 +164,13 @@ def proto(s, user, secret, devid):
             continue
         if c == "wait":
             recv_message(s)
+            continue
+        if c == "write":
+            if not X_rootdir or not X_directory:
+                write_std("# try to cmd `sync` or `mkdir` (rootdir: %s, directory: %s)\n" %(X_rootdir, X_directory))
+                continue
+            for _n in [x for x in os.listdir('.') if os.path.isfile(x)]:
+                sendFile(s, X_rootdir, X_directory, _n)
             continue
         if c == "sync":
             _sessions = []
@@ -208,7 +224,18 @@ def proto(s, user, secret, devid):
                     _oks.append(nmsg.id)
                     write_std("Sync in %s (%s): sid -> %s\n" %(rmsg.rootdir_guid, rmsg.name, nmsg.session_id))
                     send_message(s, nmsg)
+                    if not X_rootdir:
+                        write_std("acquire rootdir=%s\n" %(rmsg.rootdir_guid))
+                        X_rootdir = rmsg.rootdir_guid
 
+                if rmsg.__class__.__name__ in ("DirectoryUpdate"):
+                    if not X_rootdir:
+                        write_std("acquire rootdir=%s\n" %(rmsg.rootdir_guid))
+                        X_rootdir = rmsg.rootdir_guid
+                    if not X_directory:
+                        write_std("acquire directory=%s\n" %(rmsg.directory_guid))
+                        X_directory = rmsg.directory_guid
+                
                 if rmsg.no == rmsg.max:
                     write_std("# sync sid=%s complete\n" %(rmsg.session_id))
                     _sessions.remove(rmsg.session_id)
