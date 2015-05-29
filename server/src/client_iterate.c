@@ -1274,7 +1274,9 @@ static struct handle handle[] =
 	TYPICAL_HANDLE_S(FEP__TYPE__tFileMeta, "FileMeta", file_meta), /* 20 */
 	TYPICAL_HANDLE_S(FEP__TYPE__tWantSync, "WantSync", want_sync), /* 21 */
 	INVALID_P_HANDLE_S(FEP__TYPE__tOkUpdate, "OkUpdate", ok_update), /* 22 */
-	INVALID_P_HANDLE_S(FEP__TYPE__tOkWrite, "OkRead", ok_read), /* 23 */
+	INVALID_P_HANDLE_S(FEP__TYPE__tRootdirUpdate, "RootdirUpdate",
+			rootdir_update), /* 23 */
+	INVALID_P_HANDLE_S(FEP__TYPE__tOkWrite, "OkRead", ok_read), /* 24 */
 };
 
 const char*
@@ -1588,8 +1590,16 @@ _client_iterate_result_logdf(struct client *c, struct logDirFile *ldf)
 
 		msg.no = ldf->row;
 		msg.max = ldf->max;
-		if (c->rout->id != C_NOSESSID)
+
+		msg.has_checkpoint = true;
+		msg.has_no = true;
+		msg.has_max = true;
+
+
+		if (c->rout->id != C_NOSESSID) {
 			msg.session_id = c->rout->id;
+			msg.has_session_id = true;
+		}
 
 		c->rout->packets++;
 		return send_message(c->cev, FEP__TYPE__tDirectoryUpdate, &msg);
@@ -1621,14 +1631,45 @@ _client_iterate_result_logdf(struct client *c, struct logDirFile *ldf)
 
 		msg.no = ldf->row;
 		msg.max = ldf->max;
-		if (c->rout->id != C_NOSESSID)
+
+		msg.has_checkpoint = true;
+		msg.has_no = true;
+		msg.has_max = true;
+
+		if (c->rout->id != C_NOSESSID) {
+			msg.has_session_id = true;
 			msg.session_id = c->rout->id;
+		}
 
 		c->rout->packets++;
 		return send_message(c->cev, FEP__TYPE__tFileUpdate, &msg);
 	} else if (ldf->type == 'r') {
-		xsyslog(LOG_INFO, "user '%s' send message TODO: rootdir",
-				c->name);
+		Fep__RootdirUpdate msg = FEP__ROOTDIR_UPDATE__INIT;
+
+		char rootdir[GUID_MAX + 1];
+
+		guid2string(&ldf->rootdir, PSIZE(rootdir));
+
+		msg.name = ldf->path;
+
+		msg.id = generate_id(c);
+		msg.checkpoint = ldf->checkpoint;
+		msg.rootdir_guid = rootdir;
+
+		msg.no = ldf->row;
+		msg.max = ldf->max;
+
+		msg.has_checkpoint = true;
+		msg.has_no = true;
+		msg.has_max = true;
+
+		if (c->rout->id != C_NOSESSID) {
+			msg.session_id = c->rout->id;
+			msg.has_session_id = true;
+		}
+
+		c->rout->packets++;
+		return send_message(c->cev, FEP__TYPE__tRootdirUpdate, &msg);
 	} else {
 		xsyslog(LOG_WARNING, "user '%s' with unknown log record '%c'",
 				c->name, ldf->type);
