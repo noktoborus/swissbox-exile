@@ -248,7 +248,7 @@ _handle_directory_update(struct client *c, unsigned type,
 	uint64_t checkpoint;
 
 	string2guid(PSLEN(msg->rootdir_guid), &rootdir);
-	string2guid(PSLEN(msg->guid), &directory);
+	string2guid(PSLEN(msg->directory_guid), &directory);
 
 	checkpoint = spq_f_logDirPush(c->name, c->device_id,
 			&rootdir, &directory, msg->path);
@@ -1582,7 +1582,7 @@ _client_iterate_result_logdf(struct client *c, struct logDirFile *ldf)
 		guid2string(&ldf->directory, guid, sizeof(guid));
 		guid2string(&ldf->rootdir, rootdir, sizeof(rootdir));
 		msg.rootdir_guid = rootdir;
-		msg.guid = guid;
+		msg.directory_guid = guid;
 		msg.checkpoint = ldf->checkpoint;
 
 		if (*ldf->path)
