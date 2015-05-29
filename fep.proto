@@ -429,7 +429,7 @@ message DirectoryUpdate {
 	required uint64 id = 1;
 	required string rootdir_guid = 2;
 	/* гуид директории */
-	required string guid = 3;
+	required string directory_guid = 3;
 
 	/* путь директории
 	 имя указывается или для новых директорий или для переименования,
