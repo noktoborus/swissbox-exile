@@ -136,6 +136,9 @@ CREATE TABLE IF NOT EXISTS event
 	target_id bigint NOT NULL,
 	-- идентификатор устройства
 	device_id bigint DEFAULT NULL,
+
+	-- спрятать ли событие при выводе списка клиенту
+	hidden boolean NOT NULL DEFAULT FALSE,
 	UNIQUE(checkpoint)
 );
 CREATE SEQUENCE directory_log_seq;
@@ -203,6 +206,8 @@ CREATE TABLE IF NOT EXISTS file_revision
 	file_id bigint NOT NULL REFERENCES file(id) ON DELETE CASCADE,
 
 	checkpoint bigint DEFAULT NULL,
+	event_id bigint DEFAULT NULL REFERENCES event(id),
+
 	revision UUID NOT NULL,
 	parent_id bigint DEFAULT NULL REFERENCES file_revision(id),
 
@@ -224,7 +229,9 @@ CREATE TABLE IF NOT EXISTS file_meta
 
 	file_id bigint NOT NULL REFERENCES file(id) ON DELETE CASCADE,
 	revision_id bigint NOT NULL REFERENCES file_revision(id),
+
 	checkpoint bigint DEFAULT NULL,
+	event_id bigint DEFAULT NULL REFERENCES event(id),
 
 	filename varchar(4096) NOT NULL DEFAULT '',
 	directory_id bigint NOT NULL,
@@ -251,6 +258,17 @@ CREATE TABLE IF NOT EXISTS file_chunk
 );
 
 /* триггеры и процедурки */
+
+-- чистка event при удалении из file_meta и file_revision
+CREATE OR REPLACE FUNCTION file_delete()
+	RETURNS trigger AS $$
+BEGIN
+	IF old.event_id IS NOT NULL THEN
+		UPDATE event SET hidden = True
+		WHERE id = old.event_id AND hidden = False;
+	END IF;
+	return old;
+END $$ LANGUAGE plpgsql;
 
 -- автозаполнение полей
 CREATE OR REPLACE FUNCTION event_action()
@@ -484,6 +502,7 @@ CREATE OR REPLACE FUNCTION file_meta_action()
 	RETURNS trigger AS $$
 DECLARE
 	_rootdir rootdir.rootdir%TYPE;
+	_r record;
 BEGIN
 	-- костыль: если checkpoint == 0, то события в event не создаётся
 	IF new.checkpoint IS NULL OR new.checkpoint != 0 THEN
@@ -496,8 +515,9 @@ BEGIN
 			INSERT INTO event (rootdir, "type", target_id)
 			VALUES (_rootdir, 'file_meta', new.id)
 			RETURNING *
-		) SELECT INTO new.checkpoint checkpoint FROM _row;
-
+		) SELECT INTO _r checkpoint, id FROM _row;
+		new.checkpoint := _r.checkpoint;
+		new.event_id = _r.id;
 	END IF;
 
 	-- обновление значений в file
@@ -516,6 +536,7 @@ CREATE OR REPLACE FUNCTION file_revision_update_action()
 DECLARE
 	_user record;
 	_rootdir UUID;
+	_r record;
 BEGIN
 	-- костыль -_-
 	-- происходит инкремент только счётчика, но не обновления
@@ -535,7 +556,9 @@ BEGIN
 			INSERT INTO event (rootdir, "type", target_id)
 			VALUES (_rootdir, 'file_revision', new.id)
 			RETURNING *
-		) SELECT INTO new.checkpoint checkpoint FROM _row;
+		) SELECT INTO _r checkpoint, id FROM _row;
+		new.checkpoint = _r.checkpoint;
+		new.event_id = _r.id;
 	END IF;
 
 	--IF new.chunks = old.stored_chunks
@@ -687,6 +710,7 @@ BEGIN
 			_ur.file_id,
 			_ur.revision_id,
 			0,
+			NULL,
 			_filename, _ur.directory_id
 		FROM __x
 		WHERE __x.filename != _filename OR __x.directory_id != _ur.directory_id;
@@ -966,6 +990,7 @@ BEGIN
 		SELECT * FROM event
 		WHERE user_id = _ur.user_id AND
 			checkpoint > _checkpoint AND
+			hidden = FALSE AND
 			((_rootdir IS NOT NULL AND rootdir = _rootdir) OR
 			(_rootdir IS NULL AND "type" = 'rootdir')) AND
 			(device_id != _ur.device_id OR
@@ -1016,7 +1041,7 @@ BEGIN
 				file.id = file_revision.file_id AND
 				directory.id = file.directory_id;
 			IF _xrow IS NULL THEN
-				RAISE EXCEPTION 'zero result on file_revision';
+				RAISE EXCEPTION 'zero result on file_revision, event %', _row.id;
 				return;
 			END IF;
 			r_file := _xrow.file;
@@ -1043,7 +1068,7 @@ BEGIN
 				file.id = file_meta.file_id AND
 				directory.id = file.directory_id;
 			IF _xrow IS NULL THEN
-				RAISE EXCEPTION 'zero result on file_meta';
+				RAISE EXCEPTION 'zero result on file_meta, event %', _row.id;
 				return;
 			END IF;
 			r_file := _xrow.file;
@@ -1097,6 +1122,9 @@ CREATE TRIGGER tr_directory_log_action_after AFTER INSERT ON directory_log
 CREATE TRIGGER tr_file_meta_action BEFORE INSERT ON file_meta
 	FOR EACH ROW EXECUTE PROCEDURE file_meta_action();
 
+CREATE TRIGGER tr_file_meta_delete AFTER DELETE ON file_meta
+	FOR EACH ROW EXECUTE PROCEDURE file_delete();
+
 -- event
 CREATE TRIGGER tr_event_action BEFORE INSERT ON event
 	FOR EACH ROW EXECUTE PROCEDURE event_action();
@@ -1104,6 +1132,9 @@ CREATE TRIGGER tr_event_action BEFORE INSERT ON event
 -- file_revision
 CREATE TRIGGER tr_file_revision_update_action BEFORE UPDATE ON file_revision
 	FOR EACH ROW EXECUTE PROCEDURE file_revision_update_action();
+
+CREATE TRIGGER tr_file_revision AFTER DELETE ON file_revision
+	FOR EACH ROW EXECUTE PROCEDURE file_delete();
 
 -- ?
 CREATE TRIGGER tr_file_chunk_action_after AFTER INSERT ON file_chunk
