@@ -35,6 +35,8 @@ server_q = queue.Queue() # читать с сервер вотчера
 server_p = queue.Queue() # слать на сервер вотчер
 write_std_lock = threading.Lock()
 
+_input_queue = []
+
 def gen_device_id():
     pass
 
@@ -49,12 +51,15 @@ def write_std(string, color = None):
         write_std_lock.release()
     return len(string)
 
-def recv_message(s, expected = None):
+def _recv_message(s, expected = None):
     """
         ожидание сообщение.
         expected: список имён ожидаемых классов сообщений
     """
-    write_std("# wait incoming...\n")
+    if not expected:
+        write_std("# wait incoming...\n")
+    else:
+        write_std("# wait one of %s\n" %str(expected))
     b = s.recv(6)
     if not b:
         write_std("# zero result\n")
@@ -72,8 +77,6 @@ def recv_message(s, expected = None):
     rawmsg = s.recv(plen)
     if rawmsg:
         try:
-            if type(expected) == str:
-                expected = (expected,)
             msg = eval("FEP." + ptype[1:]).FromString(rawmsg)
             if hasattr(msg, "id"):
                 write_std("# header id: %s\n" %(msg.id))
@@ -87,6 +90,7 @@ def recv_message(s, expected = None):
             if type(expected) in (list, tuple):
                 if msg.__class__.__name__ not in expected:
                     write_std("# message %s (id: %s) not in %s\n" %(msg.__class__.__name__, hasattr(msg, 'id') and msg.id or None, expected))
+                    _input_queue.append(msg)
                     #__import__("pdb").set_trace()
                     return recv_message(s, expected)
             return msg
@@ -94,6 +98,23 @@ def recv_message(s, expected = None):
             write_std("# exc %s" %str(sys.exc_info()))
             write_std("# header parse fail: %s (%s)\n" %(rawmsg.encode("hex"), len(rawmsg)))
     return None
+
+def recv_message(s, expected = None):
+    # костылинг типа
+    if type(expected) == str:
+        expected = (expected,)
+    # проверка сообщений вначале в очереди
+    if not expected and _input_queue:
+        n = _input_queue.pop()
+        write_std("# extract from queue: %s (id=%s)\n" %(n.__class__.__name__, n.id))
+        return n
+    elif expected and _input_queue:
+        for n in _input_queue:
+            if n.__class__.__name__ in expected:
+                write_std("# match from queue: %s (id=%s)\n" %(n.__class__.__name__, n.id))
+                _input_queue.remove(n)
+                return n
+    return _recv_message(s, expected)
 
 def send_message(s, msg):
     ptype = FEP.Type.keys().index("t" + msg.__class__.__name__) + 1
@@ -139,7 +160,7 @@ def proto_bootstrap(s, user, secret, devid):
 
 
 def sendFile(s, rootdir, directory, path):
-    _chunk_size = 2048 # размер чанка
+    _chunk_size = 1048576 # размер чанка
     _hash = None
 
     _size = os.path.getsize(path)
@@ -153,7 +174,7 @@ def sendFile(s, rootdir, directory, path):
     fmsg.id = random.randint(1, 10000)
     fmsg.rootdir_guid = rootdir
     fmsg.directory_guid = directory
-    fmsg.file_guid = str(uuid.uuid4())
+    fmsg.file_guid = str(uuid.UUID(bytes=hashlib.md5(path).digest()))
     fmsg.revision_guid = str(uuid.uuid4())
 
     fmsg.enc_filename = path
@@ -173,8 +194,8 @@ def sendFile(s, rootdir, directory, path):
 
     file_descr = open(path, "r")
     chunk_offset = 0
+    _i = 0
     for chunk_data in iter(lambda: file_descr.read(int(_chunk_size)), ""):
-        _i = 0
         wmsg.id = random.randint(1, 10000)
         wmsg.chunk_guid = str(uuid.uuid4())
         wmsg.chunk_hash = hashlib.sha256(chunk_data).digest()
@@ -186,6 +207,7 @@ def sendFile(s, rootdir, directory, path):
         rmsg = recv_message(s, ["Error", "OkWrite"])
         if rmsg.__class__.__name__ == "Error":
             write_std("send file error: %s\n", msg.message)
+            file_descr.seek(0)
             break
         elif rmsg.__class__.__name__ == "OkWrite":
             # отправка чанков цельными кусками (по одному xfer)
@@ -204,9 +226,21 @@ def sendFile(s, rootdir, directory, path):
             xmsg.session_id = rmsg.session_id
             xmsg.packets = 1
             send_message(s, xmsg)
-        # после отправки всех чанков должен прийти OkUpdate
-        rmsg = recv_message(s, ["OkUpdate"])
-        write_std("send file ok, checkpoint=%s\n", rmsg.checkpoint)
+            # после отправки End должен прийти Ok или Error
+            rmsg = recv_message(s, ["Ok", "Error"])
+            if rmsg.__class__.__name__ == "Error":
+                write_std("send file error: %s\n" %rmsg.message)
+                file_descr.seek(0)
+                break
+            elif rmsg.__class__.__name__ == "Ok":
+                write_std("send chunk complete\n")
+    # после отправки всех чанков должен прийти OkUpdate
+    rmsg = recv_message(s, ["OkUpdate"])
+    write_std("send file ok, checkpoint=%s\n" %(rmsg.checkpoint))
+    #
+    if file_descr.tell() == _size:
+        return True
+    return False
 
 
 def proto(s, user, secret, devid):
@@ -216,6 +250,7 @@ def proto(s, user, secret, devid):
     if not proto_bootstrap(s, user, secret, devid):
         return
     while True:
+        write_std('input queue len: %s\n' %(len(_input_queue)));
         c = input('help> ');
 
         if c == "help":
@@ -238,7 +273,8 @@ def proto(s, user, secret, devid):
                 write_std("# try to cmd `sync` or `mkdir` (rootdir: %s, directory: %s)\n" %(X_rootdir, X_directory))
                 continue
             for _n in [x for x in os.listdir('.') if os.path.isfile(x)]:
-                sendFile(s, X_rootdir, X_directory, _n)
+                if not sendFile(s, X_rootdir, X_directory, _n):
+                    break
             continue
         if c == "sync":
             _sessions = []
