@@ -190,7 +190,7 @@ CREATE TABLE IF NOT EXISTS file
 
 	-- обновляемые поля
 	directory_id bigint NOT NULL REFERENCES directory(id),
-	filename varchar(4096) NOT NULL DEFAULT '',
+	filename varchar(4096) DEFAULT NULL,
 
 	UNIQUE(rootdir_id, file),
 	UNIQUE(directory_id, filename)
@@ -200,7 +200,7 @@ CREATE SEQUENCE file_revision_seq;
 CREATE TABLE IF NOT EXISTS file_revision
 (
 	id bigint DEFAULT nextval('file_revision_seq') PRIMARY KEY,
-	file_id bigint NOT NULL REFERENCES file(id),
+	file_id bigint NOT NULL REFERENCES file(id) ON DELETE CASCADE,
 
 	checkpoint bigint DEFAULT NULL,
 	revision UUID NOT NULL,
@@ -222,7 +222,7 @@ CREATE TABLE IF NOT EXISTS file_meta
 	id bigint DEFAULT nextval('file_meta_seq') PRIMARY KEY,
 	time timestamp with time zone NOT NULL DEFAULT now(),
 
-	file_id bigint NOT NULL REFERENCES file(id),
+	file_id bigint NOT NULL REFERENCES file(id) ON DELETE CASCADE,
 	revision_id bigint NOT NULL REFERENCES file_revision(id),
 	checkpoint bigint DEFAULT NULL,
 
@@ -238,7 +238,7 @@ CREATE TABLE IF NOT EXISTS file_chunk
 	id bigint DEFAULT nextval('file_chunk_seq') PRIMARY KEY,
 	revision_id bigint NOT NULL REFERENCES file_revision(id),
 	-- глобальный id чанка собирается из (rootdir_guid, file_guid, chunk_guid)
-	file_id bigint NOT NULL REFERENCES file(id),
+	file_id bigint NOT NULL REFERENCES file(id) ON DELETE CASCADE,
 
 	chunk UUID NOT NULL,
 
