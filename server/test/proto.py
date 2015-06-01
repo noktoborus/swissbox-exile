@@ -14,6 +14,9 @@ import threading
 import socket
 import select
 import struct
+import random
+import uuid
+import math
 import Queue as queue
 import os
 import re
@@ -136,9 +139,74 @@ def proto_bootstrap(s, user, secret, devid):
 
 
 def sendFile(s, rootdir, directory, path):
+    _chunk_size = 2048 # размер чанка
     _hash = None
+
+    _size = os.path.getsize(path)
+    _chunks = math.trunc(math.ceil(float(_size) / _chunk_size))
+
+    write_std("send file '%s'\n" %path)
     fmsg = FEP.FileMeta()
     wmsg = FEP.WriteAsk()
+
+    # заполнение метаинформации файла
+    fmsg.id = random.randint(1, 10000)
+    fmsg.rootdir_guid = rootdir
+    fmsg.directory_guid = directory
+    fmsg.file_guid = str(uuid.uuid4())
+    fmsg.revision_guid = str(uuid.uuid4())
+
+    fmsg.enc_filename = path
+    fmsg.key = "0"
+
+    fmsg.chunks = _chunks
+
+    # OkUpdate приходит в самом конце, бессмысленно его ждать сразу
+    # после отправки FileMeta
+    send_message(s, fmsg)
+
+    # заполнение информации о чанке
+    # общая информация для всех чанков файла
+    wmsg.rootdir_guid = fmsg.rootdir_guid
+    wmsg.file_guid = fmsg.file_guid
+    wmsg.revision_guid = fmsg.revision_guid
+
+    file_descr = open(path, "r")
+    chunk_offset = 0
+    for chunk_data in iter(lambda: file_descr.read(int(_chunk_size)), ""):
+        _i = 0
+        wmsg.id = random.randint(1, 10000)
+        wmsg.chunk_guid = str(uuid.uuid4())
+        wmsg.chunk_hash = hashlib.sha256(chunk_data).digest()
+        wmsg.size = len(chunk_data)
+        wmsg.offset = chunk_offset
+        chunk_offset += wmsg.size
+        send_message(s, wmsg)
+        # в ответе должно прийти session_id для передачи
+        rmsg = recv_message(s, ["Error", "OkWrite"])
+        if rmsg.__class__.__name__ == "Error":
+            write_std("send file error: %s\n", msg.message)
+            break
+        elif rmsg.__class__.__name__ == "OkWrite":
+            # отправка чанков цельными кусками (по одному xfer)
+            _i += 1
+            write_std("send chunk no=%s with sid=%s\n" %(_i, rmsg.session_id))
+            xmsg = FEP.xfer()
+            xmsg.id = random.randint(1, 10000)
+            xmsg.session_id = rmsg.session_id
+            xmsg.offset = 0
+            xmsg.data = chunk_data
+            send_message(s, xmsg)
+            # отправка сообщения о завершнии сесии
+            # (только один пакет в сесcии был отправлен
+            xmsg = FEP.End()
+            xmsg.id = random.randint(1, 10000)
+            xmsg.session_id = rmsg.session_id
+            xmsg.packets = 1
+            send_message(s, xmsg)
+        # после отправки всех чанков должен прийти OkUpdate
+        rmsg = recv_message(s, ["OkUpdate"])
+        write_std("send file ok, checkpoint=%s\n", rmsg.checkpoint)
 
 
 def proto(s, user, secret, devid):
@@ -185,6 +253,8 @@ def proto(s, user, secret, devid):
             _sessions.append(msg.session_id)
             _oks.append(msg.id)
             while True:
+                if not _sessions:
+                    break;
                 rmsg = recv_message(s, ("FileUpdate", "RootdirUpdate", "DirectoryUpdate", "Error", "Ok", "End"))
                 if not rmsg:
                     write_std("# eof\n")
@@ -199,6 +269,7 @@ def proto(s, user, secret, devid):
                         continue
                 if rmsg.__class__.__name__ == "End":
                     write_std("# sync sid=%s ended, messages: %s\n" %(rmsg.session_id, rmsg.packets))
+                    _sessions.remove(rmsg.session_id)
                     continue
 
                 if rmsg.__class__.__name__ == "Error":
@@ -235,13 +306,10 @@ def proto(s, user, secret, devid):
                     if not X_directory:
                         write_std("acquire directory=%s\n" %(rmsg.directory_guid))
                         X_directory = rmsg.directory_guid
-                
+
                 if rmsg.no == rmsg.max:
                     write_std("# sync sid=%s complete\n" %(rmsg.session_id))
-                    _sessions.remove(rmsg.session_id)
-                
-                if not _sessions:
-                    break;
+
 
             continue
 
