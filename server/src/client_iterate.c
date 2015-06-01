@@ -1021,6 +1021,7 @@ _handle_file_meta(struct client *c, unsigned type, Fep__FileMeta *msg)
 	}
 
 	/* заполнение всех полей */
+	wf->msg_id = msg->id;
 	if (!wf->rootdir.not_null)
 		string2guid(PSLEN(msg->rootdir_guid), &wf->rootdir);
 	if (!wf->file.not_null)
@@ -1161,10 +1162,13 @@ _handle_end(struct client *c, unsigned type, Fep__End *end)
 		} else if (!spq_insert_chunk(c->name, c->device_id, &wf->rootdir, &wf->file,
 					&wf->revision, &wx->chunk_guid, chunk_hash,
 					wx->size, wx->offset, wx->path)) {
+			/* запись чанка не удалась */
+			snprintf(errmsg, sizeof(errmsg), "Internal error 2023");
 		}
 	}
 	if (!*errmsg) {
 		sid_free(ws);
+		wf->chunks_ok++;
 		/* нет смысла пытаться отправить "Ok" клиенту, если
 		 * соеденение отвалилось при отправке OkUpdate
 		 */

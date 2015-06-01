@@ -850,7 +850,7 @@ _spq_insert_revision(PGconn *pgc,
 	uint64_t result;
 	PGresult *res;
 	ExecStatusType pqs;
-	const char tb[] = "SELECT insert_revision"
+	const char tb[] = "SELECT * FROM insert_revision"
 		"("
 		"	$1::UUID,"
 		"	$2::UUID,"
@@ -886,7 +886,7 @@ _spq_insert_revision(PGconn *pgc,
 	val[0] = _rootdir;
 	val[1] = _file;
 	val[2] = _revision;
-	val[3] = _parent_revision;
+	val[3] = len[3] ? _parent_revision : NULL;
 	val[4] = filename;
 	val[5] = pubkey;
 	val[6] = _dir;
