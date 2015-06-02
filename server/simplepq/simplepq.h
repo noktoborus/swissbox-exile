@@ -173,14 +173,6 @@ bool spq_f_getFileMeta(char *username, guid_t *rootdir, guid_t *file,
 		guid_t *revision, struct spq_FileMeta *fmeta);
 void spq_f_getFileMeta_free(struct spq_FileMeta *fmeta);
 
-/* запись в лог файлов */
-uint64_t
-spq_f_logFilePush(char *username, uint64_t device_id,
-		guid_t *rootdir, guid_t *file, guid_t *directory, char *filename);
-/* запись в лог директорий */
-uint64_t spq_f_logDirPush(char *username, uint64_t device_id,
-		guid_t *rootdir, guid_t *directory, char *path);
-
 /* проверка наличия пользователя в бд */
 bool spq_check_user(char *username, char *secret);
 
