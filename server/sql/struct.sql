@@ -618,6 +618,7 @@ CREATE OR REPLACE FUNCTION insert_revision(
 DECLARE
 	_user_id "user".id%TYPE;
 	_row record;
+	_parent record;
 
 	-- хранилище (user_id, rootdir_id, directory_id, file_id, revision_id)
 	_ur record;
@@ -670,6 +671,27 @@ BEGIN
 		return;
 	END IF;
 
+	-- 0.5 проверка наличия ревизии
+	SELECT INTO _parent id, revision
+	FROM file_revision
+	WHERE fin = TRUE AND
+		file_id = _ur.file_id AND
+		id = (SELECT MAX(id) FROM file_revision WHERE file_id = _ur.file_id AND fin = TRUE);
+
+	IF _parent IS NOT NULL AND
+		(_parent_revision_guid IS NULL OR
+			_parent.revision != _parent_revision_guid) THEN
+		r_error := concat('last revision: ', _parent.revision,
+			' offered: "', _parent_revision_guid, '"');
+		return next;
+		return;
+	END IF;
+
+	IF _parent IS NULL AND _parent_revision_guid IS NOT NULL THEN
+		r_error := concat('parent revision ', _parent_revision_guid, ' not found');
+		return next;
+		return;
+	END IF;
 
 	-- 1. проверка на перезапись
 	IF _ur.permit = FALSE THEN
