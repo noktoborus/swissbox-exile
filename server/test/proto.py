@@ -306,7 +306,7 @@ def proto(s, user, secret, devid):
                         write_std("# sync exception: ok id: %s, expected: %s\n" %(rmsg.id, str(_oks)))
                         break
                     else:
-                        write_std("# sync id=% ok\n" %rmsg.id)
+                        write_std("# sync id=%s ok\n" %rmsg.id)
                         _oks.remove(rmsg.id)
                         continue
                 if rmsg.__class__.__name__ == "End":
