@@ -195,6 +195,7 @@ def sendFile(s, rootdir, directory, path):
     file_descr = open(path, "r")
     chunk_offset = 0
     _i = 0
+    _ok = True
     for chunk_data in iter(lambda: file_descr.read(int(_chunk_size)), ""):
         wmsg.id = random.randint(1, 10000)
         wmsg.chunk_guid = str(uuid.uuid4())
@@ -208,6 +209,7 @@ def sendFile(s, rootdir, directory, path):
         if rmsg.__class__.__name__ == "Error":
             write_std("send file error: %s\n", msg.message)
             file_descr.seek(0)
+            _ok = False
             break
         elif rmsg.__class__.__name__ == "OkWrite":
             # отправка чанков цельными кусками (по одному xfer)
@@ -231,14 +233,18 @@ def sendFile(s, rootdir, directory, path):
             if rmsg.__class__.__name__ == "Error":
                 write_std("send file error: %s\n" %rmsg.message)
                 file_descr.seek(0)
+                _ok = False
                 break
             elif rmsg.__class__.__name__ == "Ok":
                 write_std("send chunk complete\n")
-    # после отправки всех чанков должен прийти OkUpdate
-    rmsg = recv_message(s, ["OkUpdate"])
-    write_std("send file ok, checkpoint=%s\n" %(rmsg.checkpoint))
-    #
-    if file_descr.tell() == _size:
+    if file_descr.tell() == _size or _ok:
+        # после отправки всех чанков должен прийти OkUpdate
+        # если отправка завершилась успешно
+        rmsg = recv_message(s, ["OkUpdate", "Error"])
+        if rmsg.__class__.__name__ == 'Error':
+            write_std("file compilation failed: %s\n" %rmsg.message)
+            return False
+        write_std("send file ok, checkpoint=%s\n" %(rmsg.checkpoint))
         return True
     return False
 
