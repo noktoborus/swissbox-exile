@@ -324,6 +324,25 @@ def proto(s, user, secret, devid):
         if c == "help":
             write_std("ping, wait sync write mkdir\n")
             continue
+        if c == "mkdir":
+            if not X_rootdir:
+                write_std("# try to cmd `sync` (rootdir: %s)\n" %(X_rootdir))
+                continue
+
+            msg = FEP.DirectoryUpdate();
+            msg.id = 99
+            msg.rootdir_guid = X_rootdir
+            msg.path = "/home/local" 
+            msg.directory_guid = str(uuid.UUID(bytes=hashlib.md5(msg.path).digest()))
+            send_message(s, msg)
+
+            # в ответ может прийти "Error" или "OkUpdate"
+            rmsg = recv_message(s, ["Error", "OkUpdate"])
+            if rmsg.__class__.__name__ == "Error":
+                write_std("# mkdir error: %s\n" %rmsg.message)
+            else:
+                write_std("# mkdir checkpoint: %s\n" %rmsg.checkpoint)
+            continue
         if c == "ping":
             msg = FEP.Ping()
             msg.id = 100
