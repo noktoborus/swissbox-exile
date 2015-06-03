@@ -974,6 +974,40 @@ BEGIN
 	return next;
 END $$ LANGUAGE plpgsql;
 
+-- получение списка чанков
+CREATE OR REPLACE FUNCTION chunk_list(_rootdir UUID, _file UUID,
+	_revision UUID,
+	_drop_ _drop_ DEFAULT 'drop')
+	RETURNS TABLE
+	(
+		r_chunk file_chunk.chunk%TYPE,
+		r_hash file_chunk.hash%TYPE,
+		r_offset file_chunk."offset"%TYPE,
+		r_size file_chunk.size%TYPE,
+		r_address file_chunk.address%TYPE
+	) AS $$
+DECLARE
+	_row record;
+BEGIN
+	FOR _row IN
+		SELECT file_chunk.* FROM rootdir, file, file_revision, file_chunk
+		WHERE rootdir.rootdir = _rootdir AND
+			file.rootdir_id = rootdir.id AND
+			file.file = _file AND
+			file_revision.file_id = file.id AND
+			file_revision.revision = _revision AND
+			file_chunk.revision_id = file_revision.id
+	LOOP
+		r_chunk = _row.chunk;
+		r_hash = _row.hash;
+		r_offset = _row.offset;
+		r_size = _row.size;
+		r_address = _row.address;
+		return next;
+	END LOOP;
+	return;
+END $$ LANGUAGE plpgsql;
+
 -- получение списка ревизий
 CREATE OR REPLACE FUNCTION revision_list(_rootdir UUID, _file UUID,
 	_depth integer,
@@ -996,8 +1030,10 @@ BEGIN
 				a.checkpoint AS checkpoint
 			FROM
 			(
-				SELECT file_revision.* FROM file, file_revision
-				WHERE file.file = _file AND
+				SELECT file_revision.* FROM rootdir, file, file_revision
+				WHERE rootdir.rootdir = _rootdir AND
+					file.rootdir_id = rootdir.id AND
+					file.file = _file AND
 					file_revision.file_id = file.id AND
 					file_revision.fin = TRUE
 				ORDER BY file_revision.checkpoint DESC LIMIT _depth
