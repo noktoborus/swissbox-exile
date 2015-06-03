@@ -701,6 +701,66 @@ spq_link_chunk(char *username, uint64_t device_id,
 }
 
 uint64_t
+_spq_directory_create(PGconn *pgc, guid_t *rootdir,
+		guid_t *new_directory, char *new_dirname)
+{
+	uint64_t result;
+	PGresult *res;
+	ExecStatusType pqs;
+	const char tb[] =
+		"SELECT * FROM directory_create($1::UUID, $2::UUID, $3::text);";
+	const int fmt[3] = {0, 0, 0};
+
+	char _rootdir[GUID_MAX + 1];
+	char _directory[GUID_MAX + 1];
+
+	const char *_m = NULL;
+	char *val[3];
+	int len[3];
+
+	len[0] = guid2string(rootdir, PSIZE(_rootdir));
+	len[1] = guid2string(new_directory, PSIZE(_directory));
+	len[2] = strlen(new_dirname);
+
+	val[0] = _rootdir;
+	val[1] = _directory;
+	val[2] = new_dirname;
+
+	res = PQexecParams(pgc, tb, 3, NULL, (const char *const*)val, len, fmt, 0);
+	pqs = PQresultStatus(res);
+
+	if (pqs != PGRES_TUPLES_OK)
+		_m = PQresultErrorMessage(res);
+	else if (PQgetlength(res, 0, 0))
+		_m = PQgetvalue(res, 0, 0);
+
+	if (_m) {
+		xsyslog(LOG_INFO, "exec directory_create error: %s", _m);
+		PQclear(res);
+		return 0;
+	}
+	result = strtoul(PQgetvalue(res, 0, 1), NULL, 10);
+	PQclear(res);
+	return result;
+}
+
+uint64_t
+spq_directory_create(char *username, uint64_t device_id,
+		guid_t *rootdir, guid_t *new_directory, char *new_dirname)
+{
+	uint64_t r = 0lu;
+	struct spq *c;
+	if ((c = acquire_conn(&_spq)) != NULL) {
+		if (spq_begin_life(c->conn, username, device_id)) {
+			r = _spq_directory_create(c->conn, rootdir,
+					new_directory, new_dirname);
+		}
+		release_conn(&_spq, c);
+	}
+	return r;
+}
+
+uint64_t
 _spq_insert_revision(PGconn *pgc,
 		guid_t *rootdir, guid_t *file,
 		guid_t *revision, guid_t *parent_revision,

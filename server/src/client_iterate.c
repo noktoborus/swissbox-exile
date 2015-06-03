@@ -253,11 +253,8 @@ _handle_directory_update(struct client *c, unsigned type,
 	string2guid(PSLEN(msg->rootdir_guid), &rootdir);
 	string2guid(PSLEN(msg->directory_guid), &directory);
 
-	/*
-	checkpoint = spq_f_logDirPush(c->name, c->device_id,
+	checkpoint = spq_directory_create(c->name, c->device_id,
 			&rootdir, &directory, msg->path);
-			*/
-	checkpoint = 0u;
 	if (!checkpoint)
 		return send_error(c, msg->id, "Internal error 1839", -1);
 

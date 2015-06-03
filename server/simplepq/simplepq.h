@@ -37,6 +37,9 @@ uint64_t spq_insert_revision(char *username, uint64_t device_id,
 		guid_t *dir,
 		unsigned chunks);
 
+uint64_t spq_directory_create(char *username, uint64_t device_id,
+		guid_t *rootdir, guid_t *new_directory, char *new_dirname);
+
 /* */
 
 bool spq_f_getChunkPath(char *username,
