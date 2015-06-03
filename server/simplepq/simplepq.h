@@ -137,13 +137,13 @@ struct getChunks {
  *	file_guid
  *	revision_guid
  */
-bool spq_f_getChunks(char *username,
+bool spq_getChunks(char *username, uint64_t device_id,
 		guid_t *rootdir, guid_t *file, guid_t *revision,
 		struct getChunks *state);
 /* прохождение по списку, возвращает false, если достигнут конец */
-bool spq_f_getChunks_it(struct getChunks *state);
+bool spq_getChunks_it(struct getChunks *state);
 /* отчистка результатов getChunks */
-void spq_f_getChunks_free(struct getChunks *state);
+void spq_getChunks_free(struct getChunks *state);
 
 struct spq_FileMeta {
 	bool empty;

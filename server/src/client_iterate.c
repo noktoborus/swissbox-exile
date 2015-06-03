@@ -332,14 +332,15 @@ _handle_query_chunks(struct client *c, unsigned type, Fep__QueryChunks *msg)
 
 	memset(&gc, 0, sizeof(struct getChunks));
 
-	if (!spq_f_getChunks(c->name, &rootdir, &file, &revision, &gc)) {
+	if (!spq_getChunks(c->name, c->device_id,
+				&rootdir, &file, &revision, &gc)) {
 		return send_error(c, msg->id, "Internal error 110", -1);
 	}
 
 	/* выделяем память под список */
 	rs = calloc(1, sizeof(struct result_send));
 	if (!rs) {
-		spq_f_getChunks_free(&gc);
+		spq_getChunks_free(&gc);
 		return send_error(c, msg->id, "Internal error 111", -1);
 	}
 
@@ -373,7 +374,7 @@ _handle_query_chunks(struct client *c, unsigned type, Fep__QueryChunks *msg)
 	memcpy(&rs->v.c, &gc, sizeof(struct getChunks));
 	rs->id = msg->session_id;
 	rs->type = RESULT_CHUNKS;
-	rs->free = (void(*)(void*))spq_f_getChunks_free;
+	rs->free = (void(*)(void*))spq_getChunks_free;
 	rs->next = c->rout;
 	c->rout = rs;
 	/* отправка сообщение, чистка результатов запроса, выход */
@@ -1699,7 +1700,7 @@ _client_iterate_result(struct client *c)
 		char guid[GUID_MAX + 1];
 		uint8_t hash[HASH_MAX + 1];
 		size_t hash_len;
-		if (!spq_f_getChunks_it(&c->rout->v.c)) {
+		if (!spq_getChunks_it(&c->rout->v.c)) {
 			/* итерироваться больше некуда, потому отправляем end и чистим
 			 *
 			 * если сообщение не отправится, то очередь подчиститься при
