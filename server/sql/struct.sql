@@ -974,6 +974,29 @@ BEGIN
 	return next;
 END $$ LANGUAGE plpgsql;
 
+CREATE OR REPLACE FUNCTION directory_create(_rootdir UUID, _directory UUID,
+	_dirname TEXT,
+	_drop_ _drop_ DEFAULT 'drop')
+	RETURNS TABLE (r_error text, r_checkpoint bigint) AS $$
+BEGIN
+	WITH _xrow AS (
+		WITH _row AS (
+			SELECT rootdir.* FROM options, _life_, rootdir
+			WHERE options."key" = 'life_mark' AND
+				_life_.mark = options.value_u AND
+				rootdir.user_id = _life_.user_id AND
+				rootdir.rootdir = _rootdir
+		) INSERT INTO directory_log (rootdir_id, directory, path)
+		VALUES ((SELECT id FROM _row), _directory, _dirname)
+		RETURNING *
+	) SELECT INTO r_checkpoint checkpoint FROM _xrow;
+	IF r_checkpoint IS NULL THEN
+		r_error := concat('unknown rootdir ', _rootdir);
+	END IF;
+	return next;
+	return;
+END $$ LANGUAGE plpgsql;
+
 -- получение списка чанков
 CREATE OR REPLACE FUNCTION chunk_list(_rootdir UUID, _file UUID,
 	_revision UUID,
@@ -1277,10 +1300,12 @@ BEGIN
 	SELECT INTO _rootdir rootdir AS guid, id
 	FROM rootdir WHERE user_id = _user_id LIMIT 1;
 
+	-- регистрируемся
+	PERFORM begin_life('bob', 120);
+	
 	IF 2 > stage THEN
 		-- создаём новую директорию
-		INSERT INTO directory_log (rootdir_id, directory, path)
-		VALUES (_rootdir.id, gen_random_uuid(), '/bla-bla');
+		PERFORM directory_create (_rootdir.guid, gen_random_uuid(), '/bla-bla');
 	END IF;
 
 	-- получении информации о директории
@@ -1288,8 +1313,6 @@ BEGIN
 	SELECT INTO _dir directory AS guid, id
 	FROM directory WHERE path = '/bla-bla';
 
-	-- регистрируемся
-	PERFORM begin_life('bob', 120);
 
 	IF 3 > stage THEN
 		-- сохраняем мету для файла
