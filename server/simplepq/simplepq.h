@@ -72,12 +72,13 @@ struct getRevisions {
  * 	rootdir_guid
  * 	file_guid
  */
-bool spq_f_getRevisions(char *username, guid_t *rootdir, guid_t *file,
+bool spq_getRevisions(char *username, uint64_t device_id,
+		guid_t *rootdir, guid_t *file,
 		unsigned depth, struct getRevisions *state);
 /* итерация результата */
-bool spq_f_getRevisions_it(struct getRevisions *state);
+bool spq_getRevisions_it(struct getRevisions *state);
 /* отчистка результатов spq_f_getRevisions */
-void spq_f_getRevisions_free(struct getRevisions *state);
+void spq_getRevisions_free(struct getRevisions *state);
 
 /* лог директофайлов */
 struct logDirFile {

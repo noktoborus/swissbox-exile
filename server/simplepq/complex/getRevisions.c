@@ -3,8 +3,8 @@
  */
 
 static inline PGresult*
-_spq_f_getRevisions_exec(PGconn *pgc,
-		char *username, guid_t *rootdir, guid_t *file, unsigned depth)
+_spq_getRevisions_exec(PGconn *pgc,
+		guid_t *rootdir, guid_t *file, unsigned depth)
 {
 	PGresult *res;
 	ExecStatusType pqs;
@@ -12,37 +12,31 @@ _spq_f_getRevisions_exec(PGconn *pgc,
 	/* TODO: запрос делает какую-то ерунду
 	 * нужно строить список по parent_revision_guid
 	 */
-	const char *tbq = "SELECT revision_guid, parent_revision_guid "
-		"FROM file_keys WHERE "
-		"username = $1 AND "
-		"rootdir_guid = $2 AND "
-		"file_guid = $3 "
-		"GROUP BY time,revision_guid,parent_revision_guid "
-		"ORDER BY time DESC "
-		"LIMIT $4;";
-	const int format[4] = {0, 0, 0, 0};
+	const char *tbq = "SELECT * FROM revision_list"
+		"("
+		"	$1::UUID,"
+		"	$2::UUID,"
+		"	$3::integer"
+		")";
+	const int fmt[3] = {0, 0, 0};
 
 	char _rootdir_guid[GUID_MAX + 1];
 	char _file_guid[GUID_MAX + 1];
 
-	char *val[4];
-	int length[4];
+	char *val[3];
+	int len[3];
 
 	char ndepth[16];
-	snprintf(ndepth, sizeof(ndepth), "%"PRIu32, depth);
 
-	length[0] = strlen(username);
-	length[1] = guid2string(rootdir, _rootdir_guid, sizeof(_rootdir_guid));
-	length[2] = guid2string(file, _file_guid, sizeof(_file_guid));
-	length[3] = strlen(ndepth);
+	len[0] = guid2string(rootdir, _rootdir_guid, sizeof(_rootdir_guid));
+	len[1] = guid2string(file, _file_guid, sizeof(_file_guid));
+	len[2] = snprintf(ndepth, sizeof(ndepth), "%"PRIu32, depth);
 
-	val[0] = username;
-	val[1] = _rootdir_guid;
-	val[2] = _file_guid;
-	val[3] = ndepth;
+	val[0] = _rootdir_guid;
+	val[1] = _file_guid;
+	val[2] = ndepth;
 
-	res = PQexecParams(pgc, tbq, 4, NULL,
-			(const char *const*)val, length, format, 0);
+	res = PQexecParams(pgc, tbq, 3, NULL, (const char *const*)val, len, fmt, 0);
 
 	pqs = PQresultStatus(res);
 	if (pqs != PGRES_COMMAND_OK && pqs != PGRES_TUPLES_OK) {
@@ -56,7 +50,8 @@ _spq_f_getRevisions_exec(PGconn *pgc,
 }
 
 bool
-spq_f_getRevisions(char *username, guid_t *rootdir, guid_t *file,
+spq_getRevisions(char *username, uint64_t device_id,
+		guid_t *rootdir, guid_t *file,
 		unsigned depth, struct getRevisions *state)
 {
 	struct spq *c;
@@ -66,8 +61,9 @@ spq_f_getRevisions(char *username, guid_t *rootdir, guid_t *file,
 	}
 	c = (struct spq*)state->p;
 
-	if (!state->res && (state->res = _spq_f_getRevisions_exec(c->conn,
-					username, rootdir, file, depth)) == NULL) {
+	if (!state->res && (!spq_begin_life(c->conn, username, device_id) ||
+			(state->res = _spq_getRevisions_exec(c->conn,
+				rootdir, file, depth)) == NULL)) {
 		release_conn(&_spq, c);
 		memset(state, 0u, sizeof(struct getRevisions));
 		return false;
@@ -80,7 +76,7 @@ spq_f_getRevisions(char *username, guid_t *rootdir, guid_t *file,
 }
 
 bool
-spq_f_getRevisions_it(struct getRevisions *state)
+spq_getRevisions_it(struct getRevisions *state)
 {
 	size_t len;
 	char *val;
@@ -104,7 +100,7 @@ spq_f_getRevisions_it(struct getRevisions *state)
 }
 
 void
-spq_f_getRevisions_free(struct getRevisions *state)
+spq_getRevisions_free(struct getRevisions *state)
 {
 	if (state->p)
 		release_conn(&_spq, state->p);

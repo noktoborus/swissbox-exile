@@ -220,8 +220,11 @@ _handle_file_update(struct client *c, unsigned type, Fep__FileUpdate *msg)
 	string2guid(PSLEN(msg->file_guid), &file);
 	string2guid(PSLEN(msg->directory_guid), &directory);
 
+	/*
 	checkpoint = spq_f_logFilePush(c->name, c->device_id, &rootdir, &file,
 			&directory, *enc_filename ? enc_filename : NULL);
+	*/
+	checkpoint = 0u;
 
 	if (!checkpoint)
 		return send_error(c, msg->id, "Internal error 1913", -1);
@@ -250,8 +253,11 @@ _handle_directory_update(struct client *c, unsigned type,
 	string2guid(PSLEN(msg->rootdir_guid), &rootdir);
 	string2guid(PSLEN(msg->directory_guid), &directory);
 
+	/*
 	checkpoint = spq_f_logDirPush(c->name, c->device_id,
 			&rootdir, &directory, msg->path);
+			*/
+	checkpoint = 0u;
 	if (!checkpoint)
 		return send_error(c, msg->id, "Internal error 1839", -1);
 
@@ -282,20 +288,21 @@ _handle_query_revisions(struct client *c, unsigned type,
 
 	memset(&gr, 0, sizeof(struct getRevisions));
 
-	if (!spq_f_getRevisions(c->name, &rootdir, &file, msg->depth, &gr)) {
+	if (!spq_getRevisions(c->name, c->device_id,
+				&rootdir, &file, msg->depth, &gr)) {
 		return send_error(c, msg->id, "Internal error 100", -1);
 	}
 
 	/* выделяем память под список */
 	rs = calloc(1, sizeof(struct result_send));
 	if (!rs) {
-		spq_f_getRevisions_free(&gr);
+		spq_getRevisions_free(&gr);
 		return send_error(c, msg->id, "Internal error 111", -1);
 	}
 	memcpy(&rs->v.r, &gr, sizeof(struct getRevisions));
 	rs->id = msg->session_id;
 	rs->type = RESULT_REVISIONS;
-	rs->free = (void(*)(void*))spq_f_getRevisions_free;
+	rs->free = (void(*)(void*))spq_getRevisions_free;
 	rs->next = c->rout;
 	c->rout = rs;
 #if DEEPDEBUG
@@ -1723,7 +1730,7 @@ _client_iterate_result(struct client *c)
 		Fep__ResultRevision msg = FEP__RESULT_REVISION__INIT;
 		char guid[GUID_MAX + 1];
 		char parent[GUID_MAX + 1];
-		if (!spq_f_getRevisions_it(&c->rout->v.r)) {
+		if (!spq_getRevisions_it(&c->rout->v.r)) {
 			return send_end(c, c->rout->id, c->rout->packets) &&
 				(rout_free(c) || true);
 		}
