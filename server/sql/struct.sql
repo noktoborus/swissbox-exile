@@ -974,6 +974,46 @@ BEGIN
 	return next;
 END $$ LANGUAGE plpgsql;
 
+-- получение списка ревизий
+CREATE OR REPLACE FUNCTION revision_list(_rootdir UUID, _file UUID,
+	_depth integer,
+	_drop_ _drop_ DEFAULT 'drop')
+	RETURNS TABLE
+	(
+		r_revision file_revision.revision%TYPE,
+		r_parent_revision file_revision.revision%TYPE,
+		r_chunks file_revision.chunks%TYPE,
+		r_checkpoint event.checkpoint%TYPE
+	) AS $$
+DECLARE
+	_row record;
+BEGIN
+	FOR _row IN
+		SELECT * FROM (
+			SELECT file_revision.revision AS parent_revision,
+				a.revision AS revision,
+				a.stored_chunks AS chunks,
+				a.checkpoint AS checkpoint
+			FROM
+			(
+				SELECT file_revision.* FROM file, file_revision
+				WHERE file.file = _file AND
+					file_revision.file_id = file.id AND
+					file_revision.fin = TRUE
+				ORDER BY file_revision.checkpoint DESC LIMIT _depth
+			) AS a
+			LEFT JOIN file_revision ON file_revision.id = a.parent_id
+		) AS s ORDER BY checkpoint ASC
+	LOOP
+		r_revision := _row.revision;
+		r_parent_revision := _row.parent_revision;
+		r_chunks := _row.chunks;
+		r_checkpoint := _row.checkpoint;
+		return next;
+	END LOOP;
+	return;
+END $$ LANGUAGE plpgsql;
+
 -- листинг лога
 CREATE OR REPLACE FUNCTION log_list(_rootdir UUID, _checkpoint bigint,
 	_drop_ _drop_ DEFAULT 'drop')
