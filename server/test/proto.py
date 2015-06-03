@@ -79,7 +79,8 @@ def _recv_message(s, expected = None):
         try:
             msg = eval("FEP." + ptype[1:]).FromString(rawmsg)
             if hasattr(msg, "id"):
-                write_std("# header id: %s\n" %(msg.id))
+                write_std("# header id: %s, sid: %s\n"
+                        %(msg.id, hasattr(msg, "session_id") and msg.session_id or None))
             else:
                 write_std("# header has no id\n")
             # печать ошибки, если не ожидается чтение вызвано без ожидания типа
@@ -95,7 +96,7 @@ def _recv_message(s, expected = None):
                     return recv_message(s, expected)
             return msg
         except:
-            write_std("# exc %s" %str(sys.exc_info()))
+            write_std("# exc %s\n" %str(sys.exc_info()))
             write_std("# header parse fail: %s (%s)\n" %(rawmsg.encode("hex"), len(rawmsg)))
     return None
 
@@ -120,12 +121,8 @@ def send_message(s, msg):
     ptype = FEP.Type.keys().index("t" + msg.__class__.__name__) + 1
     sl = msg.SerializeToString()
     ph = struct.pack("!H", ptype) + struct.pack("!I", len(sl))[1:] + '\0'
-    try:
-        write_std("# send id: %s, type: %s[%s], len: (%s, %s)\n"\
-                %(msg.id, msg.__class__.__name__, ptype, len(sl), len(ph)))
-    except:
-        write_std("#send type: %s[%s], len: (%s, %s)\n"\
-                %(msg.__class__.__name__, ptype, len(sl), len(ph)))
+    write_std("# send id: %s, sid: %s, type: %s[%s], len: (%s, %s)\n"\
+            %(hasattr(msg, 'id') and msg.id or None, hasattr(msg, 'session_id') and msg.session_id or None, msg.__class__.__name__, ptype, len(sl), len(ph)))
     ph += sl
     s.send(ph)
 
@@ -159,6 +156,71 @@ def proto_bootstrap(s, user, secret, devid):
     return False
 
 
+def recvFileRevision(s, rootdir, file_, revision):
+    write_std("recv revision '%s'\n" %revision)
+    # получаем список чанков файла и пытаемся их скачать
+    msg = FEP.QueryChunks()
+    msg.id = random.randint(1, 10000)
+    msg.session_id = random.randint(10000, 20000)
+    msg.rootdir_guid = rootdir
+    msg.file_guid = file_
+    msg.revision_guid = revision
+    send_message(s, msg)
+    _ok = True
+    while True:
+        # вместо Ok приходит FileMeta
+        rmsg = recv_message(s, ["ResultChunk", "Error", "FileMeta", "End"])
+        if rmsg.__class__.__name__ == "Error":
+            write_std("query chunks error: %s\n" %(rmsg.message))
+            _ok = False
+            break
+        if rmsg.__class__.__name__ == "End":
+            write_std("query chunks end: sid=%s, packets=%s\n" %(rmsg.session_id, rmsg.packets))
+            break
+        if rmsg.__class__.__name__ == "FileMeta":
+            write_std("file info: chunks=%s, enc_filename=%s, directory=%s, parent_revision=%s\n"
+                    %(rmsg.chunks, rmsg.enc_filename, rmsg.directory_guid, hasattr(rmsg, 'parent_revision_guid') and rmsg.parent_revision_guid or None))
+            continue
+        # из ResultChunk можно получить адрес чанка и сам чанк
+        # TODO
+
+    return _ok
+
+def recvFile(s, rootdir, path):
+    _file_guid = str(uuid.UUID(bytes=hashlib.md5(path).digest()))
+    write_std("recv file '%s' (%s, rootdir: %s)\n" %(path, _file_guid, rootdir))
+
+    # сначала нужно получить ревизии файла
+    msg = FEP.QueryRevisions()
+    msg.id = random.randint(1, 10000)
+    msg.session_id = random.randint(10000, 20000)
+    msg.rootdir_guid = rootdir
+    msg.file_guid = _file_guid
+    msg.depth = 3
+    send_message(s, msg)
+
+    _ok = True
+    while True:
+        rmsg = recv_message(s, ["ResultRevision", "Error", "Ok", "End"])
+        if rmsg.__class__.__name__ == "Error":
+            write_std("query revisions error: %s\n" %(rmsg.message))
+            _ok = False
+            break
+        if rmsg.__class__.__name__ == "End":
+            write_std("query revisions end: sid=%s, packets=%s\n" %(rmsg.session_id, rmsg.packets))
+            break
+        if rmsg.__class__.__name__ == "Ok":
+            continue
+        # обработка ResultRevision
+        write_std("file %s, revision %s (%s/%s)\n" %(_file_guid, rmsg.revision_guid, rmsg.rev_no, rmsg.rev_max))
+        _ok = recvFileRevision(s, rootdir, _file_guid, rmsg.revision_guid)
+        if not _ok:
+            break
+        
+    if _ok:
+        write_std("recv file '%s' complete\n" %(_file_guid))
+    return _ok
+
 def sendFile(s, rootdir, directory, path):
     _chunk_size = 1048576 # размер чанка
     _hash = None
@@ -166,7 +228,7 @@ def sendFile(s, rootdir, directory, path):
     _size = os.path.getsize(path)
     _chunks = math.trunc(math.ceil(float(_size) / _chunk_size))
 
-    write_std("send file '%s'\n" %path)
+    write_std("send file '%s' into %s\n" %(path, rootdir))
     fmsg = FEP.FileMeta()
     wmsg = FEP.WriteAsk()
 
@@ -282,6 +344,13 @@ def proto(s, user, secret, devid):
                 if not sendFile(s, X_rootdir, X_directory, _n):
                     break
             continue
+        if c == "read":
+            if not X_rootdir:
+                write_std("# try to cmd `sync` and `write` (rootdir: %s)\n" %(X_rootdir))
+                continue
+            for _n in [x for x in os.listdir('.') if os.path.isfile(x)]:
+                if not recvFile(s, X_rootdir, _n):
+                    break
         if c == "sync":
             _sessions = []
             _oks = []
