@@ -895,37 +895,71 @@ BEGIN
 		_row.chunk, _row.hash, _row.size, _row.offset, _row.address));
 END $$ LANGUAGE plpgsql;
 
+-- возвращает информацию о текущем пользователе
+-- для существующей версии бд (по life_mark)
+CREATE OR REPLACE FUNCTION life_data(_rootdir rootdir.rootdir%TYPE DEFAULT NULL,
+	_drop_ _drop_ DEFAULT 'drop')
+	RETURNS TABLE
+	(
+		r_username "user".username%TYPE,
+		r_user_id "user".id%TYPE,
+		r_device_id event.device_id%TYPE,
+		r_rootdir_id rootdir.id%TYPE
+	) AS $$
+DECLARE
+	_r record;
+BEGIN
+	BEGIN
+		SELECT
+			_life_.*,
+			CASE WHEN _rootdir IS NULL THEN NULL ELSE rootdir.id END
+				AS rootdir_id
+		INTO _r
+		FROM options, _life_, "user"
+		LEFT JOIN rootdir
+		ON CASE WHEN _rootdir IS NOT NULL THEN
+				rootdir.user_id = "user".id AND
+				rootdir.rootdir = _rootdir
+			ELSE TRUE
+			END
+		WHERE options."key" = 'life_mark' AND
+			_life_.mark = options.value_u AND
+			"user".id = _life_.user_id AND
+			"user".username = _life_.username;
+	EXCEPTION WHEN undefined_table THEN -- nothing
+	END;
+	IF _r IS NULL THEN
+		RAISE EXCEPTION 'try to use begin_life() before call this';
+	END IF;
+	IF _r.rootdir_id IS NULL AND _rootdir IS NOT NULL THEN
+		RAISE EXCEPTION 'rootdir % not owned by %', _rootdir, _r.username;
+	END IF;
+	r_username := _r.username;
+	r_user_id := _r.user_id;
+	r_device_id := _r.device_id;
+	r_rootdir_id := _r.rootdir_id;
+	return next;
+END $$ LANGUAGE plpgsql;
+
 -- переименование и перемещение файла
 CREATE OR REPLACE FUNCTION update_file(_rootdir UUID, _file UUID,
 	_new_directory UUID, _new_filename file.filename%TYPE)
 	RETURNS TABLE(r_error text, r_checkpoint bigint) AS $$
 DECLARE
-	_user_id "user".id%TYPE;
 	_rfile record;
 	_revision_id file_revision.id%TYPE;
 BEGIN
-	-- получение базовой информации о клиенте
-	BEGIN
-		SELECT INTO _user_id user_id FROM _life_, options
-		WHERE options."key" = 'life_mark'
-			AND _life_.mark = options.value_u;
-	EXCEPTION WHEN undefined_table THEN -- nothing
-	END;
-	IF _user_id IS NULL THEN
-		RAISE EXCEPTION 'try to use begin_life() before call this';
-	END IF;
+	-- получение базовой информации о файле
 
-	-- получение текущий информации о файле
 	SELECT INTO _rfile
 		file.id,
 		filename,
 		directory_id,
 		directory,
 		file.rootdir_id
-	FROM rootdir, file, directory
-	WHERE rootdir.user_id = _user_id AND
-		rootdir.rootdir = _rootdir AND
-		file.rootdir_id = rootdir.id AND
+	FROM file, directory, life_data(_rootdir)
+	WHERE
+		file.rootdir_id = r_rootdir_id AND
 		file.file = _file AND
 		directory.id = file.directory_id;
 
@@ -1020,6 +1054,47 @@ BEGIN
 	return;
 END $$ LANGUAGE plpgsql;
 
+-- получение информации о чанке
+CREATE OR REPLACE FUNCTION chunk_get(_rootdir UUID, _file UUID,
+	_chunk UUID,
+	_drop_ _drop_ DEFAULT 'drop')
+	RETURNS TABLE
+	(
+		r_address file_chunk.address%TYPE,
+		r_size file_chunk.size%TYPE,
+		r_offset file_chunk."offset"%TYPE,
+		r_hash file_chunk.hash%TYPE,
+		r_revision file_revision.revision%TYPE,
+		r_error text
+	)
+	AS $$
+DECLARE
+	_r record;
+BEGIN
+	SELECT file_chunk.*, file_revision.revision
+	INTO _r
+	FROM life_data(_rootdir), file, file_chunk, file_revision
+	WHERE
+		file.rootdir_id = r_rootdir_id AND
+		file.file = _file AND
+		file_chunk.file_id = file.id AND
+		file_chunk.chunk = _chunk AND
+		file_revision.id = file_chunk.revision_id;
+
+	IF _r IS NULL THEN
+		r_error := concat('Chunk not found');
+		return next;
+		return;
+	END IF;
+
+	r_address := _r.address;
+	r_size := _r.size;
+	r_offset := _r.offset;
+	r_hash := _r.hash;
+	r_revision := _r.revision;
+	return next;
+END $$ LANGUAGE plpgsql;
+
 -- получение списка чанков
 CREATE OR REPLACE FUNCTION chunk_list(_rootdir UUID, _file UUID,
 	_revision UUID,
@@ -1076,9 +1151,10 @@ BEGIN
 				a.checkpoint AS checkpoint
 			FROM
 			(
-				SELECT file_revision.* FROM rootdir, file, file_revision
-				WHERE rootdir.rootdir = _rootdir AND
-					file.rootdir_id = rootdir.id AND
+				SELECT file_revision.*
+				FROM life_data(_rootdir), file, file_revision
+				WHERE
+					file.rootdir_id = r_rootdir_id AND
 					file.file = _file AND
 					file_revision.file_id = file.id AND
 					file_revision.fin = TRUE
@@ -1118,6 +1194,7 @@ DECLARE
 	_xrow record;
 BEGIN
 	-- получение базовой информации
+	-- TODO: заменить говнище на life_data()
 	BEGIN
 		SELECT INTO _ur user_id, device_id FROM _life_, options
 		WHERE options."key" = 'life_mark' AND
@@ -1239,7 +1316,6 @@ BEGIN
 	return False;
 END $$ LANGUAGE plpgsql;
 
-
 -- вешанье триггеров, инжекция базовых значений
 
 CREATE TRIGGER tr_user_action AFTER INSERT ON "user"
@@ -1325,7 +1401,7 @@ BEGIN
 
 	-- регистрируемся
 	PERFORM begin_life('bob', 120);
-	
+
 	IF 2 > stage THEN
 		-- создаём новую директорию
 		PERFORM directory_create (_rootdir.guid, gen_random_uuid(), '/bla-bla');
