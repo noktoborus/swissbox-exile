@@ -25,6 +25,10 @@ struct spq {
 	uint32_t errhash;
 	bool mark_active;
 
+#if DEEPDEBUG
+	const char *acquired_by;
+#endif
+
 	struct spq *next;
 	struct spq *prev;
 };
@@ -143,20 +147,23 @@ _release_conn(struct spq_root *spq, struct spq *sc)
 	pthread_mutex_unlock(&spq->mutex);
 	return;
 }
-#if 0
+#if DEEPDEBUG
 static inline struct spq*
 __acquire_conn(struct spq_root *spq, const char *funcname)
 {
 	struct spq *c;
-	if ((c = _acquire_conn(spq)))
-		xsyslog(LOG_DEBUG, "acquire %p in %s", (void*)c, funcname);
+	if ((c = _acquire_conn(spq))) {
+		/* xsyslog(LOG_DEBUG, "acquire %p in %s", (void*)c, funcname); */
+		c->acquired_by = funcname;
+	}
 	return c;
 }
 
 static inline void
 __release_conn(struct spq_root *spq, struct spq *sc, const char *funcname)
 {
-	xsyslog(LOG_DEBUG, "release %p in %s", (void*)sc, funcname);
+	/*xsyslog(LOG_DEBUG, "release %p in %s", (void*)sc, funcname);*/
+	sc->acquired_by = NULL;
 	_release_conn(spq, sc);
 	return;
 }
