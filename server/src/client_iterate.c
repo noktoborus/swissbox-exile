@@ -249,14 +249,20 @@ _handle_directory_update(struct client *c, unsigned type,
 	guid_t rootdir;
 	guid_t directory;
 	uint64_t checkpoint;
+	struct spq_hint hint;
 
 	string2guid(PSLEN(msg->rootdir_guid), &rootdir);
 	string2guid(PSLEN(msg->directory_guid), &directory);
 
+	memset(&hint, 0u, sizeof(struct spq_hint));
 	checkpoint = spq_directory_create(c->name, c->device_id,
-			&rootdir, &directory, msg->path);
-	if (!checkpoint)
-		return send_error(c, msg->id, "Internal error 1839", -1);
+			&rootdir, &directory, msg->path, &hint);
+	if (!checkpoint) {
+		if (*hint.message)
+			return send_error(c, msg->id, hint.message, -1);
+		else
+			return send_error(c, msg->id, "Internal error 1839", -1);
+	}
 
 	if (c->cum) {
 		pthread_mutex_lock(&c->cum->lock);
@@ -896,10 +902,12 @@ static bool
 _file_complete(struct client *c, struct wait_file *wf)
 {
 	uint64_t checkpoint;
+	struct spq_hint hint;
 	bool retval = true;
 	if (wf->chunks != wf->chunks_ok) {
 		return true;
 	}
+	memset(&hint, 0, sizeof(struct spq_hint));
 	/* файл собрался */
 	{
 		size_t pkeysize = wf->key_len * 2 + 1;
@@ -907,10 +915,14 @@ _file_complete(struct client *c, struct wait_file *wf)
 		bin2hex(wf->key, wf->key_len, pkeyhex, wf->key_len);
 		checkpoint = spq_insert_revision(c->name, c->device_id,
 				&wf->rootdir, &wf->file, &wf->revision, &wf->parent,
-				wf->enc_filename, pkeyhex, &wf->dir, wf->chunks);
+				wf->enc_filename, pkeyhex, &wf->dir, wf->chunks,
+				&hint);
 	}
 	if (!checkpoint) {
-		retval = send_error(c, wf->msg_id, "Internal error 1785", -1);
+		if (*hint.message)
+			retval = send_error(c, wf->msg_id, hint.message, -1);
+		else
+			retval = send_error(c, wf->msg_id, "Internal error 1785", -1);
 	} else {
 		/* рассылаем приглашение обновиться соседям */
 		if (c->cum) {
@@ -1069,6 +1081,8 @@ _handle_rename_chunk(struct client *c, unsigned type, Fep__RenameChunk *msg)
 	struct wait_store *ws;
 	struct wait_file *wf;
 	char *errmsg = NULL;
+	struct spq_hint hint;
+
 	guid_t rootdir;
 	guid_t file;
 	guid_t chunk;
@@ -1103,17 +1117,22 @@ _handle_rename_chunk(struct client *c, unsigned type, Fep__RenameChunk *msg)
 			"chunk %s, rev %s", msg->rootdir_guid, msg->file_guid,
 			msg->chunk_guid, msg->to_chunk_guid, msg->to_revision_guid);
 #endif
+	memset(&hint, 0, sizeof(struct spq_hint));
 	/* манипуляция данными в бд */
 	if (!spq_link_chunk(c->name, c->device_id, &rootdir, &file, &chunk,
-				&chunk_new, &revision_new)) {
+				&chunk_new, &revision_new, &hint)) {
 		wf->chunks_fail++;
-		errmsg = "Original chunk not found";
+		errmsg = "Internal error 2054";
 	} else {
 		wf->chunks_ok++;
 	}
 
-	if (errmsg)
-		return send_error(c, msg->id, errmsg, -1);
+	if (errmsg) {
+		if (*hint.message)
+			return send_error(c, msg->id, hint.message, -1);
+		else
+			return send_error(c, msg->id, errmsg, -1);
+	}
 	return send_ok(c, msg->id, C_OK_SIMPLE);
 }
 
@@ -1153,8 +1172,10 @@ _handle_end(struct client *c, unsigned type, Fep__End *end)
 	}
 
 	if (!*errmsg) {
+		struct spq_hint hint;
 		unsigned char sha256_o[SHA256_MAX];
 		char sha256_hex[SHA256HEX_MAX + 1];
+		memset(&hint, 0u, sizeof(struct spq_hint));
 		sha256_finish(&wx->sha256, sha256_o);
 		bin2hex(wx->hash, wx->hash_len, chunk_hash, sizeof(chunk_hash));
 		if (wx->hash_len != SHA256_MAX
@@ -1166,9 +1187,12 @@ _handle_end(struct client *c, unsigned type, Fep__End *end)
 		/* чанк пришёл, теперь нужно попробовать обновить информацию в бд */
 		} else if (!spq_insert_chunk(c->name, c->device_id, &wf->rootdir, &wf->file,
 					&wf->revision, &wx->chunk_guid, chunk_hash,
-					wx->size, wx->offset, wx->path)) {
+					wx->size, wx->offset, wx->path, &hint)) {
 			/* запись чанка не удалась */
-			snprintf(errmsg, sizeof(errmsg), "Internal error 2023");
+			if (*hint.message)
+				snprintf(errmsg, sizeof(errmsg), hint.message);
+			else
+				snprintf(errmsg, sizeof(errmsg), "Internal error 2023");
 		}
 	}
 	if (!*errmsg) {

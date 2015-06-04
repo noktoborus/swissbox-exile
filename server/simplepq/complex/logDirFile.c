@@ -50,6 +50,7 @@ spq_f_logDirFile(char *username, guid_t *rootdir, uint64_t checkpoint, uint64_t 
 
 	if (!spq_begin_life(c->conn, username, deviceid)) {
 		release_conn(&_spq, c);
+		memset(state, 0u, sizeof(struct logDirFile));
 		return false;
 	}
 

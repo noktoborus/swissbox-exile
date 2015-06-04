@@ -17,28 +17,40 @@ void spq_open(unsigned pool, char *pgstring);
 void spq_resize(unsigned pool);
 void spq_close();
 
-
 bool spq_create_tables();
 
 /* v3 */
+/* структура для возврата сообщений об ошибках
+ * и прочей отладочной информации
+ */
+#define SPQ_ERROR_LEN 1024
+struct spq_hint {
+	char message[SPQ_ERROR_LEN];
+};
+
+
 bool spq_insert_chunk(char *username, uint64_t device_id,
 		guid_t *rootdir, guid_t *file, guid_t *revision, guid_t *chunk,
 		char *chunk_hash, uint32_t chunk_size, uint32_t chunk_offset,
-		char *address);
+		char *address,
+		struct spq_hint *hint);
 
 bool spq_link_chunk(char *username, uint64_t device_id,
 		guid_t *rootdir, guid_t *file, guid_t *chunk,
-		guid_t *new_chunk, guid_t *new_revision);
+		guid_t *new_chunk, guid_t *new_revision,
+		struct spq_hint *hint);
 
 uint64_t spq_insert_revision(char *username, uint64_t device_id,
 		guid_t *rootdir, guid_t *file,
 		guid_t *revision, guid_t *parent_revision,
 		char *filename, char *pubkey,
 		guid_t *dir,
-		unsigned chunks);
+		unsigned chunks,
+		struct spq_hint *hint);
 
 uint64_t spq_directory_create(char *username, uint64_t device_id,
-		guid_t *rootdir, guid_t *new_directory, char *new_dirname);
+		guid_t *rootdir, guid_t *new_directory, char *new_dirname,
+		struct spq_hint *hint);
 
 /* */
 

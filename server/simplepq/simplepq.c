@@ -552,7 +552,8 @@ bool
 _spq_insert_chunk(PGconn *pgc,
 		guid_t *rootdir, guid_t *file, guid_t *revision, guid_t *chunk,
 		char *chunk_hash, uint32_t chunk_size, uint32_t chunk_offset,
-		char *address)
+		char *address,
+		struct spq_hint *hint)
 {
 	PGresult *res;
 	const char *tb = "SELECT insert_chunk"
@@ -605,9 +606,16 @@ _spq_insert_chunk(PGconn *pgc,
 		return false;
 	}
 
+	/* отдавать сообщение дальше в программу стоит
+	 * только в случае контролируемого r_error,
+	 * а не случайного EXCEPTION
+	 */
 	if (PQgetlength(res, 0, 0) != 0) {
-		xsyslog(LOG_INFO, "exec insert_chunk error: %s",
-				PQgetvalue(res, 0, 0));
+		char *_error = PQgetvalue(res, 0, 0);
+		xsyslog(LOG_INFO, "exec insert_chunk error: %s", _error);
+		if (hint) {
+			strncpy(hint->message, _error, SPQ_ERROR_LEN);
+		}
 		PQclear(res);
 		return false;
 	}
@@ -620,14 +628,15 @@ bool
 spq_insert_chunk(char *username, uint64_t device_id,
 		guid_t *rootdir, guid_t *file, guid_t *revision, guid_t *chunk,
 		char *chunk_hash, uint32_t chunk_size, uint32_t chunk_offset,
-		char *address)
+		char *address,
+		struct spq_hint *hint)
 {
 	bool r = false;
 	struct spq *c;
 	if ((c = acquire_conn(&_spq)) != NULL) {
 		r = spq_begin_life(c->conn, username, device_id) &&
 			_spq_insert_chunk(c->conn, rootdir, file, revision, chunk,
-				chunk_hash, chunk_size, chunk_offset, address);
+				chunk_hash, chunk_size, chunk_offset, address, hint);
 		release_conn(&_spq, c);
 	}
 	return r;
@@ -636,7 +645,8 @@ spq_insert_chunk(char *username, uint64_t device_id,
 bool
 _spq_link_chunk(PGconn *pgc,
 		guid_t *rootdir, guid_t *file, guid_t *chunk,
-		guid_t *new_chunk, guid_t *new_revision)
+		guid_t *new_chunk, guid_t *new_revision,
+		struct spq_hint *hint)
 {
 	PGresult *res;
 	ExecStatusType pqs;
@@ -694,14 +704,15 @@ _spq_link_chunk(PGconn *pgc,
 bool
 spq_link_chunk(char *username, uint64_t device_id,
 		guid_t *rootdir, guid_t *file, guid_t *chunk,
-		guid_t *new_chunk, guid_t *new_revision)
+		guid_t *new_chunk, guid_t *new_revision,
+		struct spq_hint *hint)
 {
 	bool r = false;
 	struct spq *c;
 	if ((c = acquire_conn(&_spq)) != NULL) {
 		r = spq_begin_life(c->conn, username, device_id) &&
 			_spq_link_chunk(c->conn, rootdir, file, chunk,
-				new_chunk, new_revision);
+				new_chunk, new_revision, hint);
 		release_conn(&_spq, c);
 	}
 	return r;
@@ -709,7 +720,8 @@ spq_link_chunk(char *username, uint64_t device_id,
 
 uint64_t
 _spq_directory_create(PGconn *pgc, guid_t *rootdir,
-		guid_t *new_directory, char *new_dirname)
+		guid_t *new_directory, char *new_dirname,
+		struct spq_hint *hint)
 {
 	uint64_t result;
 	PGresult *res;
@@ -738,8 +750,12 @@ _spq_directory_create(PGconn *pgc, guid_t *rootdir,
 
 	if (pqs != PGRES_TUPLES_OK)
 		_m = PQresultErrorMessage(res);
-	else if (PQgetlength(res, 0, 0))
+	else if (PQgetlength(res, 0, 0)) {
 		_m = PQgetvalue(res, 0, 0);
+		if (_m && hint) {
+			strncpy(hint->message, _m, SPQ_ERROR_LEN);
+		}
+	}
 
 	if (_m) {
 		xsyslog(LOG_INFO, "exec directory_create error: %s", _m);
@@ -753,14 +769,15 @@ _spq_directory_create(PGconn *pgc, guid_t *rootdir,
 
 uint64_t
 spq_directory_create(char *username, uint64_t device_id,
-		guid_t *rootdir, guid_t *new_directory, char *new_dirname)
+		guid_t *rootdir, guid_t *new_directory, char *new_dirname,
+		struct spq_hint *hint)
 {
 	uint64_t r = 0lu;
 	struct spq *c;
 	if ((c = acquire_conn(&_spq)) != NULL) {
 		if (spq_begin_life(c->conn, username, device_id)) {
 			r = _spq_directory_create(c->conn, rootdir,
-					new_directory, new_dirname);
+					new_directory, new_dirname, hint);
 		}
 		release_conn(&_spq, c);
 	}
@@ -773,7 +790,8 @@ _spq_insert_revision(PGconn *pgc,
 		guid_t *revision, guid_t *parent_revision,
 		char *filename, char *pubkey,
 		guid_t *dir,
-		unsigned chunks)
+		unsigned chunks,
+		struct spq_hint *hint)
 {
 	uint64_t result;
 	PGresult *res;
@@ -825,8 +843,11 @@ _spq_insert_revision(PGconn *pgc,
 
 	if (pqs != PGRES_TUPLES_OK)
 		_m = PQresultErrorMessage(res);
-	else if (PQgetlength(res, 0, 0))
+	else if (PQgetlength(res, 0, 0)) {
 		_m = PQgetvalue(res, 0, 0);
+		if (_m && hint)
+			strncpy(hint->message, _m, SPQ_ERROR_LEN);
+	}
 
 	if (_m) {
 		xsyslog(LOG_INFO, "exec insert_revision error: %s", _m);
@@ -844,14 +865,16 @@ spq_insert_revision(char *username, uint64_t device_id,
 		guid_t *revision, guid_t *parent_revision,
 		char *filename, char *pubkey,
 		guid_t *dir,
-		unsigned chunks)
+		unsigned chunks,
+		struct spq_hint *hint)
 {
 	uint64_t r = 0lu;
 	struct spq *c;
 	if ((c = acquire_conn(&_spq)) != NULL) {
 		if (spq_begin_life(c->conn, username, device_id)) {
 			r = _spq_insert_revision(c->conn, rootdir, file,
-					revision, parent_revision, filename, pubkey, dir, chunks);
+					revision, parent_revision, filename, pubkey, dir, chunks,
+					hint);
 		}
 		release_conn(&_spq, c);
 	}
