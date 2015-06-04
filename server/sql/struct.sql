@@ -978,21 +978,44 @@ CREATE OR REPLACE FUNCTION directory_create(_rootdir UUID, _directory UUID,
 	_dirname TEXT,
 	_drop_ _drop_ DEFAULT 'drop')
 	RETURNS TABLE (r_error text, r_checkpoint bigint) AS $$
+DECLARE
+	_ur record;
 BEGIN
-	WITH _xrow AS (
-		WITH _row AS (
-			SELECT rootdir.* FROM options, _life_, rootdir
-			WHERE options."key" = 'life_mark' AND
-				_life_.mark = options.value_u AND
-				rootdir.user_id = _life_.user_id AND
-				rootdir.rootdir = _rootdir
-		) INSERT INTO directory_log (rootdir_id, directory, path)
-		VALUES ((SELECT id FROM _row), _directory, _dirname)
-		RETURNING *
-	) SELECT INTO r_checkpoint checkpoint FROM _xrow;
-	IF r_checkpoint IS NULL THEN
+	-- сбор информации о пользователе
+	SELECT _life_.username AS username,
+		_life_.user_id AS user_id,
+		rootdir.id AS rootdir_id
+	INTO _ur
+	FROM options, _life_, rootdir
+	WHERE options."key" = 'life_mark' AND
+		_life_.mark = options.value_u AND
+		rootdir.user_id = _life_.user_id AND
+		rootdir.rootdir = _rootdir;
+	IF _ur IS NULL THEN
 		r_error := concat('unknown rootdir ', _rootdir);
 	END IF;
+	-- проверка существования директории (и это не переименование)
+	IF (SELECT COUNT(*) FROM directory
+		WHERE directory.rootdir_id = _ur.rootdir_id AND
+			directory.directory = _directory AND
+			directory.path = _dirname) >= 1 THEN
+		r_error := 'Directory already updated';
+		return next;
+		return;
+	END IF;
+
+	-- впихивание директории и возврат checkpoint
+	WITH _xrow AS (
+		INSERT INTO directory_log (rootdir_id, directory, path)
+		VALUES (_ur.rootdir_id, _directory, _dirname)
+		RETURNING *
+	) SELECT checkpoint INTO r_checkpoint FROM _xrow;
+
+	--IF r_checkpoint IS NULL THEN
+	--	маловероятно что не смог пройти insert
+	--	и сейчас нет представлений почему это могло случиться
+	--	r_error := concat(' ');
+	--END IF;
 	return next;
 	return;
 END $$ LANGUAGE plpgsql;
