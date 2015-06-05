@@ -483,7 +483,7 @@ _handle_read_ask(struct client *c, unsigned type, Fep__ReadAsk *msg)
 	struct chunk_send *chs;
 	struct stat st;
 	size_t offset;
-	size_t origin;
+	struct spq_hint hint;;
 
 	if (!c->status.auth_ok)
 		return send_error(c, msg->id, "Unauthorized", -1);
@@ -491,9 +491,12 @@ _handle_read_ask(struct client *c, unsigned type, Fep__ReadAsk *msg)
 	string2guid(msg->rootdir_guid, strlen(msg->rootdir_guid), &rootdir);
 	string2guid(msg->file_guid, strlen(msg->file_guid), &file);
 	string2guid(msg->chunk_guid, strlen(msg->chunk_guid), &chunk);
+	memset(&hint, 0, sizeof(struct spq_hint));
 
-	if (!spq_f_getChunkPath(c->name, &rootdir, &file, &chunk,
-				path, sizeof(path), &offset, &origin)) {
+	if (!spq_getChunkPath(c->name, c->device_id, &rootdir, &file, &chunk,
+				path, sizeof(path), &offset, &hint)) {
+		if (*hint.message)
+			return send_error(c, msg->id, hint.message, -1);
 		return send_error(c, msg->id, "Internal error 120", -1);
 	}
 

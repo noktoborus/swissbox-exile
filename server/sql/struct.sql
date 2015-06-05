@@ -1060,12 +1060,12 @@ CREATE OR REPLACE FUNCTION chunk_get(_rootdir UUID, _file UUID,
 	_drop_ _drop_ DEFAULT 'drop')
 	RETURNS TABLE
 	(
+		r_error text,
 		r_address file_chunk.address%TYPE,
 		r_size file_chunk.size%TYPE,
 		r_offset file_chunk."offset"%TYPE,
 		r_hash file_chunk.hash%TYPE,
-		r_revision file_revision.revision%TYPE,
-		r_error text
+		r_revision file_revision.revision%TYPE
 	)
 	AS $$
 DECLARE

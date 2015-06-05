@@ -54,9 +54,10 @@ uint64_t spq_directory_create(char *username, uint64_t device_id,
 
 /* */
 
-bool spq_f_getChunkPath(char *username,
+bool spq_getChunkPath(char *username, uint64_t device_id,
 		guid_t *rootdir, guid_t *file, guid_t *chunk,
-		char *path, size_t path_len, size_t *offset, size_t *origin);
+		char *path, size_t path_len, size_t *offset,
+		struct spq_hint *hint);
 
 struct getLogFile {
 	void *p;
