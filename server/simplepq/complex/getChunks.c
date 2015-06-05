@@ -9,7 +9,7 @@ _spq_getChunks_exec(PGconn *pgc,
 	PGresult *res;
 	ExecStatusType pqs;
 	char errstr[1024];
-	const char *tb = "SELECT * FROM chunk_list($1::UUID, $2::UUID, $3:UUID);";
+	const char *tb = "SELECT * FROM chunk_list($1::UUID, $2::UUID, $3::UUID);";
 	const int fmt[3] = {0, 0, 0};
 
 	char _rootdir_guid[GUID_MAX + 1];
