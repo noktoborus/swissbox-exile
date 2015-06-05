@@ -176,9 +176,12 @@ CREATE TABLE IF NOT EXISTS directory
 	directory UUID NOT NULL,
 	path varchar(4096) DEFAULT NULL,
 
-	UNIQUE(rootdir_id, directory),
-	UNIQUE(rootdir_id, path)
+	UNIQUE(rootdir_id, directory)
 );
+
+-- "удалённые" директории не должны учитываться при индексации
+CREATE UNIQUE INDEX directory_unque_path_idx ON directory (rootdir_id, path)
+	WHERE strpos(path, '/.Trash') != 1;
 
 -- у самого файла нет чекпоинта, чекпоинт есть у имени/пути файла и ревизии
 CREATE SEQUENCE file_seq;
@@ -195,9 +198,31 @@ CREATE TABLE IF NOT EXISTS file
 	directory_id bigint NOT NULL REFERENCES directory(id),
 	filename varchar(4096) DEFAULT NULL,
 
-	UNIQUE(rootdir_id, file),
-	UNIQUE(directory_id, filename)
+	deleted boolean DEFAULT FALSE,
+
+	UNIQUE(rootdir_id, file)
 );
+
+CREATE OR REPLACE FUNCTION _check_is_trash(_rootdir_id bigint,
+	_directory_id bigint,
+	_drop_ _drop_ DEFAULT 'drop')
+	RETURNS boolean AS $$
+DECLARE
+	_r boolean;
+BEGIN
+	SELECT directory.id = _directory_id INTO _r
+	FROM directory
+	WHERE
+		directory.rootdir_id = _rootdir_id AND
+		directory.path = '/.Trash';
+	IF _r IS NOT NULL THEN
+		return _r;
+	END IF;
+	return FALSE;
+END $$ LANGUAGE plpgsql IMMUTABLE;
+
+CREATE UNIQUE INDEX file_unique_path_idx ON file(directory_id, filename)
+	WHERE _check_is_trash(rootdir_id, directory_id);
 
 CREATE SEQUENCE file_revision_seq;
 CREATE TABLE IF NOT EXISTS file_revision
@@ -940,6 +965,28 @@ BEGIN
 	r_rootdir_id := _r.rootdir_id;
 	return next;
 END $$ LANGUAGE plpgsql;
+
+/*
+-- удаление файла
+CREATE OR REPLACE FUNCTION remove_file(_rootdir UUID, _file UUID)
+	RETURNS TABLE(r_error text, r_checkpoint bigint) AS $$
+DECLARE
+	_trash record;
+	_fid record;
+BEGIN
+	-- удаление в двух стадиях:
+	-- 1. перенос файла в специальную директорию ".Trash"
+	-- 2. физическое удаление записей (пометка как "удалённые)
+
+	SELECT
+		directory.rootdir_id AS rootdir_id,
+		directory.id AS directory_id,
+	INTO _trash
+	FROM life_data(_rootdir), directory
+	WHERE
+		directory.rootdir_id = r_rootdir_id AND
+		directory.path = '/.Trash';
+END $$ LANGUAGE plpgsql;*/
 
 -- переименование и перемещение файла
 CREATE OR REPLACE FUNCTION update_file(_rootdir UUID, _file UUID,
