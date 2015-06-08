@@ -1487,7 +1487,7 @@ handle_header(unsigned char *buf, size_t size, struct client *c)
 					}
 				} else {
 					xsyslog(LOG_INFO,
-							"client[%p] send malformed message type #%u",
+							"client[%p] receive malformed message type #%u",
 							(void*)c->cev, c->h_type);
 				}
 			}
