@@ -109,7 +109,7 @@ struct logDirFile {
 	uint64_t checkpoint;
 	guid_t rootdir;
 	guid_t directory;
-	char path[PATH_MAX]; /* raw path for "d", enc_filename for "f" */
+	char path[PATH_MAX + 1]; /* raw path for "d", enc_filename for "f" */
 
 	char type; /* "d" for directory or "f" for file */
 	guid_t file;
