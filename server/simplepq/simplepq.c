@@ -52,6 +52,25 @@ static struct spq_root {
 	struct spq *first;
 } _spq;
 
+#if DEEPDEBUG
+static void
+spq_ac() {
+	unsigned c = 1u;
+	struct spq *sc;
+	fprintf(stderr, "stats: (pool=%u, end=%s, active=%u)\n",
+			_spq.pool, _spq.end ? "yes" : "no", _spq.active);
+	for (sc = _spq.first; sc; sc = sc->next, c++) {
+		fprintf(stderr, "n#%02u: active: %s, acquired: %s, status: %d\n",
+			   c,
+			   sc->mark_active ? "yes" : "no",
+			   sc->acquired_by,
+			   PQstatus(sc->conn));
+	}
+
+}
+
+#endif
+
 static inline bool
 _spq_getChunkPath(PGconn *pgc, guid_t *rootdir, guid_t *file, guid_t *chunk,
 		char *path, size_t path_len, size_t *offset,
@@ -155,7 +174,7 @@ __acquire_conn(struct spq_root *spq, const char *funcname)
 {
 	struct spq *c;
 	if ((c = _acquire_conn(spq))) {
-		/* xsyslog(LOG_DEBUG, "acquire %p in %s", (void*)c, funcname); */
+		xsyslog(LOG_DEBUG, "acquire %p in %s", (void*)c, funcname);
 		c->acquired_by = funcname;
 	}
 	return c;
@@ -164,7 +183,7 @@ __acquire_conn(struct spq_root *spq, const char *funcname)
 static inline void
 __release_conn(struct spq_root *spq, struct spq *sc, const char *funcname)
 {
-	/*xsyslog(LOG_DEBUG, "release %p in %s", (void*)sc, funcname);*/
+	xsyslog(LOG_DEBUG, "release %p in %s", (void*)sc, funcname);
 	sc->acquired_by = NULL;
 	_release_conn(spq, sc);
 	return;
@@ -775,6 +794,83 @@ spq_directory_create(char *username, uint64_t device_id,
 			r = _spq_directory_create(c->conn, rootdir,
 					new_directory, new_dirname, hint);
 		}
+		release_conn(&_spq, c);
+	}
+	return r;
+}
+
+uint64_t
+_spq_update_file(PGconn *pgc, guid_t *rootdir, guid_t *file,
+		guid_t *new_directory, char *new_filename,
+		struct spq_hint *hint)
+{
+	uint64_t result;
+	PGresult *res;
+	ExecStatusType pqs;
+	const char tb[] =
+		"SELECT * FROM update_file "
+		"("
+		"	$1::UUID,"
+		"	$2::UUID,"
+		"	$3::UUID,"
+		"	$4::character varying"
+		");";
+	const int fmt[4] = {0, 0, 0, 0};
+
+	char _rootdir[GUID_MAX + 1];
+	char _file[GUID_MAX + 1];
+	char _directory[GUID_MAX + 1];
+
+	const char *_m = NULL;
+	char *val[4];
+	int len[4];
+
+	len[0] = guid2string(rootdir, PSIZE(_rootdir));
+	len[1] = guid2string(file, PSIZE(_file));
+	len[2] = guid2string(new_directory, PSIZE(_directory));
+	len[3] = new_filename ? strlen(new_filename) : 0u;
+
+	val[0] = _rootdir;
+	val[1] = _file;
+	val[2] = _directory;
+	val[3] = len[3] ? new_filename : NULL;
+
+	res = PQexecParams(pgc, tb, 4, NULL, (const char *const*)val, len, fmt, 0);
+	pqs = PQresultStatus(res);
+
+	if (pqs != PGRES_TUPLES_OK) {
+		_m = PQresultErrorMessage(res);
+		xsyslog(LOG_INFO, "exec update_file error: %s", _m);
+	} else if (PQgetlength(res, 0, 0)) {
+		_m = PQgetvalue(res, 0, 0);
+		if (_m && hint)
+			strncpy(hint->message, _m, SPQ_ERROR_LEN);
+		xsyslog(LOG_INFO, "exec update_file warning: %s", _m);
+	}
+
+	if (_m) {
+		PQclear(res);
+		return 0lu;
+	}
+
+	result = strtoul(PQgetvalue(res, 0, 1), NULL, 10);
+	PQclear(res);
+
+	return result;
+}
+
+uint64_t
+spq_update_file(char *username, uint64_t device_id,
+		guid_t *rootdir, guid_t *file,
+		guid_t *new_directory, char *new_filename,
+		struct spq_hint *hint)
+{
+	uint64_t r = 0lu;
+	struct spq *c;
+	if ((c = acquire_conn(&_spq)) != NULL) {
+		if(spq_begin_life(c->conn, username, device_id))
+			r = _spq_update_file(c->conn, rootdir, file,
+					new_directory, new_filename, hint);
 		release_conn(&_spq, c);
 	}
 	return r;

@@ -258,8 +258,9 @@ CREATE TABLE IF NOT EXISTS file_meta
 	checkpoint bigint DEFAULT NULL,
 	event_id bigint DEFAULT NULL REFERENCES event(id),
 
-	filename varchar(4096) NOT NULL DEFAULT '',
-	directory_id bigint NOT NULL,
+	-- если оба поля NULL, значит файл удалён
+	filename varchar(4096) DEFAULT NULL,
+	directory_id bigint DEFAULT NULL,
 
 	UNIQUE(checkpoint)
 );
@@ -1024,14 +1025,20 @@ BEGIN
 		return;
 	END IF;
 
-	IF _new_filename IS NOT NULL THEN
-		_rfile.filename := _new_filename;
-	END IF;
+	IF _new_filename IS NULL AND _new_directory IS NULL THEN
+		-- "удаление"
+		_rfile.filename := NULL;
+		_rfile.directory_id := NULL;
+	ELSE
+		IF _new_filename IS NOT NULL THEN
+			_rfile.filename := _new_filename;
+		END IF;
 
-	IF _new_directory IS NOT NULL THEN
-		SELECT INTO _rfile.directory_id id FROM directory
-		WHERE directory.rootdir_id = _rfile.rootdir_id AND
-			directory.directory = _new_directory;
+		IF _new_directory IS NOT NULL THEN
+			SELECT INTO _rfile.directory_id id FROM directory
+			WHERE directory.rootdir_id = _rfile.rootdir_id AND
+				directory.directory = _new_directory;
+		END IF;
 	END IF;
 
 	IF _rfile.directory_id IS NULL THEN

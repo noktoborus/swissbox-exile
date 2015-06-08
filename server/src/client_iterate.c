@@ -177,6 +177,22 @@ sid_free(wait_store_t *ws)
 	free(ws);
 }
 
+/* добавление rootdir в список активных rootdir */
+static void
+client_add_rootdir(struct client *c, guid_t *rootdir)
+{
+	void *p;
+	p = realloc(c->rootdir.n, (c->rootdir.c + 1) * sizeof(guid_t));
+	if (p) {
+		c->rootdir.n = p;
+		memcpy(&c->rootdir.n[c->rootdir.c], rootdir, sizeof(guid_t));
+		c->rootdir.c++;
+	} else {
+		fprintf(stderr, "client[%p] can't add rootdir in list: %s",
+				(void*)c, strerror(errno));
+	}
+}
+
 static inline bool
 is_legal_guid(char *guid)
 {
@@ -197,12 +213,14 @@ is_legal_guid(char *guid)
 	return true;
 }
 
+/* переименование/перемещение или удаление файла */
 bool
 _handle_file_update(struct client *c, unsigned type, Fep__FileUpdate *msg)
 {
 	uint64_t checkpoint;
 	guid_t rootdir;
 	guid_t file;
+	struct spq_hint hint;
 
 	guid_t directory;
 	char enc_filename[PATH_MAX] = {0};
@@ -220,14 +238,16 @@ _handle_file_update(struct client *c, unsigned type, Fep__FileUpdate *msg)
 	string2guid(PSLEN(msg->file_guid), &file);
 	string2guid(PSLEN(msg->directory_guid), &directory);
 
-	/*
-	checkpoint = spq_f_logFilePush(c->name, c->device_id, &rootdir, &file,
-			&directory, *enc_filename ? enc_filename : NULL);
-	*/
+	checkpoint = spq_update_file(c->name, c->device_id, &rootdir, &file,
+			&directory, *enc_filename ? enc_filename : NULL, &hint);
+
 	checkpoint = 0u;
 
-	if (!checkpoint)
+	if (!checkpoint) {
+		if (*hint.message)
+			return send_error(c, msg->id, hint.message, -1);
 		return send_error(c, msg->id, "Internal error 1913", -1);
+	}
 
 	if (c->cum) {
 		pthread_mutex_lock(&c->cum->lock);
@@ -351,6 +371,7 @@ _handle_query_chunks(struct client *c, unsigned type, Fep__QueryChunks *msg)
 	{
 		struct spq_hint _hint;
 		memset(&fmeta, 0u, sizeof(struct spq_FileMeta));
+		memset(&_hint, 0u, sizeof(struct spq_hint));
 		if (!spq_getFileMeta(c->name, c->device_id,
 					&rootdir, &file, &revision, &fmeta, &_hint)) {
 			free(rs);
@@ -464,6 +485,7 @@ _handle_want_sync(struct client *c, unsigned type, Fep__WantSync *msg)
 	if (msg->rootdir_guid)
 		string2guid(PSLEN(msg->rootdir_guid), &rootdir);
 
+	client_add_rootdir(c, &rootdir);
 	c->checkpoint = msg->checkpoint;
 	if (!_active_sync(c, rootdir.not_null ? &rootdir : NULL,
 				msg->session_id, false)) {
@@ -1576,6 +1598,10 @@ client_destroy(struct client *c)
 		free(c->buffer);
 	if (c->options.home)
 		free(c->options.home);
+
+	/* список активных rootdir */
+	free(c->rootdir.n);
+
 	free(c);
 }
 
@@ -2074,4 +2100,21 @@ client_iterate(struct sev_ctx *cev, bool last, void **p)
 	/* переходим на следующую итерацию */
 	return true;
 }
+
+#if DEEPDEBUG
+
+static void
+cli_cum()
+{
+	struct client_cum *cum;
+	unsigned c = 1u;
+	fprintf(stderr, "stats \n");
+	for (cum = clients_cum.first; cum; cum = cum->next, c++) {
+		fprintf(stderr, "n#%02u ref: %u, checkpoint: %"PRIu64
+				", device: %"PRIX64"\n", c, cum->ref, cum->new_checkpoint,
+				cum->from_device);
+	}
+}
+
+#endif
 

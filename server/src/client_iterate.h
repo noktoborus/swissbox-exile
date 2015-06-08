@@ -140,6 +140,11 @@ struct client {
 	struct fdbCursor *fdb;
 
 	struct {
+		guid_t *n;
+		size_t c;
+	} rootdir;
+
+	struct {
 		char *home;
 		size_t send_buffer;
 	} options;

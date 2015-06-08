@@ -28,6 +28,11 @@ struct spq_hint {
 	char message[SPQ_ERROR_LEN];
 };
 
+uint64_t
+spq_update_file(char *username, uint64_t device_id,
+		guid_t *rootdir, guid_t *file,
+		guid_t *new_directory, char *new_filename,
+		struct spq_hint *hint);
 
 bool spq_insert_chunk(char *username, uint64_t device_id,
 		guid_t *rootdir, guid_t *file, guid_t *revision, guid_t *chunk,
