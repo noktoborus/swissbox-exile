@@ -25,7 +25,7 @@ bool spq_create_tables();
  */
 #define SPQ_ERROR_LEN 1024
 struct spq_hint {
-	char message[SPQ_ERROR_LEN];
+	char message[SPQ_ERROR_LEN + 1];
 };
 
 uint64_t
