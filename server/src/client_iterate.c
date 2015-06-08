@@ -182,21 +182,69 @@ sid_free(wait_store_t *ws)
 	free(ws);
 }
 
-/* добавление rootdir в список активных rootdir */
 static void
-client_add_rootdir(struct client *c, guid_t *rootdir, uint64_t checkpoint)
+client_share_checkpoint(struct client *c, guid_t *rootdir, uint64_t checkpoint)
 {
+	uint32_t hash = hash_pjw((void*)rootdir, sizeof(guid_t));
+	struct listNode *rp = NULL;
+	struct rootdir_g *rg = NULL;
+
+	if (!c->cum || !rootdir || !rootdir->not_null)
+		return;
+
+	pthread_mutex_lock(&c->cum->lock);
+	/* проверка наличия информации о директории в нотификациях */
+	rp = list_find(&c->cum->rootdir, hash);
+
+	/* если rootdir ещё не в списке, то её нужно добавить */
+	if (!rp) {
+		rp = calloc(1, sizeof(struct listNode) + sizeof(struct rootdir_g));
+		if (rp) {
+			rg = (rp->data = (void*)(rp + 1));
+			memcpy(&rg->rootdir, rootdir, sizeof(guid_t));
+			rg->hash = hash;
+		}
+	}
+
+	pthread_mutex_unlock(&c->cum->lock);
+}
+
+/* добавление rootdir в список активных rootdir или обновление чекпоинта */
+static void
+client_local_rootdir(struct client *c, guid_t *rootdir, uint64_t checkpoint)
+{
+	unsigned i;
 	void *p;
 	uint32_t hash = hash_pjw((void*)rootdir, sizeof(guid_t));
-	/*p = realloc(c->rootdir.n, (c->rootdir.c + 1) * sizeof(struct rootdir_g));
-	if (p) {
-		c->rootdir.n = p;
-		memcpy(&c->rootdir.n[c->rootdir.c], rootdir, sizeof(struct rootdir_g));
-		c->rootdir.c++;
-	} else {
-		fprintf(stderr, "client[%p] can't add rootdir in list: %s",
-				(void*)c, strerror(errno));
-	}*/
+	/* поиск уже существующей записи */
+	for (i = 0u; i < c->rootdir.c && c->rootdir.g[i].hash != hash; i++);
+	/* если дошли до конца списка, то записи нет и нужно её создать */
+	if (i == c->rootdir.c) {
+		p = realloc(c->rootdir.g, (i + 1) * sizeof(struct rootdir_g));
+		if (p) {
+			c->rootdir.g = p;
+			memcpy(&c->rootdir.g[i].rootdir, rootdir, sizeof(guid_t));
+			c->rootdir.g[i].hash = hash;
+			c->rootdir.c++;
+		} else {
+			xsyslog(LOG_WARNING, "client[%p] can't add rootdir in list: %s",
+					(void*)c, strerror(errno));
+			return;
+		}
+	}
+
+#if DEEPDEBUG
+	{
+		char _rootdir[GUID_MAX + 1];
+		guid2string(rootdir, PSIZE(_rootdir));
+		xsyslog(LOG_DEBUG,
+				"client[%p] change checkpoint (%s): %"PRIu64" -> %"PRIu64
+				" device=%"PRIX64,
+				(void*)c->cev, _rootdir,
+				c->rootdir.g[i].checkpoint, checkpoint, c->device_id);
+	}
+#endif
+	c->rootdir.g[i].checkpoint = checkpoint;
 }
 
 static inline bool
@@ -229,15 +277,14 @@ _handle_file_update(struct client *c, unsigned type, Fep__FileUpdate *msg)
 	struct spq_hint hint;
 
 	guid_t directory;
-	char enc_filename[PATH_MAX] = {0};
+	char enc_filename[PATH_MAX];
 
+	memset(enc_filename, 0u, PATH_MAX);
 	if (msg->enc_filename) {
 		register size_t _len = strlen(msg->enc_filename);
 		if (_len >= PATH_MAX)
 			return send_error(c, msg->id, "enc_filename too long", -1);
 		strncpy(enc_filename, msg->enc_filename, _len);
-	} else {
-		memset(enc_filename, 0u, PATH_MAX);
 	}
 
 	string2guid(PSLEN(msg->rootdir_guid), &rootdir);
@@ -489,7 +536,7 @@ _handle_want_sync(struct client *c, unsigned type, Fep__WantSync *msg)
 	if (msg->rootdir_guid) {
 		string2guid(PSLEN(msg->rootdir_guid), &rootdir);
 		/* добавление rootdir в список клиента */
-		client_add_rootdir(c, &rootdir, msg->checkpoint);
+		client_local_rootdir(c, &rootdir, msg->checkpoint);
 	}
 
 	c->checkpoint = msg->checkpoint;
@@ -1632,6 +1679,8 @@ client_alloc(struct sev_ctx *cev)
 bool static inline
 _client_iterate_result_logdf(struct client *c, struct logDirFile *ldf)
 {
+	char rootdir[GUID_MAX + 1];
+
 	if (!spq_f_logDirFile_it(ldf)) {
 		uint32_t sessid = c->rout->id;
 		uint32_t packets = c->rout->packets;
@@ -1641,25 +1690,18 @@ _client_iterate_result_logdf(struct client *c, struct logDirFile *ldf)
 		else
 			return true;
 	}
-#if DEEPDEBUG
-	xsyslog(LOG_DEBUG,
-			"client[%p] change checkpoint: %"PRIu64" -> %"PRIu64
-			"(%c), device=%"PRIX64,
-			(void*)c->cev, c->checkpoint, ldf->checkpoint,
-			ldf->type, c->device_id);
-#endif
-	/* обновление чекпоинта клиента */
-	c->checkpoint = ldf->checkpoint;
+
+	guid2string(&ldf->rootdir, rootdir, sizeof(rootdir));
+
+	client_local_rootdir(c, ldf->rootdir, ldf->checkpoint);
 	/* отсылка данных */
 	if (ldf->type == 'd') {
 		Fep__DirectoryUpdate msg = FEP__DIRECTORY_UPDATE__INIT;
 		char guid[GUID_MAX + 1];
-		char rootdir[GUID_MAX + 1];
 
 		msg.id = generate_id(c);
 
 		guid2string(&ldf->directory, guid, sizeof(guid));
-		guid2string(&ldf->rootdir, rootdir, sizeof(rootdir));
 		msg.rootdir_guid = rootdir;
 		msg.directory_guid = guid;
 		msg.checkpoint = ldf->checkpoint;
@@ -1685,7 +1727,6 @@ _client_iterate_result_logdf(struct client *c, struct logDirFile *ldf)
 	} else if (ldf->type == 'f') {
 		Fep__FileUpdate msg = FEP__FILE_UPDATE__INIT;
 
-		char rootdir[GUID_MAX + 1];
 		char file[GUID_MAX + 1];
 		char dir[GUID_MAX + 1];
 		char rev[GUID_MAX + 1];
@@ -1693,7 +1734,6 @@ _client_iterate_result_logdf(struct client *c, struct logDirFile *ldf)
 		msg.id = generate_id(c);
 		msg.checkpoint = ldf->checkpoint;
 
-		guid2string(&ldf->rootdir, rootdir, sizeof(rootdir));
 		guid2string(&ldf->file, file, sizeof(file));
 		guid2string(&ldf->directory, dir, sizeof(dir));
 		guid2string(&ldf->revision, rev, sizeof(rev));
@@ -1725,10 +1765,6 @@ _client_iterate_result_logdf(struct client *c, struct logDirFile *ldf)
 	} else if (ldf->type == 'r') {
 		Fep__RootdirUpdate msg = FEP__ROOTDIR_UPDATE__INIT;
 
-		char rootdir[GUID_MAX + 1];
-
-		guid2string(&ldf->rootdir, PSIZE(rootdir));
-
 		msg.name = ldf->path;
 
 		msg.id = generate_id(c);
@@ -1746,6 +1782,9 @@ _client_iterate_result_logdf(struct client *c, struct logDirFile *ldf)
 			msg.session_id = c->rout->id;
 			msg.has_session_id = true;
 		}
+
+		/* обновление чекпоинта клиента для rootdir */
+		c->checkpoint = ldf->checkpoint;
 
 		c->rout->packets++;
 		return send_message(c->cev, FEP__TYPE__tRootdirUpdate, &msg);

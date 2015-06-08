@@ -240,7 +240,7 @@ typedef struct wait_store
 
 struct wait_xfer {
 	int fd;
-	char path[PATH_MAX];
+	char path[PATH_MAX + 1];
 	uint32_t offset;
 	uint64_t size; /* полный размер чанка */
 	uint64_t filling; /* сколько данных было записано */
