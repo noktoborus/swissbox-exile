@@ -1112,7 +1112,8 @@ CREATE OR REPLACE FUNCTION file_get(_rootdir UUID, _file UUID, _revision UUID,
 		r_parent file_revision.revision%TYPE,
 		r_directory directory.directory%TYPE,
 		r_filename file.filename%TYPE,
-		r_pubkey file.pubkey%TYPE
+		r_pubkey file.pubkey%TYPE,
+		r_chunks file_revision.chunks%TYPE
 	)
 	AS $$
 DECLARE
@@ -1147,6 +1148,7 @@ BEGIN
 	-- иначе выдаём последнюю
 	SELECT
 		file_revision.revision AS revision_guid,
+		file_revision.chunks AS chunks,
 		parent_revision.revision AS parent_guid
 	INTO _rev
 	FROM file_revision
@@ -1175,6 +1177,7 @@ BEGIN
 	r_directory := _r.directory_guid;
 	r_filename := _r.filename;
 	r_pubkey := _r.pubkey;
+	r_chunks := chunks;
 	return next;
 END $$ LANGUAGE plpgsql;
 
