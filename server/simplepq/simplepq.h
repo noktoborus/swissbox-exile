@@ -186,9 +186,11 @@ struct spq_FileMeta {
  * аргумент *revision может быть == NULL, в таком случае возвращается
  * последняя ревизия
  */
-bool spq_f_getFileMeta(char *username, guid_t *rootdir, guid_t *file,
-		guid_t *revision, struct spq_FileMeta *fmeta);
-void spq_f_getFileMeta_free(struct spq_FileMeta *fmeta);
+bool spq_getFileMeta(char *username, uint64_t device_id,
+		guid_t *rootdir, guid_t *file,
+		guid_t *revision, struct spq_FileMeta *fmeta,
+		struct spq_hint *hint);
+void spq_getFileMeta_free(struct spq_FileMeta *fmeta);
 
 /* проверка наличия пользователя в бд */
 bool spq_check_user(char *username, char *secret);

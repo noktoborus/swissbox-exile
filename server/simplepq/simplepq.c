@@ -433,58 +433,47 @@ spq_getChunkPath(char *username, uint64_t device_id,
 }
 
 bool
-_spq_f_getFileMeta(PGconn *pgc, char *username, guid_t *rootdir, guid_t *file,
-		guid_t *revision, struct spq_FileMeta *fmeta)
+_spq_getFileMeta(PGconn *pgc, guid_t *rootdir, guid_t *file,
+		guid_t *revision, struct spq_FileMeta *fmeta,
+		struct spq_hint *hint)
 {
 	PGresult *res;
 	ExecStatusType pqs;
 	const char *tb =
-	"SELECT "
-	"	revision_guid, "
-	"	directory_guid, "
-	"	(SELECT COUNT(*) "
-	"		FROM file_records "
-	"		WHERE "
-	"			file_records.rootdir_guid = file_keys.rootdir_guid AND "
-	"			file_records.file_guid = file_keys.file_guid AND "
-	"			file_records.revision_guid = file_keys.revision_guid) "
-	"	AS chunks, "
-	"	parent_revision_guid, "
-	"	enc_filename, "
-	"	public_key "
-	"FROM file_keys "
-	"WHERE "
-	"	username = $1 AND "
-	"	rootdir_guid = $2 AND "
-	"	file_guid = $3 AND "
-	"	(($4::UUID IS NOT NULL AND revision_guid = $4) OR TRUE) "
-	"	ORDER BY time DESC "
-	"LIMIT 1;";
+		"SELECT * FROM file_get($1::UUID, $2::UUID, $3::UUID);";
 
-	const int fmt[4] = {0, 0, 0, 0};
+	const int fmt[4] = {0, 0, 0};
 
 	char _rootdir[GUID_MAX + 1];
 	char _file[GUID_MAX + 1];
 	char _revision[GUID_MAX + 1];
 
-	char *val[4];
-	int len[4];
+	char *val[3];
+	int len[3];
 
-	len[0] = strlen(username);
-	len[1] = guid2string(rootdir, _rootdir, sizeof(_rootdir));
-	len[2] = guid2string(file, _file, sizeof(_file));
-	len[3] = guid2string(revision, _revision, sizeof(_revision));
+	len[0] = guid2string(rootdir, _rootdir, sizeof(_rootdir));
+	len[1] = guid2string(file, _file, sizeof(_file));
+	len[2] = guid2string(revision, _revision, sizeof(_revision));
 
-	val[0] = username;
-	val[1] = _rootdir;
-	val[2] = _file;
-	val[3] = len[3] ? _revision : NULL;
+	val[0] = _rootdir;
+	val[1] = _file;
+	val[2] = len[2] ? _revision : NULL;
 
-	res = PQexecParams(pgc, tb, 4, NULL, (const char *const*)val, len, fmt, 0);
+	res = PQexecParams(pgc, tb, 3, NULL, (const char *const*)val, len, fmt, 0);
 	pqs = PQresultStatus(res);
 	if (pqs != PGRES_TUPLES_OK && pqs != PGRES_EMPTY_QUERY) {
 		xsyslog(LOG_INFO, "getFileMeta exec error: %s",
 			PQresultErrorMessage(res));
+		PQclear(res);
+		return false;
+	}
+
+	if (PQgetlength(res, 0, 0)) {
+		char *_value = PQgetvalue(res, 0, 0);
+		xsyslog(LOG_INFO, "getFileMeta exec warning: %s", _value);
+		if (hint) {
+			strncpy(hint->message, _value, SPQ_ERROR_LEN);
+		}
 		PQclear(res);
 		return false;
 	}
@@ -497,14 +486,14 @@ _spq_f_getFileMeta(PGconn *pgc, char *username, guid_t *rootdir, guid_t *file,
 	/* складирование результатов */
 	fmeta->res = res;
 	/* revision guid */
-	fmeta->rev = PQgetvalue(res, 0, 0);
-	fmeta->dir = PQgetvalue(res, 0, 1);
-	if (PQgetlength(res, 0, 2) > 0) {
-		fmeta->chunks = (uint32_t)strtoul(PQgetvalue(res, 0, 2), NULL, 10);
+	fmeta->rev = PQgetvalue(res, 0, 1);
+	fmeta->dir = PQgetvalue(res, 0, 3);
+	if (PQgetlength(res, 0, 6) > 0) {
+		fmeta->chunks = (uint32_t)strtoul(PQgetvalue(res, 0, 6), NULL, 10);
 	} else {
 		fmeta->chunks = 0u;
 	}
-	fmeta->parent_rev = PQgetvalue(res, 0, 3);
+	fmeta->parent_rev = PQgetvalue(res, 0, 2);
 	fmeta->enc_filename = PQgetvalue(res, 0, 4);
 	{
 		int _len;
@@ -521,14 +510,17 @@ _spq_f_getFileMeta(PGconn *pgc, char *username, guid_t *rootdir, guid_t *file,
 }
 
 bool
-spq_f_getFileMeta(char *username, guid_t *rootdir, guid_t *file,
-		guid_t *revision, struct spq_FileMeta *fmeta)
+spq_getFileMeta(char *username, uint64_t device_id,
+		guid_t *rootdir, guid_t *file,
+		guid_t *revision, struct spq_FileMeta *fmeta,
+		struct spq_hint *hint)
 {
 	bool retval = false;
 	struct spq *c;
 	if ((c = acquire_conn(&_spq)) != NULL) {
-		if (!(retval = _spq_f_getFileMeta(c->conn,
-						username, rootdir, file, revision, fmeta))
+		if (!spq_begin_life(c->conn, username, device_id) ||
+				!(retval = _spq_getFileMeta(c->conn,
+						rootdir, file, revision, fmeta, hint))
 				|| fmeta->empty) {
 			memset(fmeta, 0u, sizeof(struct spq_FileMeta));
 			fmeta->empty = true;
@@ -541,7 +533,7 @@ spq_f_getFileMeta(char *username, guid_t *rootdir, guid_t *file,
 }
 
 void
-spq_f_getFileMeta_free(struct spq_FileMeta *fmeta)
+spq_getFileMeta_free(struct spq_FileMeta *fmeta)
 {
 	if (fmeta->res) {
 		PQclear(fmeta->res);

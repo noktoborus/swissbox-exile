@@ -348,15 +348,20 @@ _handle_query_chunks(struct client *c, unsigned type, Fep__QueryChunks *msg)
 	}
 
 	/* отправка подтверждения, что всё ок */
-
-	memset(&fmeta, 0u, sizeof(struct spq_FileMeta));
-	if (!spq_f_getFileMeta(c->name, &rootdir, &file, &revision, &fmeta)) {
-		free(rs);
-		return send_error(c, msg->id, "Internal error 112", -1);
-	}
-	if (fmeta.empty) {
-		free(rs);
-		return send_error(c, msg->id, "Invalid file request", -1);
+	{
+		struct spq_hint _hint;
+		memset(&fmeta, 0u, sizeof(struct spq_FileMeta));
+		if (!spq_getFileMeta(c->name, c->device_id,
+					&rootdir, &file, &revision, &fmeta, &_hint)) {
+			free(rs);
+			if (*_hint.message)
+				return send_error(c, msg->id, _hint.message, -1);
+			return send_error(c, msg->id, "Internal error 112", -1);
+		}
+		if (fmeta.empty) {
+			free(rs);
+			return send_error(c, msg->id, "Invalid file request", -1);
+		}
 	}
 	meta.id = generate_id(c);
 
@@ -384,7 +389,7 @@ _handle_query_chunks(struct client *c, unsigned type, Fep__QueryChunks *msg)
 	{
 		bool retval;
 		retval = send_message(c->cev, FEP__TYPE__tFileMeta, &meta);
-		spq_f_getFileMeta_free(&fmeta);
+		spq_getFileMeta_free(&fmeta);
 		return retval;
 	}
 }
@@ -1005,7 +1010,8 @@ _handle_file_meta(struct client *c, unsigned type, Fep__FileMeta *msg)
 				msg->key.len);
 #endif
 		memset(&fmeta, 0u, sizeof(struct spq_FileMeta));
-		if (!spq_f_getFileMeta(c->name, &_rootdir, &_file, NULL, &fmeta)) {
+		if (!spq_getFileMeta(c->name, c->device_id,
+					&_rootdir, &_file, NULL, &fmeta, NULL)) {
 			return send_error(c, msg->id, "Internal error 1759", -1);
 		}
 		if (fmeta.empty) {
@@ -1030,7 +1036,7 @@ _handle_file_meta(struct client *c, unsigned type, Fep__FileMeta *msg)
 		ws = calloc(1, sizeof(struct wait_store) + sizeof(struct wait_file));
 		if (!ws) {
 			if (need_clear)
-				spq_f_getFileMeta_free(&fmeta);
+				spq_getFileMeta_free(&fmeta);
 			return send_error(c, msg->id, "Internal error 1860", -1);
 		}
 		wf = ws->data = ws + 1;
@@ -1064,7 +1070,7 @@ _handle_file_meta(struct client *c, unsigned type, Fep__FileMeta *msg)
 	wf->chunks = msg->chunks;
 
 	if (need_clear)
-		spq_f_getFileMeta_free(&fmeta);
+		spq_getFileMeta_free(&fmeta);
 #if DEEPDEBUG
 	xsyslog(LOG_DEBUG, "client[%p] FileMeta: enc_filename: \"%s\", "
 			"file_guid: \"%s\", revision_guid: \"%s\", key_len: %"PRIuPTR" "
