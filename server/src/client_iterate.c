@@ -1488,8 +1488,8 @@ handle_header(unsigned char *buf, size_t size, struct client *c)
 				} else {
 					char _errormsg[1024];
 					snprintf(_errormsg, sizeof(_errormsg),
-							"malformed message type %u, len %u", c->h_type,
-							c->h_len);
+							"malformed message type %s (%u), len %u",
+							Fepstr(c->h_type), c->h_type, c->h_len);
 					xsyslog(LOG_INFO,
 							"client[%p] %s",
 							(void*)c->cev, _errormsg);
