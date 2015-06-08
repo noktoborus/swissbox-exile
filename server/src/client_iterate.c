@@ -1486,9 +1486,14 @@ handle_header(unsigned char *buf, size_t size, struct client *c)
 						handle[c->h_type].e(msg, NULL);
 					}
 				} else {
+					char _errormsg[1024];
+					snprintf(_errormsg, sizeof(_errormsg),
+							"malformed message type %u, len %u", c->h_type,
+							c->h_len);
 					xsyslog(LOG_INFO,
-							"client[%p] receive malformed message type #%u",
-							(void*)c->cev, c->h_type);
+							"client[%p] %s",
+							(void*)c->cev, _errormsg);
+					send_error(c, 0, _errormsg, -1);
 				}
 			}
 		}
