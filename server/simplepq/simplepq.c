@@ -832,7 +832,7 @@ _spq_update_file(PGconn *pgc, guid_t *rootdir, guid_t *file,
 
 	val[0] = _rootdir;
 	val[1] = _file;
-	val[2] = _directory;
+	val[2] = len[2] ? _directory : NULL;
 	val[3] = len[3] ? new_filename : NULL;
 
 	res = PQexecParams(pgc, tb, 4, NULL, (const char *const*)val, len, fmt, 0);

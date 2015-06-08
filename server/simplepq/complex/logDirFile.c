@@ -37,7 +37,6 @@ _spq_f_logDirFile_exec(PGconn *pgc, guid_t *rootdir, uint64_t checkpoint)
 	return res;
 }
 
-
 bool
 spq_f_logDirFile(char *username, guid_t *rootdir, uint64_t checkpoint, uint64_t deviceid,
 		struct logDirFile *state)

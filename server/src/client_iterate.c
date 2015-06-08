@@ -25,10 +25,15 @@ TYPICAL_HANDLE_F(Fep__Pending, pending, &c->mid)
 struct client_cum {
 	uint32_t namehash;
 	pthread_mutex_t lock;
+	/* обращение только после захвата client_cum.lock */
 	unsigned ref; /* подсчёт ссылок */
 
 	uint64_t new_checkpoint;
 	uint64_t from_device;
+
+	/* список рутдир */
+	struct listRoot rootdir;
+
 	/* к этим областям нужно обращаться только
 	 * после блокировки корня (clients_cum.lock)
 	 */
@@ -179,18 +184,19 @@ sid_free(wait_store_t *ws)
 
 /* добавление rootdir в список активных rootdir */
 static void
-client_add_rootdir(struct client *c, guid_t *rootdir)
+client_add_rootdir(struct client *c, guid_t *rootdir, uint64_t checkpoint)
 {
 	void *p;
-	p = realloc(c->rootdir.n, (c->rootdir.c + 1) * sizeof(guid_t));
+	uint32_t hash = hash_pjw((void*)rootdir, sizeof(guid_t));
+	/*p = realloc(c->rootdir.n, (c->rootdir.c + 1) * sizeof(struct rootdir_g));
 	if (p) {
 		c->rootdir.n = p;
-		memcpy(&c->rootdir.n[c->rootdir.c], rootdir, sizeof(guid_t));
+		memcpy(&c->rootdir.n[c->rootdir.c], rootdir, sizeof(struct rootdir_g));
 		c->rootdir.c++;
 	} else {
 		fprintf(stderr, "client[%p] can't add rootdir in list: %s",
 				(void*)c, strerror(errno));
-	}
+	}*/
 }
 
 static inline bool
@@ -240,8 +246,6 @@ _handle_file_update(struct client *c, unsigned type, Fep__FileUpdate *msg)
 
 	checkpoint = spq_update_file(c->name, c->device_id, &rootdir, &file,
 			&directory, *enc_filename ? enc_filename : NULL, &hint);
-
-	checkpoint = 0u;
 
 	if (!checkpoint) {
 		if (*hint.message)
@@ -421,7 +425,7 @@ _handle_query_chunks(struct client *c, unsigned type, Fep__QueryChunks *msg)
  * блокировку c->cum->lock
  */
 static inline bool
-_active_sync(struct client *c, guid_t *rootdir,
+_active_sync(struct client *c, guid_t *rootdir, uint64_t checkpoint,
 		uint32_t session_id, bool locked)
 {
 	/* генерация списка последних обновлений директорий и файлов */
@@ -438,7 +442,7 @@ _active_sync(struct client *c, guid_t *rootdir,
 	/* TODO: NULL для листинга rootdir,
 	 * с указанием rootdir_guid - для файлов/дир
 	 */
-	if (!spq_f_logDirFile(c->name, rootdir, c->checkpoint, c->device_id, &gs)) {
+	if (!spq_f_logDirFile(c->name, rootdir, checkpoint, c->device_id, &gs)) {
 		return false;
 	}
 
@@ -482,12 +486,14 @@ _handle_want_sync(struct client *c, unsigned type, Fep__WantSync *msg)
 		c->cum = client_cum_create(hash_pjw(c->name, strlen(c->name)));
 	}
 
-	if (msg->rootdir_guid)
+	if (msg->rootdir_guid) {
 		string2guid(PSLEN(msg->rootdir_guid), &rootdir);
+		/* добавление rootdir в список клиента */
+		client_add_rootdir(c, &rootdir, msg->checkpoint);
+	}
 
-	client_add_rootdir(c, &rootdir);
 	c->checkpoint = msg->checkpoint;
-	if (!_active_sync(c, rootdir.not_null ? &rootdir : NULL,
+	if (!_active_sync(c, rootdir.not_null ? &rootdir : NULL, msg->checkpoint,
 				msg->session_id, false)) {
 		return send_error(c, msg->id, "Internal error 1653", -1);
 	}
@@ -1600,7 +1606,7 @@ client_destroy(struct client *c)
 		free(c->options.home);
 
 	/* список активных rootdir */
-	free(c->rootdir.n);
+	free(c->rootdir.g);
 
 	free(c);
 }

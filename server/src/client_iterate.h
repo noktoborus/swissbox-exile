@@ -91,6 +91,12 @@ struct chunk_send {
 
 struct client_cum;
 
+struct rootdir_g {
+	uint32_t hash;
+	guid_t rootdir;
+	uint64_t checkpoint;
+};
+
 #define C_NAMELEN 128
 struct client {
 	unsigned char *buffer;
@@ -140,7 +146,7 @@ struct client {
 	struct fdbCursor *fdb;
 
 	struct {
-		guid_t *n;
+		struct rootdir_g *g;
 		size_t c;
 	} rootdir;
 
