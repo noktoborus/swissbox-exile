@@ -1177,7 +1177,7 @@ BEGIN
 	r_directory := _r.directory_guid;
 	r_filename := _r.filename;
 	r_pubkey := _r.pubkey;
-	r_chunks := chunks;
+	r_chunks := _rev.chunks;
 	return next;
 END $$ LANGUAGE plpgsql;
 
