@@ -1101,6 +1101,83 @@ BEGIN
 	return;
 END $$ LANGUAGE plpgsql;
 
+-- информация о файле (ревизии)
+-- если _revision IS NULL, то извлекается последняя ревизия
+CREATE OR REPLACE FUNCTION file_get(_rootdir UUID, _file UUID, _revision UUID,
+	_drop_ _drop_ DEFAULT 'drop')
+	RETURNS TABLE
+	(
+		r_error text,
+		r_revision file_revision.revision%TYPE,
+		r_parent file_revision.revision%TYPE,
+		r_directory directory.directory%TYPE,
+		r_filename file.filename%TYPE,
+		r_pubkey file.pubkey%TYPE
+	)
+	AS $$
+DECLARE
+	_r record;
+	_rev record;
+BEGIN
+	-- выборка файла и директории
+	SELECT
+		file.id AS file_id,
+		r_rootdir_id AS rootdir_id,
+		directory.id AS directory_id,
+		file.file AS file_guid,
+		directory.directory AS directory_guid,
+		file.filename AS filename,
+		file.pubkey AS pubkey
+	INTO _r
+	FROM life_data(_rootdir), file, directory
+	WHERE
+		file.rootdir_id = r_rootdir_id AND
+		file.file = _file AND
+		directory.id = file.directory_id;
+
+	IF _r IS NULL THEN
+		r_error := concat('file "', _file, '" in rootdir "', _rootdir, '" ',
+			'not found');
+		return next;
+		return;
+	END IF;
+
+	-- выборка ревизии
+	-- если указана конкретная ревизиая, то выдаём её,
+	-- иначе выдаём последнюю
+	SELECT
+		file_revision.revision AS revision_guid,
+		parent_revision.revision AS parent_guid
+	INTO _rev
+	FROM file_revision
+	LEFT JOIN file_revision AS parent_revision
+	ON parent_revision.id = file_revision.parent_id
+	WHERE
+		file_revision.file_id = _r.file_id AND
+		CASE
+			WHEN _revision IS NOT NULL
+				THEN file_revision.revision = _revision
+			ELSE
+				TRUE
+		END AND
+		file_revision.fin = TRUE
+	ORDER BY file_revision.checkpoint DESC LIMIT 1;
+
+	IF _rev IS NULL THEN
+		r_error := concat('revision "', _revision, '" for file "', _file, '" ',
+			'in rootdir "', _rootdir, '" not found');
+		return next;
+		return;
+	END IF;
+
+	r_revision := _rev.revision_guid;
+	r_parent := _rev.parent_guid;
+	r_directory := _r.directory_guid;
+	r_filename := _r.filename;
+	r_pubkey := _r.pubkey;
+	return next;
+END $$ LANGUAGE plpgsql;
+
 -- получение информации о чанке
 CREATE OR REPLACE FUNCTION chunk_get(_rootdir UUID, _file UUID,
 	_chunk UUID,
