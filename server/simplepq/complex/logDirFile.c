@@ -108,6 +108,7 @@ spq_f_logDirFile_it(struct logDirFile *state)
 	/* path */
 	if ((len = PQgetlength(state->res, state->row, 7)) != 0u) {
 		val = PQgetvalue(state->res, state->row, 7);
+		memset(state->path, 0u, sizeof(state->path));
 		strncpy(state->path, val, MIN(len, PATH_MAX));
 	} else {
 		*state->path = '\0';
