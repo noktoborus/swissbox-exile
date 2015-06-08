@@ -413,6 +413,12 @@ def proto(s, user, secret, devid):
                 if rmsg.__class__.__name__ in ("FileUpdate", "DirectoryUpdate", "RootdirUpdate"):
                     write_std("%s checkpoint: %s (rootdir: %s) [%s: %s/%s]\n" %(rmsg.__class__.__name__, rmsg.checkpoint, rmsg.rootdir_guid, rmsg.session_id, rmsg.no, rmsg.max))
 
+                if rmsg.__class__.__name__ in ("DirectoryUpdate"):
+                    write_std("%s name: %s\n" %(rmsg.__class__.__name__, rmsg.path));
+
+                if rmsg.__class__.__name__ in ("FileUpdate"):
+                    write_std("%s name: %s\n" %(rmsg.__class__.__name__, rmsg.enc_filename));
+
                 if rmsg.__class__.__name__ in ("RootdirUpdate"):
                     _id += 1
                     _session_id += 1
