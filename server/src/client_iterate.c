@@ -63,6 +63,9 @@ client_cum_free(struct client_cum *ccum)
 		return;
 
 	pthread_mutex_lock(&clients_cum.lock);
+	/* выпатрашиваем список rootdir */
+	while (list_free_root(&ccum->rootdir, (void(*)(void*))&free));
+	/* развязываем список */
 	if (ccum == clients_cum.first)
 		clients_cum.first = ccum->next ? ccum->next : ccum->prev;
 	if (ccum->next)
@@ -198,12 +201,42 @@ client_share_checkpoint(struct client *c, guid_t *rootdir, uint64_t checkpoint)
 
 	/* если rootdir ещё не в списке, то её нужно добавить */
 	if (!rp) {
-		rp = calloc(1, sizeof(struct listNode) + sizeof(struct rootdir_g));
-		if (rp) {
-			rg = (rp->data = (void*)(rp + 1));
+		rg = calloc(1, sizeof(struct rootdir_g));
+		if (rg) {
 			memcpy(&rg->rootdir, rootdir, sizeof(guid_t));
 			rg->hash = hash;
+			rg->checkpoint = checkpoint;
+			rg->device_id = c->device_id;
+			if (list_alloc(&c->cum->rootdir, hash, rg)) {
+#if DEEPDEBUG
+				char _rootdir[GUID_MAX + 1];
+				guid2string(rootdir, PSIZE(_rootdir));
+				xsyslog(LOG_DEBUG,
+						"client[%p] add share rootdir '%s' checkpoint: %"PRIu64
+						" (%s:%"PRIX64")",
+						(void*)c, _rootdir, checkpoint, c->name, c->device_id);
+#endif
+			} else {
+				xsyslog(LOG_WARNING, "client[%p] can't alloc root node",
+						(void*)c);
+			}
 		}
+	} else {
+#if DEEPDEBUG
+		{
+			char _rootdir[GUID_MAX + 1];
+			guid2string(rootdir, PSIZE(_rootdir));
+			xsyslog(LOG_DEBUG,
+					"client[%p] update share rootdir '%s' checkpoint: %"PRIu64
+					" -> %"PRIu64" (%s:%"PRIX64")",
+					(void*)c, _rootdir, checkpoint, rg->checkpoint,
+					c->name, c->device_id);
+		}
+#endif
+		rg = rp->data;
+		rg->checkpoint = checkpoint;
+		rg->device_id = c->device_id;
+
 	}
 
 	pthread_mutex_unlock(&c->cum->lock);
@@ -300,14 +333,7 @@ _handle_file_update(struct client *c, unsigned type, Fep__FileUpdate *msg)
 		return send_error(c, msg->id, "Internal error 1913", -1);
 	}
 
-	if (c->cum) {
-		pthread_mutex_lock(&c->cum->lock);
-		if (checkpoint > c->cum->new_checkpoint) {
-			c->cum->new_checkpoint = checkpoint;
-			c->cum->from_device = c->device_id;
-		}
-		pthread_mutex_unlock(&c->cum->lock);
-	}
+	client_share_checkpoint(c, &rootdir, checkpoint);
 
 	return send_ok(c, msg->id, checkpoint);
 }
@@ -335,14 +361,8 @@ _handle_directory_update(struct client *c, unsigned type,
 			return send_error(c, msg->id, "Internal error 1839", -1);
 	}
 
-	if (c->cum) {
-		pthread_mutex_lock(&c->cum->lock);
-		if (checkpoint > c->cum->new_checkpoint) {
-			c->cum->new_checkpoint = checkpoint;
-			c->cum->from_device = c->device_id;
-		}
-		pthread_mutex_unlock(&c->cum->lock);
-	}
+	client_share_checkpoint(c, &rootdir, checkpoint);
+
 	return send_ok(c, msg->id, checkpoint);
 }
 
@@ -473,7 +493,7 @@ _handle_query_chunks(struct client *c, unsigned type, Fep__QueryChunks *msg)
  */
 static inline bool
 _active_sync(struct client *c, guid_t *rootdir, uint64_t checkpoint,
-		uint32_t session_id, bool locked)
+		uint32_t session_id, uint64_t to_checkpoint)
 {
 	/* генерация списка последних обновлений директорий и файлов */
 	struct logDirFile gs;
@@ -496,14 +516,8 @@ _active_sync(struct client *c, guid_t *rootdir, uint64_t checkpoint,
 	/* если результат пустой,то нужно обновить текущий чекпоинт
 	 * до последнего, что бы не шумел
 	 */
-	if (!gs.max) {
-		if (!locked)
-			pthread_mutex_lock(&c->cum->lock);
-		if (c->cum->new_checkpoint > c->checkpoint) {
-			c->checkpoint = c->cum->new_checkpoint;
-		}
-		if (!locked)
-			pthread_mutex_unlock(&c->cum->lock);
+	if (!gs.max && to_checkpoint) {
+		client_local_rootdir(c, rootdir, to_checkpoint);
 	}
 
 	rs = calloc(1, sizeof(struct result_send));
@@ -541,7 +555,7 @@ _handle_want_sync(struct client *c, unsigned type, Fep__WantSync *msg)
 
 	c->checkpoint = msg->checkpoint;
 	if (!_active_sync(c, rootdir.not_null ? &rootdir : NULL, msg->checkpoint,
-				msg->session_id, false)) {
+				msg->session_id, 0lu)) {
 		return send_error(c, msg->id, "Internal error 1653", -1);
 	}
 	c->status.log_active = true;
@@ -995,7 +1009,7 @@ _file_complete(struct client *c, struct wait_file *wf)
 	{
 		size_t pkeysize = wf->key_len * 2 + 1;
 		char *pkeyhex = alloca(pkeysize);
-		bin2hex(wf->key, wf->key_len, pkeyhex, wf->key_len);
+		bin2hex(wf->key, wf->key_len, pkeyhex, pkeysize);
 		checkpoint = spq_insert_revision(c->name, c->device_id,
 				&wf->rootdir, &wf->file, &wf->revision, &wf->parent,
 				wf->enc_filename, pkeyhex, &wf->dir, wf->chunks,
@@ -1008,20 +1022,8 @@ _file_complete(struct client *c, struct wait_file *wf)
 			retval = send_error(c, wf->msg_id, "Internal error 1785", -1);
 	} else {
 		/* рассылаем приглашение обновиться соседям */
-		if (c->cum) {
-#if DEEPDEBUG
-			xsyslog(LOG_DEBUG,
-					"client[%p] send notify checkpoint=%"PRIu64" "
-					"from device=%"PRIX64,
-					(void*)c->cev, checkpoint, c->device_id);
-#endif
-			pthread_mutex_lock(&c->cum->lock);
-			if (checkpoint > c->cum->new_checkpoint) {
-				c->cum->new_checkpoint = checkpoint;
-				c->cum->from_device = c->device_id;
-			}
-			pthread_mutex_unlock(&c->cum->lock);
-		}
+		client_share_checkpoint(c, &wf->rootdir, checkpoint);
+
 		retval = send_ok(c, wf->msg_id, checkpoint);
 	}
 #if DEEPDEBUG
@@ -1693,7 +1695,7 @@ _client_iterate_result_logdf(struct client *c, struct logDirFile *ldf)
 
 	guid2string(&ldf->rootdir, rootdir, sizeof(rootdir));
 
-	client_local_rootdir(c, ldf->rootdir, ldf->checkpoint);
+	client_local_rootdir(c, &ldf->rootdir, ldf->checkpoint);
 	/* отсылка данных */
 	if (ldf->type == 'd') {
 		Fep__DirectoryUpdate msg = FEP__DIRECTORY_UPDATE__INIT;
@@ -2130,15 +2132,36 @@ client_iterate(struct sev_ctx *cev, bool last, void **p)
 	if (c->cout || c->rout || c->blen) {
 		cev->action |= SEV_ACTION_FASTTEST;
 	} else if (c->cum && c->status.log_active) {
+		struct listNode *_ln;
+		struct rootdir_g *_rg;
+		uint32_t hash;
 		/* если нет никаких "срочных" действий, можно проверить сообщения
 		 * от других тредов
+		 *
+		 * проверяем следующим образом: итерируемся по локальному списку,
+		 * сравниваем со значением из глобального списка
+		 *
+		 * лочим сразу весь список, что бы не долбиться в кучу мелкил локов
 		 */
 		pthread_mutex_lock(&c->cum->lock);
-		/* если чекпоинт "уехал", то нам тоже нужно двигаться вперёд */
-		if (c->cum->new_checkpoint > c->checkpoint &&
-				c->cum->from_device != c->device_id) {
-			/* TODO: разделение по rootdir
-			 _active_sync(c, C_NOSESSID, true); */
+		for (unsigned i = 0; i < c->rootdir.c; i++) {
+			hash = hash_pjw((void*)&c->rootdir.g[i].rootdir, sizeof(guid_t));
+			/* если не найдена директория в разделяемом списке,
+			 * то можно не волноваться, обновлений в ней не было
+			 */
+			if ((_ln = list_find(&c->cum->rootdir, hash)) != NULL) {
+				_rg = _ln->data;
+				/* когда чекпоинт в общей директории моложе
+				 * локального, то пришло время обновиться
+				 */
+				if (_rg->checkpoint > c->rootdir.g[i].checkpoint) {
+					_active_sync(c, &c->rootdir.g[i].rootdir,
+							c->rootdir.g[i].checkpoint,
+							C_NOSESSID,
+							_rg->checkpoint);
+				}
+			}
+
 		}
 		pthread_mutex_unlock(&c->cum->lock);
 	}

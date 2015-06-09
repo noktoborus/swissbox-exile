@@ -95,6 +95,7 @@ struct rootdir_g {
 	uint32_t hash;
 	guid_t rootdir;
 	uint64_t checkpoint;
+	uint64_t device_id;
 };
 
 #define C_NAMELEN 128
