@@ -195,7 +195,7 @@ CREATE TABLE IF NOT EXISTS file
 	pubkey varchar(4096) NOT NULL DEFAULT '',
 
 	-- обновляемые поля
-	directory_id bigint DEFAULT NULL REFERENCES directory(id),
+	directory_id bigint NOT NULL REFERENCES directory(id),
 	filename varchar(4096) DEFAULT NULL,
 
 	deleted boolean DEFAULT FALSE,
@@ -546,9 +546,24 @@ BEGIN
 		new.event_id = _r.id;
 	END IF;
 
-	-- обновление значений в file
-	UPDATE file SET filename = new.filename, directory_id = new.directory_id
-	WHERE id = new.file_id;
+	IF new.directory_id IS NULL AND new.filename IS NULL THEN
+		-- удаление, обновляем соотвествующее поле
+		UPDATE file SET deleted = TRUE WHERE id = new.file_id;
+		-- объявляем все события, кроме текущего, устаревшими
+		UPDATE event SET hidden = TRUE
+		WHERE
+			"type" = 'file_meta' AND
+			target_id != new.id AND
+			target_id IN (SELECT id FROM file_meta WHERE file_id = new.file_id);
+		UPDATE event SET hidden = TRUE
+		WHERE
+			"type" = 'file_revision' AND
+			target_id IN (SELECT id FROM file_revision WHERE file_id = new.file_id);
+	ELSE
+		-- обновление значений в file
+		UPDATE file SET filename = new.filename, directory_id = new.directory_id
+		WHERE id = new.file_id;
+	END IF;
 
 	IF new.checkpoint = 0 THEN
 		new.checkpoint := NULL;
@@ -1415,10 +1430,10 @@ BEGIN
 					file_revision.revision AS revision,
 					(SELECT revision FROM file_revision
 						WHERE file_revision.id = parent_id) AS parent_revision,
-					file.filename AS filename,
+					file_meta.filename AS filename,
 					file.pubkey AS pubkey,
 					file_revision.chunks AS chunks,
-					file.directory_id AS directory_id
+					file_meta.directory_id AS directory_id
 				FROM file, file_revision, file_meta
 				WHERE
 					file_meta.id = _row.target_id AND
