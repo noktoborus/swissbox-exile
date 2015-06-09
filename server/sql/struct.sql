@@ -195,7 +195,7 @@ CREATE TABLE IF NOT EXISTS file
 	pubkey varchar(4096) NOT NULL DEFAULT '',
 
 	-- обновляемые поля
-	directory_id bigint NOT NULL REFERENCES directory(id),
+	directory_id bigint DEFAULT NULL REFERENCES directory(id),
 	filename varchar(4096) DEFAULT NULL,
 
 	deleted boolean DEFAULT FALSE,
@@ -1039,13 +1039,13 @@ BEGIN
 			WHERE directory.rootdir_id = _rfile.rootdir_id AND
 				directory.directory = _new_directory;
 		END IF;
-	END IF;
 
-	IF _rfile.directory_id IS NULL THEN
-		r_error := concat('directory ', _new_directory, ' not found in rootdir ',
-			_rootdir);
-		return next;
-		return;
+		IF _rfile.directory_id IS NULL THEN
+			r_error := concat('directory ', _new_directory, ' not found in rootdir ',
+				_rootdir);
+			return next;
+			return;
+		END IF;
 	END IF;
 
 	-- получение текущей ревизии
@@ -1408,20 +1408,26 @@ BEGIN
 			r_count := _xrow.chunks;
 		WHEN 'file_meta'
 		THEN
-			SELECT INTO _xrow
-				file.file AS file,
-				file_revision.revision AS revision,
-				directory.directory AS directory,
-				(SELECT revision FROM file_revision
-					WHERE file_revision.id = parent_id) AS parent_revision,
-				file.filename AS filename,
-				file.pubkey AS pubkey,
-				file_revision.chunks AS chunks
-			FROM file, file_revision, directory, file_meta
-			WHERE file_meta.id = _row.target_id AND
-				file_revision.id = file_meta.revision_id AND
-				file.id = file_meta.file_id AND
-				directory.id = file.directory_id;
+			SELECT INTO _xrow *, directory.directory AS directory FROM
+			(
+				SELECT
+					file.file AS file,
+					file_revision.revision AS revision,
+					(SELECT revision FROM file_revision
+						WHERE file_revision.id = parent_id) AS parent_revision,
+					file.filename AS filename,
+					file.pubkey AS pubkey,
+					file_revision.chunks AS chunks,
+					file.directory_id AS directory_id
+				FROM file, file_revision, file_meta
+				WHERE
+					file_meta.id = _row.target_id AND
+					file_revision.id = file_meta.revision_id AND
+					file.id = file_meta.file_id
+			) AS e
+			LEFT JOIN directory
+			ON directory.id = e.directory_id;
+
 			IF _xrow IS NULL THEN
 				RAISE EXCEPTION 'zero result on file_meta, event %', _row.id;
 				return;

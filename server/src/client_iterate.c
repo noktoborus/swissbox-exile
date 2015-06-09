@@ -324,6 +324,7 @@ _handle_file_update(struct client *c, unsigned type, Fep__FileUpdate *msg)
 	string2guid(PSLEN(msg->file_guid), &file);
 	string2guid(PSLEN(msg->directory_guid), &directory);
 
+	memset(&hint, 0u, sizeof(struct spq_hint));
 	checkpoint = spq_update_file(c->name, c->device_id, &rootdir, &file,
 			&directory, *enc_filename ? enc_filename : NULL, &hint);
 
