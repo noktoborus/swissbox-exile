@@ -222,6 +222,7 @@ client_share_checkpoint(struct client *c, guid_t *rootdir, uint64_t checkpoint)
 			}
 		}
 	} else {
+		rg = rp->data;
 #if DEEPDEBUG
 		{
 			char _rootdir[GUID_MAX + 1];
@@ -233,7 +234,6 @@ client_share_checkpoint(struct client *c, guid_t *rootdir, uint64_t checkpoint)
 					c->name, c->device_id);
 		}
 #endif
-		rg = rp->data;
 		rg->checkpoint = checkpoint;
 		rg->device_id = c->device_id;
 
