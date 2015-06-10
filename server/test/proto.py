@@ -155,6 +155,10 @@ def proto_bootstrap(s, user, secret, devid):
             break
     return False
 
+def recvFileChunk(s, rootdir, file_, chunk):
+    write_std("get chunk '%s' from file '%s'\n" %(chunk, file_))
+    # TODO
+    return True
 
 def recvFileRevision(s, rootdir, file_, revision):
     write_std("recv revision '%s'\n" %revision)
@@ -167,6 +171,7 @@ def recvFileRevision(s, rootdir, file_, revision):
     msg.revision_guid = revision
     send_message(s, msg)
     _ok = True
+    _chunks = []
     while True:
         # вместо Ok приходит FileMeta
         rmsg = recv_message(s, ["ResultChunk", "Error", "FileMeta", "End"])
@@ -182,8 +187,11 @@ def recvFileRevision(s, rootdir, file_, revision):
                     %(rmsg.chunks, rmsg.enc_filename, rmsg.directory_guid, hasattr(rmsg, 'parent_revision_guid') and rmsg.parent_revision_guid or None))
             continue
         # из ResultChunk можно получить адрес чанка и сам чанк
-        # TODO
+        _chunks.append(rmsg.chunk_guid)
 
+    while _chunks:
+        if not recvFileChunk(s, rootdir, file_, _chunks.pop()):
+            return False
     return _ok
 
 def recvFile(s, rootdir, path):
@@ -199,6 +207,10 @@ def recvFile(s, rootdir, path):
     msg.depth = 3
     send_message(s, msg)
 
+
+    _rev = None
+
+    # получаем ревизию
     _ok = True
     while True:
         rmsg = recv_message(s, ["ResultRevision", "Error", "Ok", "End"])
@@ -211,11 +223,15 @@ def recvFile(s, rootdir, path):
             break
         if rmsg.__class__.__name__ == "Ok":
             continue
-        # обработка ResultRevision
         write_std("file %s, revision %s (%s/%s)\n" %(_file_guid, rmsg.revision_guid, rmsg.rev_no, rmsg.rev_max))
-        _ok = recvFileRevision(s, rootdir, _file_guid, rmsg.revision_guid)
-        if not _ok:
-            break
+        _rev = rmsg.revision_guid
+
+    if _rev:
+        # обработка ResultRevision
+        _ok = recvFileRevision(s, rootdir, _file_guid, _rev)
+    else:
+        _ok = False
+        write_std("revision for file '%s' not received\n" %(_file_guid))
         
     if _ok:
         write_std("recv file '%s' complete\n" %(_file_guid))
@@ -311,10 +327,102 @@ def sendFile(s, rootdir, directory, path):
     return False
 
 
+X_rootdir = None
+X_directory = None
+X_files = []
+
+def proto_sync(s):
+    global X_rootdir
+    global X_directory
+    global X_files
+    _sessions = []
+    _oks = []
+    _session_id = 100
+    _id = 200
+    msg = FEP.WantSync()
+    msg.id = _id
+    msg.checkpoint = 0
+    msg.session_id = _session_id
+    send_message(s, msg)
+    _sessions.append(msg.session_id)
+    _oks.append(msg.id)
+    while True:
+        if not _sessions:
+            break;
+        rmsg = recv_message(s, ("FileUpdate", "RootdirUpdate", "DirectoryUpdate", "Error", "Ok", "End"))
+        if not rmsg:
+            write_std("# eof\n")
+            break
+        if rmsg.__class__.__name__ == "Ok":
+            if rmsg.id not in _oks:
+                write_std("# sync exception: ok id: %s, expected: %s\n" %(rmsg.id, str(_oks)))
+                break
+            else:
+                write_std("# sync id=%s ok\n" %rmsg.id)
+                _oks.remove(rmsg.id)
+                continue
+        if rmsg.__class__.__name__ == "End":
+            write_std("# sync sid=%s ended, messages: %s\n" %(rmsg.session_id, rmsg.packets))
+            _sessions.remove(rmsg.session_id)
+            continue
+
+        if rmsg.__class__.__name__ == "Error":
+            write_std("# sync error: %s\n" %rmsg.message)
+            break
+
+        elif rmsg.session_id not in _sessions:
+            write_std("# sync exception: sessid got %s, expect %s\n" %(rmsg.session_id, str(_sessions)))
+            break
+
+        if rmsg.__class__.__name__ in ("FileUpdate", "DirectoryUpdate", "RootdirUpdate"):
+            write_std("%s checkpoint: %s (rootdir: %s) [%s: %s/%s]\n" %(rmsg.__class__.__name__, rmsg.checkpoint, rmsg.rootdir_guid, rmsg.session_id, rmsg.no, rmsg.max))
+
+        if rmsg.__class__.__name__ in ("DirectoryUpdate"):
+            write_std("%s name: %s\n" %(rmsg.__class__.__name__, rmsg.path));
+
+        if rmsg.__class__.__name__ in ("FileUpdate"):
+            if hasattr(rmsg, 'enc_filename') and hasattr(rmsg, 'directory_guid'):
+                write_std("file update: %s\n" %(rmsg.enc_filename))
+                X_files.append(rmsg.file_guid)
+            else:
+                write_std("file delete: %s\n" %(rmsg.file_guid))
+                if rmsg.file_guid in X_files:
+                    X_files.remove(rmsg.file_guid)
+
+        if rmsg.__class__.__name__ in ("RootdirUpdate"):
+            _id += 1
+            _session_id += 1
+            nmsg = FEP.WantSync()
+            nmsg.id = _id
+            nmsg.rootdir_guid = rmsg.rootdir_guid
+            nmsg.checkpoint = rmsg.checkpoint
+            nmsg.session_id = _session_id
+            _sessions.append(nmsg.session_id)
+            _oks.append(nmsg.id)
+            write_std("Sync in %s (%s): sid -> %s\n" %(rmsg.rootdir_guid, rmsg.name, nmsg.session_id))
+            send_message(s, nmsg)
+            if not X_rootdir:
+                write_std("acquire rootdir=%s\n" %(rmsg.rootdir_guid))
+                X_rootdir = rmsg.rootdir_guid
+
+        if rmsg.__class__.__name__ in ("DirectoryUpdate"):
+            if not X_rootdir:
+                write_std("acquire rootdir=%s\n" %(rmsg.rootdir_guid))
+                X_rootdir = rmsg.rootdir_guid
+            if not X_directory:
+                write_std("acquire directory=%s\n" %(rmsg.directory_guid))
+                X_directory = rmsg.directory_guid
+
+        if rmsg.no == rmsg.max:
+            write_std("# sync sid=%s complete\n" %(rmsg.session_id))
+
+
+
 def proto(s, user, secret, devid):
+    global X_files
+    global X_rootdir
+    global X_directory
     write_std("# orpot\n")
-    X_rootdir = None
-    X_directory = None
     if not proto_bootstrap(s, user, secret, devid):
         return
     while True:
@@ -322,8 +430,10 @@ def proto(s, user, secret, devid):
         c = input('help> ');
 
         if c == "help":
-            write_std("ping, wait sync write mkdir\n")
+            write_std("ping, wait sync write mkdir remove\n")
             continue
+        if c == "remove":
+            pass
         if c == "mkdir":
             if not X_rootdir:
                 write_std("# try to cmd `sync` (rootdir: %s)\n" %(X_rootdir))
@@ -371,82 +481,7 @@ def proto(s, user, secret, devid):
                 if not recvFile(s, X_rootdir, _n):
                     break
         if c == "sync":
-            _sessions = []
-            _oks = []
-            _session_id = 100
-            _id = 200
-            msg = FEP.WantSync()
-            msg.id = _id
-            msg.checkpoint = 0
-            msg.session_id = _session_id
-            send_message(s, msg)
-            _sessions.append(msg.session_id)
-            _oks.append(msg.id)
-            while True:
-                if not _sessions:
-                    break;
-                rmsg = recv_message(s, ("FileUpdate", "RootdirUpdate", "DirectoryUpdate", "Error", "Ok", "End"))
-                if not rmsg:
-                    write_std("# eof\n")
-                    break
-                if rmsg.__class__.__name__ == "Ok":
-                    if rmsg.id not in _oks:
-                        write_std("# sync exception: ok id: %s, expected: %s\n" %(rmsg.id, str(_oks)))
-                        break
-                    else:
-                        write_std("# sync id=%s ok\n" %rmsg.id)
-                        _oks.remove(rmsg.id)
-                        continue
-                if rmsg.__class__.__name__ == "End":
-                    write_std("# sync sid=%s ended, messages: %s\n" %(rmsg.session_id, rmsg.packets))
-                    _sessions.remove(rmsg.session_id)
-                    continue
-
-                if rmsg.__class__.__name__ == "Error":
-                    write_std("# sync error: %s\n" %rmsg.message)
-                    break
-
-                elif rmsg.session_id not in _sessions:
-                    write_std("# sync exception: sessid got %s, expect %s\n" %(rmsg.session_id, str(_sessions)))
-                    break
-
-                if rmsg.__class__.__name__ in ("FileUpdate", "DirectoryUpdate", "RootdirUpdate"):
-                    write_std("%s checkpoint: %s (rootdir: %s) [%s: %s/%s]\n" %(rmsg.__class__.__name__, rmsg.checkpoint, rmsg.rootdir_guid, rmsg.session_id, rmsg.no, rmsg.max))
-
-                if rmsg.__class__.__name__ in ("DirectoryUpdate"):
-                    write_std("%s name: %s\n" %(rmsg.__class__.__name__, rmsg.path));
-
-                if rmsg.__class__.__name__ in ("FileUpdate"):
-                    write_std("%s name: %s\n" %(rmsg.__class__.__name__, rmsg.enc_filename));
-
-                if rmsg.__class__.__name__ in ("RootdirUpdate"):
-                    _id += 1
-                    _session_id += 1
-                    nmsg = FEP.WantSync()
-                    nmsg.id = _id
-                    nmsg.rootdir_guid = rmsg.rootdir_guid
-                    nmsg.checkpoint = rmsg.checkpoint
-                    nmsg.session_id = _session_id
-                    _sessions.append(nmsg.session_id)
-                    _oks.append(nmsg.id)
-                    write_std("Sync in %s (%s): sid -> %s\n" %(rmsg.rootdir_guid, rmsg.name, nmsg.session_id))
-                    send_message(s, nmsg)
-                    if not X_rootdir:
-                        write_std("acquire rootdir=%s\n" %(rmsg.rootdir_guid))
-                        X_rootdir = rmsg.rootdir_guid
-
-                if rmsg.__class__.__name__ in ("DirectoryUpdate"):
-                    if not X_rootdir:
-                        write_std("acquire rootdir=%s\n" %(rmsg.rootdir_guid))
-                        X_rootdir = rmsg.rootdir_guid
-                    if not X_directory:
-                        write_std("acquire directory=%s\n" %(rmsg.directory_guid))
-                        X_directory = rmsg.directory_guid
-
-                if rmsg.no == rmsg.max:
-                    write_std("# sync sid=%s complete\n" %(rmsg.session_id))
-
-
+            proto_sync(s)
             continue
 
 def connect(host, user, secret, devid):
