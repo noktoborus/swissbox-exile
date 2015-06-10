@@ -272,9 +272,10 @@ client_local_rootdir(struct client *c, guid_t *rootdir, uint64_t checkpoint)
 		guid2string(rootdir, PSIZE(_rootdir));
 		xsyslog(LOG_DEBUG,
 				"client[%p] change checkpoint (%s): %"PRIu64" -> %"PRIu64
-				" device=%"PRIX64,
+				" (%s:%"PRIX64")",
 				(void*)c->cev, _rootdir,
-				c->rootdir.g[i].checkpoint, checkpoint, c->device_id);
+				c->rootdir.g[i].checkpoint, checkpoint,
+				c->name, c->device_id);
 	}
 #endif
 	c->rootdir.g[i].checkpoint = checkpoint;
