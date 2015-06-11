@@ -682,23 +682,30 @@ BEGIN
 	IF _user_id IS NULL THEN
 		RAISE EXCEPTION 'try to use begin_life() before call this';
 	END IF;
-	-- получение всякой информации
+	-- получение всякой информаци
 	SELECT
-		rootdir.id AS rootdir_id,
-		directory.id AS directory_id,
+		e.rootdir_id AS rootdir_id,
+		e.directory_id AS directory_id,
 		file.id AS file_id,
 		file_revision.id AS revision_id,
 		NOT file_revision.fin AS permit
 	INTO _ur
-	FROM rootdir, directory, file, file_revision
-	WHERE rootdir.user_id = _user_id
-		AND rootdir.rootdir = _rootdir_guid
-		AND directory.rootdir_id = rootdir.id
-		AND directory.directory = _dir_guid
-		AND file.rootdir_id = rootdir.id
-		AND file.file = _file_guid
-		AND file_revision.file_id = file.id
-		AND file_revision.revision = _revision_guid;
+	FROM (SELECT
+			rootdir.id AS rootdir_id,
+			directory.id AS directory_id
+		FROM rootdir, directory, file
+		WHERE rootdir.user_id = _user_id
+			AND rootdir.rootdir = _rootdir_guid
+			AND directory.rootdir_id = rootdir.id
+			AND directory.directory = _dir_guid) AS e
+	LEFT JOIN file
+	ON 
+		file.rootdir_id = e.rootdir_id AND
+		file.file = _file_guid
+	LEFT JOIN file_revision
+	ON
+		file_revision.file_id = file.id AND
+		file_revision.revision = _revision_guid;
 
 	IF _ur IS NULL THEN
 		-- уточняем из-за чего именно ошибка, возможно просто нет такой директории
@@ -713,10 +720,29 @@ BEGIN
 			return next;
 			return;
 		END IF;
-		r_error := concat('revision "', _revision_guid,
+		r_error := concat('wtf in revision "', _revision_guid,
 			'" in rootdir "', _rootdir_guid, '" in file "', _file_guid,  '" not found');
 		return next;
 		return;
+	END IF;
+
+	-- проверяем, есть ли записи о ревизиях вообще
+	IF _ur.revision_id IS NULL THEN
+		-- и добавляем ревизию, если таковых нет
+		WITH _x AS (
+			INSERT INTO file_revision (file_id, revision, chunks)
+			VALUES (_ur.file_id, _revision_guid, 0)
+			RETURNING *
+		) SELECT id INTO _ur.revision_id FROM _x;
+	END IF;
+
+ 	-- и о файле
+	IF _ur.file_id IS NULL THEN
+		WITH _x AS (
+			INSERT INTO file (file, rootdir_id, directory_id)
+			VALUES (_file_guid, _ur.rootdir_id, _ur.directory_id)
+			RETURNING *
+		) SELECT id INTO _ur.file_id FROM _x;
 	END IF;
 
 	-- 0.5 проверка наличия ревизии
