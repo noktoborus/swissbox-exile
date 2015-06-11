@@ -180,7 +180,7 @@ sid_free(wait_store_t *ws)
 			xsyslog(LOG_DEBUG, "destroy xfer fd#%d", wx->fd);
 			close(wx->fd);
 		}
-#if POLARSSL_LESS_138
+#if !POLARSSL_LESS_138
 		sha256_free(&wx->sha256);
 #endif
 	}
@@ -743,7 +743,7 @@ _handle_write_ask(struct client *c, unsigned type, Fep__WriteAsk *msg)
 		return send_error(c, msg->id, errmsg, -1);
 	}
 	/* инициализируем polarssl */
-#if POLARSSL_LESS_138
+#if !POLARSSL_LESS_138
 	sha256_init(&wx.sha256);
 #endif
 	sha256_starts(&wx.sha256, 0);
