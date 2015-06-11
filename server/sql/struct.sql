@@ -28,6 +28,13 @@ BEGIN
 	RETURN _struct_version_value;
 END $$ LANGUAGE plpgsql;
 
+/* костыли */
+CREATE OR REPLACE FUNCTION gen_random_uuid()
+	RETURNS uuid AS $$
+BEGIN
+	return (SELECT md5(random()::text || clock_timestamp()::text)::uuid);
+END $$ LANGUAGE plpgsql IMMUTABLE;
+
 /* обновление табличного пространства */
 
 -- удаление таблиц не должно вызывать NOTICE с нерзрешёнными CONSTRAINT
