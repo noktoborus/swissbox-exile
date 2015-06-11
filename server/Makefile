@@ -28,11 +28,18 @@ ${BIN}: .buildflags .sqlversion ${SOURCES}
 	echo "build ok"
 
 .buildflags: buildtools/findev.sh buildtools/findpq.sh\
-	buildtools/findprotobuf-c.sh
+	buildtools/findprotobuf-c.sh buildtools/findpolarssl.sh\
+	additional_flags
 	buildtools/findev.sh >>.buildflags
 	buildtools/findpq.sh >>.buildflags
 	buildtools/findprotobuf-c.sh >>.buildflags
 	buildtools/findpolarssl.sh >>.buildflags
+	echo -n " " >>.buildflags
+	cat additional_flags >>.buildflags
+
+additional_flags:
+	@echo Echo your optional flags in file 'additional_flags'
+	@touch $@
 
 
 proto/fep.pb-c.c: ../fep.proto
