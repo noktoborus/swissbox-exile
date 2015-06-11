@@ -329,6 +329,7 @@ def sendFile(s, rootdir, directory, path):
 
 X_rootdir = None
 X_directory = None
+X_prefix = "/self/"
 X_files = []
 
 def proto_sync(s):
@@ -406,17 +407,64 @@ def proto_sync(s):
                 X_rootdir = rmsg.rootdir_guid
 
         if rmsg.__class__.__name__ in ("DirectoryUpdate"):
-            if not X_rootdir:
-                write_std("acquire rootdir=%s\n" %(rmsg.rootdir_guid))
-                X_rootdir = rmsg.rootdir_guid
-            if not X_directory:
+            if not X_directory and (hasattr(rmsg, "path") and rmsg.path == "/project"):
                 write_std("acquire directory=%s\n" %(rmsg.directory_guid))
+                write_std("acquire rootdir=%s\n" %(rmsg.rootdir_guid))
                 X_directory = rmsg.directory_guid
+                X_rootdir = rmsg.rootdir_guid
 
         if rmsg.no == rmsg.max:
             write_std("# sync sid=%s complete\n" %(rmsg.session_id))
 
+def mkdir(s, rootdir, path):
+    msg = FEP.DirectoryUpdate()
+    msg.id = random.randint(1, 10000)
+    msg.rootdir_guid = rootdir
+    msg.directory_guid = str(uuid.UUID(bytes=hashlib.md5(path).digest()))
+    msg.path = path
 
+    send_message(s, msg)
+    write_std("mkdir %s with path %s\n" %(msg.directory_guid, path))
+    rmsg = recv_message(s, ["Error", "OkUpdate"])
+    if rmsg.__class__.__name__ == "Error":
+        write_std("mkdir error: %s\n" %rmsg.message)
+        return None
+    else:
+        write_std("mkdir created with checkpoint %s\n" %(rmsg.checkpoint))
+        return msg.directory_guid
+
+def maybe(msg, field):
+    if hasattr(msg, field):
+        return getattr(msg, field)
+    return '-'
+
+def examine(msg):
+    _type = msg.__class__.__name__
+    if _type == "Error":
+        write_std("%% Error: (id: %s, remain: %s) %s\n"
+                %(msg.id, maybe(msg, "remain"), maybe(msg, "message")))
+        return
+
+    if _type == "Ok":
+        write_std("%% Ok: (id: %s)\n" %(msg.id))
+        return
+
+    if _type == "DirectoryUpdate":
+        write_std("%% Directory: (id: %s, sid: %s, rootdir: %s, %s) %s\n"
+                %(msg.id, maybe(msg, "session_id"), msg.rootdir_guid,
+                    msg.directory_guid, maybe(msg, "path")))
+        return
+
+    if _type == "FileUpdate":
+        write_std("%% File: (id: %s, sid: %s, rootdir: %s, directory: %s, %s) %s\n"
+                %(msg.id, maybe(msg, "session_id"), msg.rootdir_guid,
+                    maybe(msg, "directory_guid"), msg.file_guid,
+                    maybe(msg, "enc_filename")))
+        return
+
+    write_std("%% %s: (id: %s, sid: %s)\n"
+            %(_type, maybe(msg, "id"), maybe(msg, "session_id")))
+    return
 
 def proto(s, user, secret, devid):
     global X_files
@@ -439,19 +487,10 @@ def proto(s, user, secret, devid):
                 write_std("# try to cmd `sync` (rootdir: %s)\n" %(X_rootdir))
                 continue
 
-            msg = FEP.DirectoryUpdate();
-            msg.id = 99
-            msg.rootdir_guid = X_rootdir
-            msg.path = "/home/local" 
-            msg.directory_guid = str(uuid.UUID(bytes=hashlib.md5(msg.path).digest()))
-            send_message(s, msg)
-
-            # в ответ может прийти "Error" или "OkUpdate"
-            rmsg = recv_message(s, ["Error", "OkUpdate"])
-            if rmsg.__class__.__name__ == "Error":
-                write_std("# mkdir error: %s\n" %rmsg.message)
-            else:
-                write_std("# mkdir checkpoint: %s\n" %rmsg.checkpoint)
+            _x = mkdir(s, X_rootdir, X_prefix)
+            if _x:
+                write_std("acquire directory=%s\n" %(_x))
+                X_directory = _x
             continue
         if c == "ping":
             msg = FEP.Ping()
@@ -465,13 +504,29 @@ def proto(s, user, secret, devid):
         if c == "wait":
             recv_message(s)
             continue
+        if c == "ewait":
+            try:
+                while True:
+                    examine(recv_message(s))
+            except KeyboardInterrupt:
+                continue
         if c == "write":
             if not X_rootdir or not X_directory:
                 write_std("# try to cmd `sync` or `mkdir` (rootdir: %s, directory: %s)\n" %(X_rootdir, X_directory))
                 continue
-            for _n in [x for x in os.listdir('.') if os.path.isfile(x)]:
-                if not sendFile(s, X_rootdir, X_directory, _n):
+            # вгружаем всё в текущей директории, кроме директорий и файлов с "."
+            for _n in [x for x in os.walk('.') if not x[0].startswith('./.')]:
+                # создаём директорию
+                _d = mkdir(s, X_rootdir, X_prefix + _n[0])
+                if not _d:
                     break
+                for _f in _n[2]:
+                    if not sendFile(s, X_rootdir, _d, _f):
+                        _d = None
+                        break
+                if not _d:
+                    break
+
             continue
         if c == "read":
             if not X_rootdir:
