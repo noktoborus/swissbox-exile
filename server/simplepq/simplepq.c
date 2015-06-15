@@ -754,7 +754,7 @@ _spq_directory_create(PGconn *pgc, guid_t *rootdir,
 
 	len[0] = guid2string(rootdir, PSIZE(_rootdir));
 	len[1] = guid2string(new_directory, PSIZE(_directory));
-	len[2] = strlen(new_dirname);
+	len[2] = new_dirname ? strlen(new_dirname) : 0;
 
 	val[0] = _rootdir;
 	val[1] = _directory;
