@@ -447,7 +447,7 @@ def examine(msg):
         return
 
     if _type == "Ok":
-        write_std("%% Ok: (id: %s)\n" %(msg.id))
+        write_std("%% Ok: (id: %s): %s\n" %(msg.id, maybe(msg, "message")))
         return
 
     if _type == "DirectoryUpdate":
@@ -462,6 +462,10 @@ def examine(msg):
                     maybe(msg, "directory_guid"), msg.file_guid,
                     maybe(msg, "enc_filename")))
         return
+
+    if _type == "OkUpdate":
+        write_std("%% OkUpdate: (id: %s, sid: %s, checkpoint: %s): %s\n"
+                %(msg.id, maybe(msg, "session_id"), msg.checkpoint, maybe(msg, "message")));
 
     write_std("%% %s: (id: %s, sid: %s)\n"
             %(_type, maybe(msg, "id"), maybe(msg, "session_id")))
@@ -483,6 +487,19 @@ def proto(s, user, secret, devid):
             continue
         if c == "remove":
             pass
+        if c == "rmdir":
+            if not X_directory:
+                write_std("# try to cmd `sync` or `mkdir` (rootdir: %s, directory: %s)\n" %(X_rootdir, X_directory))
+                continue
+            msg = FEP.DirectoryUpdate()
+            msg.id  = random.randint(1, 10000)
+            msg.rootdir_guid = X_rootdir
+            msg.directory_guid = X_directory
+            send_message(s, msg)
+            rmsg = recv_message(s, ["Error", "OkUpdate"])
+            examine(rmsg)
+
+            continue
         if c == "mkdir":
             if not X_rootdir:
                 write_std("# try to cmd `sync` (rootdir: %s)\n" %(X_rootdir))
