@@ -184,6 +184,8 @@ message Error {
 
 message Ok {
 	required uint64 id = 1;
+	/* сообщение как предупреждение */
+	optional string message = 10;
 }
 
 /* подобный запрос уже выполняется
@@ -484,6 +486,9 @@ message OkUpdate {
 	required uint64 id = 1 [default = 0];
 	/* id состояния, в которое попала запись */
 	required uint64 checkpoint = 5;
+
+	/* сообщение как и для Ok */
+	optional string message = 10;
 }
 
 

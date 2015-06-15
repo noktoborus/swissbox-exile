@@ -19,6 +19,12 @@ void spq_close();
 
 bool spq_create_tables();
 
+enum spq_level {
+	SPQ_ERR,
+	SPQ_WARN,
+	SPQ_NOTICE
+};
+
 /* v3 */
 /* структура для возврата сообщений об ошибках
  * и прочей отладочной информации
@@ -26,6 +32,7 @@ bool spq_create_tables();
 #define SPQ_ERROR_LEN 1024
 struct spq_hint {
 	char message[SPQ_ERROR_LEN + 1];
+	enum spq_level level;
 };
 
 uint64_t

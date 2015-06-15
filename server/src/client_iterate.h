@@ -215,7 +215,7 @@ bool sendlog_error(struct client *c, uint64_t id, char *message, int remain);
  * если checkpoint = C_OK_SIMPLE, отправляется сообщение ok,
  *  в ином случае сообщение OkUpdate
  */
-bool send_ok(struct client *c, uint64_t id, uint64_t checkpoint);
+bool send_ok(struct client *c, uint64_t id, uint64_t checkpoint, char *message);
 /* всё нормально, только ждите */
 bool send_pending(struct client *c, uint64_t id);
 

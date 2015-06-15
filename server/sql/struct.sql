@@ -3,6 +3,11 @@
 
 ! При изменении полей в таблицах не забывай исправлять процедуру begin_life
 
+
+ поле результата r_error содержит строку вида "n:message" где n:
+ 1: критическая ошибка
+ 2: ну как бы вот
+ 3: уведомление
 */
 
 CREATE OR REPLACE FUNCTION fepserver_installed()
@@ -664,7 +669,6 @@ CREATE OR REPLACE FUNCTION insert_revision(
 	_chunks integer, _drop_ _drop_ DEFAULT 'drop')
 	RETURNS TABLE(r_error text, r_checkpoint bigint) AS $$
 DECLARE
-	_user_id "user".id%TYPE;
 	_row record;
 	_parent record;
 
@@ -672,17 +676,7 @@ DECLARE
 	_ur record;
 	_w bigint;
 BEGIN
-	-- получение базовой информации
-	BEGIN
-		SELECT INTO _user_id user_id FROM _life_, options
-		WHERE options."key" = 'life_mark'
-			AND _life_.mark = options.value_u;
-	EXCEPTION WHEN undefined_table THEN -- nothing
-	END;
-	IF _user_id IS NULL THEN
-		RAISE EXCEPTION 'try to use begin_life() before call this';
-	END IF;
-	-- получение всякой информаци
+	-- получение информации о файле
 	SELECT
 		e.rootdir_id AS rootdir_id,
 		e.directory_id AS directory_id,
@@ -691,13 +685,12 @@ BEGIN
 		NOT file_revision.fin AS permit
 	INTO _ur
 	FROM (SELECT
-			rootdir.id AS rootdir_id,
+			r_rootdir_id AS rootdir_id,
 			directory.id AS directory_id
-		FROM rootdir, directory, file
-		WHERE rootdir.user_id = _user_id
-			AND rootdir.rootdir = _rootdir_guid
-			AND directory.rootdir_id = rootdir.id
-			AND directory.directory = _dir_guid) AS e
+		FROM directory, life_data(_rootdir_guid)
+		WHERE 
+			directory.rootdir_id = r_rootdir_id AND
+			directory.directory = _dir_guid) AS e
 	LEFT JOIN file
 	ON 
 		file.rootdir_id = e.rootdir_id AND
@@ -715,35 +708,38 @@ BEGIN
 			AND rootdir.rootdir = _rootdir_guid
 			AND directory.directory = _dir_guid;
 		IF _w = 0 THEN
-			r_error := concat('directory "', _dir_guid, '" not found in',
+			r_error := concat('1:directory "', _dir_guid, '" not found in',
 				'rootdir "', _rootdir_guid, '"');
 			return next;
 			return;
 		END IF;
-		r_error := concat('wtf in revision "', _revision_guid,
+		r_error := concat('1:wtf in revision "', _revision_guid,
 			'" in rootdir "', _rootdir_guid, '" in file "', _file_guid,  '" not found');
 		return next;
 		return;
 	END IF;
 
-	-- проверяем, есть ли записи о ревизиях вообще
-	IF _ur.revision_id IS NULL THEN
-		-- и добавляем ревизию, если таковых нет
-		WITH _x AS (
-			INSERT INTO file_revision (file_id, revision, chunks)
-			VALUES (_ur.file_id, _revision_guid, 0)
-			RETURNING *
-		) SELECT id INTO _ur.revision_id FROM _x;
+	IF _chunks IS NULL OR _chunks = 0 THEN
+		-- проверка существования файла (и создание его)
+		IF _ur.file_id IS NULL THEN
+			WITH _x AS (
+				INSERT INTO file (file, rootdir_id, directory_id)
+				VALUES (_file_guid, _ur.rootdir_id, _ur.directory_id)
+				RETURNING *
+			) SELECT id INTO _ur.file_id FROM _x;
+		END IF;
+
+		-- и ревизии
+		IF _ur.revision_id IS NULL THEN
+			-- и добавляем ревизию, если таковых нет
+			WITH _x AS (
+				INSERT INTO file_revision (file_id, revision, chunks)
+				VALUES (_ur.file_id, _revision_guid, 0)
+				RETURNING *
+			) SELECT id INTO _ur.revision_id FROM _x;
+		END IF;
 	END IF;
 
- 	-- и о файле
-	IF _ur.file_id IS NULL THEN
-		WITH _x AS (
-			INSERT INTO file (file, rootdir_id, directory_id)
-			VALUES (_file_guid, _ur.rootdir_id, _ur.directory_id)
-			RETURNING *
-		) SELECT id INTO _ur.file_id FROM _x;
-	END IF;
 
 	-- 0.5 проверка наличия ревизии
 	SELECT INTO _parent id, revision
@@ -755,21 +751,21 @@ BEGIN
 	IF _parent IS NOT NULL AND
 		(_parent_revision_guid IS NULL OR
 			_parent.revision != _parent_revision_guid) THEN
-		r_error := concat('last revision: ', _parent.revision,
+		r_error := concat('1:last revision: ', _parent.revision,
 			' offered: "', _parent_revision_guid, '"');
 		return next;
 		return;
 	END IF;
 
 	IF _parent IS NULL AND _parent_revision_guid IS NOT NULL THEN
-		r_error := concat('parent revision ', _parent_revision_guid, ' not found');
+		r_error := concat('1:parent revision ', _parent_revision_guid, ' not found');
 		return next;
 		return;
 	END IF;
 
 	-- 1. проверка на перезапись
 	IF _ur.permit = FALSE THEN
-		r_error := concat('revision "', _revision_guid, '" ',
+		r_error := concat('1:revision "', _revision_guid, '" ',
 			'already commited in rootdir "', _rootdir_guid, '" ',
 			'file "', _file_guid, '"');
 		return next;
@@ -781,7 +777,7 @@ BEGIN
 	FROM file_revision
 	WHERE id = _ur.revision_id;
 	IF _w != _chunks OR _w IS NULL THEN
-		r_error := concat('different stored chunks count and wanted: ',
+		r_error := concat('1:different stored chunks count and wanted: ',
 			_w, ' != ', _chunks, ' ',
 			'in rootdir "', _rootdir_guid, '", ',
 			'file "', _file_guid, '", ',
@@ -791,26 +787,28 @@ BEGIN
 	END IF;
 
 	-- 3. обновление файла
-	-- если имя не задано, то в будущем оно всё равно сможет переименовать файл
-	-- а ключ нужно задавать обязательно (если он присутствует)
-	IF _pubkey IS NOT NULL THEN
-		WITH __x AS (
-			UPDATE file
-			SET
-				pubkey = CASE WHEN _pubkey IS NULL THEN pubkey ELSE _pubkey END
-			WHERE id = _ur.file_id
-			RETURNING *
-		) INSERT INTO file_meta
-		SELECT nextval('file_meta_seq'),
-			now(),
-			_ur.file_id,
-			_ur.revision_id,
-			0,
-			NULL,
-			_filename, _ur.directory_id
-		FROM __x
-		WHERE __x.filename != _filename OR __x.directory_id != _ur.directory_id;
-	END IF;
+	WITH __x AS (
+		UPDATE file
+		SET
+			pubkey = CASE WHEN _pubkey IS NULL THEN pubkey ELSE _pubkey END
+		WHERE id = _ur.file_id
+		RETURNING *
+	) INSERT INTO file_meta
+	SELECT nextval('file_meta_seq'),
+		now(),
+		_ur.file_id,
+		_ur.revision_id,
+		0,
+		NULL,
+		_filename, _ur.directory_id
+	FROM __x
+	WHERE
+		__x.filename != _filename OR
+		__x.directory_id != _ur.directory_id OR
+		(__x.filename IS NULL AND _filename IS NOT NULL) OR
+		(__x.directory_id IS NULL AND _ur.directory_id IS NOT NULL) OR
+		(__x.filename IS NOT NULL AND _filename IS NULL) OR
+		(__x.directory_id IS NOT NULL AND _ur.directory_id IS NULL);
 
 	-- 4. обновление ревизии
 	IF _parent_revision_guid IS NOT NULL THEN
@@ -818,7 +816,7 @@ BEGIN
 		SELECT * INTO _row FROM file_revision
 		WHERE revision = _parent_revision_guid;
 		IF _row IS NULL THEN
-			r_error := concat('revision "', _parent_revision_guid, '" not found in ',
+			r_error := concat('1:revision "', _parent_revision_guid, '" not found in ',
 				'file "', _file_guid, '" ',
 				'rootdir "', _rootdir_guid, '"');
 			return next;
@@ -1060,7 +1058,7 @@ BEGIN
 		directory.id = file.directory_id;
 
 	IF _rfile IS NULL THEN
-		r_error := concat('file ', _file, ' not found in rootdir ', _rootdir);
+		r_error := concat('1:file ', _file, ' not found in rootdir ', _rootdir);
 		return next;
 		return;
 	END IF;
@@ -1089,7 +1087,7 @@ BEGIN
 		END IF;
 
 		IF _rfile.directory_id IS NULL THEN
-			r_error := concat('directory ', _new_directory, ' not found in rootdir ',
+			r_error := concat('1:directory ', _new_directory, ' not found in rootdir ',
 				_rootdir);
 			return next;
 			return;
@@ -1128,14 +1126,20 @@ BEGIN
 		rootdir.user_id = _life_.user_id AND
 		rootdir.rootdir = _rootdir;
 	IF _ur IS NULL THEN
-		r_error := concat('unknown rootdir ', _rootdir);
+		r_error := concat('1:unknown rootdir ', _rootdir);
 	END IF;
+
 	-- проверка существования директории (и это не переименование)
-	IF (SELECT COUNT(*) FROM directory
+	WITH _row AS (
+		SELECT directory_log.* FROM directory, directory_log
 		WHERE directory.rootdir_id = _ur.rootdir_id AND
 			directory.directory = _directory AND
-			directory.path = _dirname) >= 1 THEN
-		r_error := 'Directory already updated';
+			directory.path = _dirname AND
+			directory_log.id = directory.log_id
+	) SELECT checkpoint INTO r_checkpoint FROM _row;
+
+	IF r_checkpoint IS NOT NULL THEN
+		r_error := '3:Directory already updated';
 		return next;
 		return;
 	END IF;
@@ -1192,7 +1196,7 @@ BEGIN
 		directory.id = file.directory_id;
 
 	IF _r IS NULL THEN
-		r_error := concat('file "', _file, '" in rootdir "', _rootdir, '" ',
+		r_error := concat('1:file "', _file, '" in rootdir "', _rootdir, '" ',
 			'not found');
 		return next;
 		return;
@@ -1221,7 +1225,7 @@ BEGIN
 	ORDER BY file_revision.checkpoint DESC LIMIT 1;
 
 	IF _rev IS NULL THEN
-		r_error := concat('revision "', _revision, '" for file "', _file, '" ',
+		r_error := concat('1:revision "', _revision, '" for file "', _file, '" ',
 			'in rootdir "', _rootdir, '" not found');
 		return next;
 		return;
@@ -1264,7 +1268,7 @@ BEGIN
 		file_revision.id = file_chunk.revision_id;
 
 	IF _r IS NULL THEN
-		r_error := concat('Chunk not found');
+		r_error := concat('1:Chunk not found');
 		return next;
 		return;
 	END IF;
@@ -1395,9 +1399,9 @@ BEGIN
 			checkpoint > _checkpoint AND
 			hidden = FALSE AND
 			((_rootdir IS NOT NULL AND rootdir = _rootdir) OR
-			(_rootdir IS NULL AND "type" = 'rootdir')) AND
+			(_rootdir IS NULL AND "type" = 'rootdir')) /*AND
 			(device_id != _ur.device_id OR
-			device_id IS NULL)
+			device_id IS NULL)*/
 		ORDER BY checkpoint ASC
 	LOOP
 		r_type := _row."type";

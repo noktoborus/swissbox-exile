@@ -339,7 +339,7 @@ _handle_file_update(struct client *c, unsigned type, Fep__FileUpdate *msg)
 
 	client_share_checkpoint(c, &rootdir, checkpoint);
 
-	return send_ok(c, msg->id, checkpoint);
+	return send_ok(c, msg->id, checkpoint, NULL);
 }
 
 
@@ -359,15 +359,17 @@ _handle_directory_update(struct client *c, unsigned type,
 	checkpoint = spq_directory_create(c->name, c->device_id,
 			&rootdir, &directory, msg->path, &hint);
 	if (!checkpoint) {
-		if (*hint.message)
+		if (*hint.message) {
 			return send_error(c, msg->id, hint.message, -1);
-		else
+		} else
 			return send_error(c, msg->id, "Internal error 1839", -1);
 	}
 
 	client_share_checkpoint(c, &rootdir, checkpoint);
 
-	return send_ok(c, msg->id, checkpoint);
+	if (*hint.message)
+		return send_ok(c, msg->id, checkpoint, hint.message);
+	return send_ok(c, msg->id, checkpoint, NULL);
 }
 
 bool
@@ -408,7 +410,7 @@ _handle_query_revisions(struct client *c, unsigned type,
 			" sid = %"PRIu32,
 			(void*)c->cev, msg->id, msg->session_id);
 #endif
-	return send_ok(c, msg->id, C_OK_SIMPLE);
+	return send_ok(c, msg->id, C_OK_SIMPLE, NULL);
 }
 
 bool
@@ -563,7 +565,7 @@ _handle_want_sync(struct client *c, unsigned type, Fep__WantSync *msg)
 		return send_error(c, msg->id, "Internal error 1653", -1);
 	}
 	c->status.log_active = true;
-	return send_ok(c, msg->id, C_OK_SIMPLE);
+	return send_ok(c, msg->id, C_OK_SIMPLE, NULL);
 }
 
 bool
@@ -623,7 +625,7 @@ _handle_read_ask(struct client *c, unsigned type, Fep__ReadAsk *msg)
 			(void*)c->cev, msg->id);
 #endif
 	/* TODO: OkRead */
-	return send_ok(c, msg->id, C_OK_SIMPLE);
+	return send_ok(c, msg->id, C_OK_SIMPLE, NULL);
 }
 
 bool
@@ -850,18 +852,22 @@ sendlog_error(struct client *c, uint64_t id, char *message, int remain)
 }
 
 bool
-send_ok(struct client *c, uint64_t id, uint64_t checkpoint)
+send_ok(struct client *c, uint64_t id, uint64_t checkpoint, char *message)
 {
 	if (checkpoint == C_OK_SIMPLE) {
 		Fep__Ok ok = FEP__OK__INIT;
 
 		ok.id = id;
+		if (message)
+			ok.message = message;
 		return send_message(c->cev, FEP__TYPE__tOk, &ok);
 	} else {
 		Fep__OkUpdate oku = FEP__OK_UPDATE__INIT;
 
 		oku.id = id;
 		oku.checkpoint = checkpoint;
+		if (message)
+			oku.message = message;
 		return send_message(c->cev, FEP__TYPE__tOkUpdate, &oku);
 	}
 }
@@ -1030,7 +1036,7 @@ _file_complete(struct client *c, struct wait_file *wf)
 		/* рассылаем приглашение обновиться соседям */
 		client_share_checkpoint(c, &wf->rootdir, checkpoint);
 
-		retval = send_ok(c, wf->msg_id, checkpoint);
+		retval = send_ok(c, wf->msg_id, checkpoint, NULL);
 	}
 #if DEEPDEBUG
 		xsyslog(LOG_DEBUG, "client[%p] file complete with ref=%u, "
@@ -1225,7 +1231,7 @@ _handle_rename_chunk(struct client *c, unsigned type, Fep__RenameChunk *msg)
 		else
 			return send_error(c, msg->id, errmsg, -1);
 	}
-	return send_ok(c, msg->id, C_OK_SIMPLE);
+	return send_ok(c, msg->id, C_OK_SIMPLE, NULL);
 }
 
 bool
@@ -1295,7 +1301,7 @@ _handle_end(struct client *c, unsigned type, Fep__End *end)
 		 */
 		if (!_file_complete(c, wf))
 			return false;
-		return send_ok(c, end->id, C_OK_SIMPLE);
+		return send_ok(c, end->id, C_OK_SIMPLE, NULL);
 	} else {
 		/* чанк не нужен, клиент перетащит его заного */
 		wf->chunks_fail++;

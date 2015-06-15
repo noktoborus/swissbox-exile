@@ -763,21 +763,46 @@ _spq_directory_create(PGconn *pgc, guid_t *rootdir,
 	res = PQexecParams(pgc, tb, 3, NULL, (const char *const*)val, len, fmt, 0);
 	pqs = PQresultStatus(res);
 
-	if (pqs != PGRES_TUPLES_OK)
+	if (pqs != PGRES_TUPLES_OK) {
 		_m = PQresultErrorMessage(res);
-	else if (PQgetlength(res, 0, 0)) {
-		_m = PQgetvalue(res, 0, 0);
-		if (_m && hint) {
-			strncpy(hint->message, _m, SPQ_ERROR_LEN);
+		xsyslog(LOG_INFO, "exec directory_create error: %s", _m);
+		PQclear(res);
+		return 0lu;
+	}
+
+	{
+		unsigned r_len;
+		if ((r_len = PQgetlength(res, 0, 0))) {
+			_m = PQgetvalue(res, 0, 0);
+			if (_m && hint) {
+				if (r_len > 2u && _m[1] == ':') {
+					switch (_m[0]) {
+					case '2':
+						hint->level = SPQ_WARN;
+						break;
+					case '3':
+						hint->level = SPQ_NOTICE;
+						break;
+					default:
+						hint->level = SPQ_ERR;
+					}
+					if (_m[0] == '3')
+						hint->level = SPQ_NOTICE;
+					r_len = 2u;
+				} else {
+					r_len = 0u;
+				}
+				strncpy(hint->message, &_m[r_len], SPQ_ERROR_LEN);
+			}
+			if (_m)
+				xsyslog(LOG_INFO, "exec directory_create warning: %s", _m);
+		}
+
+		if (PQgetlength(res, 0, 1)) {
+			result = strtoul(PQgetvalue(res, 0, 1), NULL, 10);
 		}
 	}
 
-	if (_m) {
-		xsyslog(LOG_INFO, "exec directory_create error: %s", _m);
-		PQclear(res);
-		return 0;
-	}
-	result = strtoul(PQgetvalue(res, 0, 1), NULL, 10);
 	PQclear(res);
 	return result;
 }
