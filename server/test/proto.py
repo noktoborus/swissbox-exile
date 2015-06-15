@@ -441,27 +441,31 @@ def maybe(msg, field):
 
 def examine(msg):
     _type = msg.__class__.__name__
+    
+    if not msg:
+        return False
+
     if _type == "Error":
         write_std("%% Error: (id: %s, remain: %s) %s\n"
                 %(msg.id, maybe(msg, "remain"), maybe(msg, "message")))
-        return
+        return True
 
     if _type == "Ok":
         write_std("%% Ok: (id: %s): %s\n" %(msg.id, maybe(msg, "message")))
-        return
+        return True
 
     if _type == "DirectoryUpdate":
         write_std("%% Directory: (id: %s, sid: %s, rootdir: %s, %s) %s\n"
                 %(msg.id, maybe(msg, "session_id"), msg.rootdir_guid,
                     msg.directory_guid, maybe(msg, "path")))
-        return
+        return True
 
     if _type == "FileUpdate":
         write_std("%% File: (id: %s, sid: %s, rootdir: %s, directory: %s, %s) %s\n"
                 %(msg.id, maybe(msg, "session_id"), msg.rootdir_guid,
                     maybe(msg, "directory_guid"), msg.file_guid,
                     maybe(msg, "enc_filename")))
-        return
+        return True
 
     if _type == "OkUpdate":
         write_std("%% OkUpdate: (id: %s, sid: %s, checkpoint: %s): %s\n"
@@ -469,7 +473,7 @@ def examine(msg):
 
     write_std("%% %s: (id: %s, sid: %s)\n"
             %(_type, maybe(msg, "id"), maybe(msg, "session_id")))
-    return
+    return True
 
 def proto(s, user, secret, devid):
     global X_files
@@ -525,7 +529,8 @@ def proto(s, user, secret, devid):
         if c == "ewait":
             try:
                 while True:
-                    examine(recv_message(s))
+                    if not examine(recv_message(s)):
+                        break
             except KeyboardInterrupt:
                 continue
         if c == "write":
