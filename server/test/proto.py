@@ -255,7 +255,7 @@ def sendFile(s, rootdir, directory, path):
     fmsg.file_guid = str(uuid.UUID(bytes=hashlib.md5(path).digest()))
     fmsg.revision_guid = str(uuid.uuid4())
 
-    fmsg.enc_filename = path
+    fmsg.enc_filename = os.path.basename(path)
     fmsg.key = "0"
 
     fmsg.chunks = _chunks
@@ -407,7 +407,7 @@ def proto_sync(s):
                 X_rootdir = rmsg.rootdir_guid
 
         if rmsg.__class__.__name__ in ("DirectoryUpdate"):
-            if not X_directory and (hasattr(rmsg, "path") and rmsg.path == "/project"):
+            if not X_directory and (hasattr(rmsg, "path") and rmsg.path == X_prefix):
                 write_std("acquire directory=%s\n" %(rmsg.directory_guid))
                 write_std("acquire rootdir=%s\n" %(rmsg.rootdir_guid))
                 X_directory = rmsg.directory_guid
@@ -430,7 +430,8 @@ def mkdir(s, rootdir, path):
         write_std("mkdir error: %s\n" %rmsg.message)
         return None
     else:
-        write_std("mkdir created with checkpoint %s\n" %(rmsg.checkpoint))
+        write_std("mkdir created with checkpoint %s, message: %s\n"
+                %(rmsg.checkpoint, maybe(rmsg, "message")))
         return msg.directory_guid
 
 def maybe(msg, field):
@@ -486,7 +487,7 @@ def proto(s, user, secret, devid):
             if not X_rootdir:
                 write_std("# try to cmd `sync` (rootdir: %s)\n" %(X_rootdir))
                 continue
-
+            
             _x = mkdir(s, X_rootdir, X_prefix)
             if _x:
                 write_std("acquire directory=%s\n" %(_x))
@@ -521,6 +522,7 @@ def proto(s, user, secret, devid):
                 if not _d:
                     break
                 for _f in _n[2]:
+                    _f = _n[0] + '/' + _f 
                     if not sendFile(s, X_rootdir, _d, _f):
                         _d = None
                         break
