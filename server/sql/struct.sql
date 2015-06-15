@@ -454,8 +454,22 @@ DECLARE
 	_row record;
 BEGIN
 
+	-- удаление происходит в несколько стадий:
+	-- 1. пометка всех файлов как "deleted" и перенос их в .Trash
+	-- 2. удаление самой директории
 	IF new.path IS NULL THEN
-		RAISE EXCEPTION 'directory deletion not implemented';
+		-- проверяем что не хотят удалить системную директори
+		IF COUNT(SELECT *
+				FROM options
+				WHERE
+					"key" LIKE '%\_dir' AND
+					value_u = new.directory) != 0 THEN
+			RAISE EXCEPTION 'system directory guard dissatisfied';
+			return new;
+		END IF;
+		--
+		RAISE EXCEPTION 'TODO';
+
 		return new;
 	END IF;
 
@@ -1554,10 +1568,7 @@ CREATE TRIGGER tr_file_chunk_action_after AFTER INSERT ON file_chunk
 
 
 INSERT INTO options ("key", value_c, value_u)
-	VALUES ('trash_dir', '.Trash', '10000002-3004-5006-7008-900000000000');
-INSERT INTO options ("key", value_c, value_u)
-	VALUES ('incomplete_dir', '.Incomplete',
-		'20000002-3004-5006-7008-900000000000');
+	VALUES ('trash_dir', '.Trash', '00000000-0000-0000-0000-000000000000');
 INSERT INTO options ("key", value_c, value_u)
 	VALUES ('1_rootdir', 'First',
 		'00000001-2003-5406-7008-900000000000');
