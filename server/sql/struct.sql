@@ -1516,9 +1516,9 @@ BEGIN
 			checkpoint > _checkpoint AND
 			hidden = FALSE AND
 			((_rootdir IS NOT NULL AND rootdir = _rootdir) OR
-			(_rootdir IS NULL AND "type" = 'rootdir')) /*AND
+			(_rootdir IS NULL AND "type" = 'rootdir')) AND
 			(device_id != _ur.device_id OR
-			device_id IS NULL)*/
+			device_id IS NULL)
 		ORDER BY checkpoint ASC
 	LOOP
 		r_type := _row."type";
