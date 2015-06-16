@@ -169,6 +169,11 @@ CREATE TABLE IF NOT EXISTS directory_log
 
 	directory UUID NOT NULL,
 	path varchar(4096) DEFAULT NULL,
+	
+	-- финализирующая запись (при удалении)
+	-- костыль для триггера tr_directory_log_action
+	fin boolean NOT NULL DEFAULT FALSE,
+
 	UNIQUE(checkpoint)
 );
 
@@ -220,15 +225,18 @@ CREATE OR REPLACE FUNCTION _check_is_trash(_rootdir_id bigint,
 	_drop_ _drop_ DEFAULT 'drop')
 	RETURNS boolean AS $$
 DECLARE
-	_r boolean;
+	_r record;
 BEGIN
-	SELECT directory.id = _directory_id INTO _r
-	FROM directory
+	SELECT * INTO _r
+	FROM directory, options
 	WHERE
+		options."key" = 'trash_dir' AND
 		directory.rootdir_id = _rootdir_id AND
-		directory.path = '/.Trash';
+		directory.directory = options.value_u AND
+		directory.id = _directory_id;
+
 	IF _r IS NOT NULL THEN
-		return _r;
+		return TRUE;
 	END IF;
 	return FALSE;
 END $$ LANGUAGE plpgsql IMMUTABLE;
@@ -447,19 +455,40 @@ BEGIN
 	return new;
 END $$ LANGUAGE plpgsql;
 
+-- внесение болванки (без checkpoint) в directory_log при удалении директории
+CREATE OR REPLACE FUNCTION directory_delete()
+	RETURNS trigger AS $$
+BEGIN
+	INSERT INTO directory_log (rootdir_id, directory_id, directory, fin)
+	VALUES (old.rootdir_id, old.id, old.directory, TRUE);
+	return old;
+END $$ LANGUAGE plpgsql;
+
 -- по принципу rootdir_log_action/rootdir_log_action_after
 CREATE OR REPLACE FUNCTION directory_log_action()
 	RETURNS TRIGGER AS $$
 DECLARE
 	_row record;
+	_dirs bigint[];
+	_trash_id bigint;
+	i integer;
 BEGIN
+	-- причёсывание пути, если вдруг прислали ошмёток (как?)
+	IF substring(NEW.path from 1 for 1) != '/' THEN
+		NEW.path = concat('/', NEW.path);
+	END IF;
+
+	-- если финализация, то дальнейшая обработка не нужна
+	IF new.fin = TRUE THEN
+		return new;
+	END IF;
 
 	-- удаление происходит в несколько стадий:
 	-- 1. пометка всех файлов как "deleted" и перенос их в .Trash
 	-- 2. удаление самой директории
 	IF new.path IS NULL THEN
-		-- проверяем что не хотят удалить системную директори
-		IF COUNT(SELECT *
+		-- проверяем что не хотят удалить системную директорию
+		IF (SELECT COUNT(*)
 				FROM options
 				WHERE
 					"key" LIKE '%\_dir' AND
@@ -467,34 +496,78 @@ BEGIN
 			RAISE EXCEPTION 'system directory guard dissatisfied';
 			return new;
 		END IF;
-		--
-		RAISE EXCEPTION 'TODO';
 
-		return new;
-	END IF;
+		-- получение id треша
+		SELECT directory.id FROM options, directory
+		INTO _trash_id
+		WHERE
+			options."key" = 'trash_dir' AND
+			directory.rootdir_id = new.rootdir_id AND
+			directory.directory = options.value_u;
 
-	-- причёсывание пути, если вдруг прислали ошмёток (как?)
-	IF substring(NEW.path from 1 for 1) != '/' THEN
-		NEW.path = concat('/', NEW.path);
-	END IF;
+		-- т.к. path IS NULL, то нужно выбрать последнее имя директории из бд
+		SELECT
+			directory.path AS path,
+			directory.id AS directory_id
+		INTO _row
+		FROM directory
+		WHERE
+			directory.rootdir_id = new.rootdir_id AND
+			directory.directory = new.directory;
 
-	SELECT NULL INTO _row;
+		IF _row IS NULL THEN
+			RAISE EXCEPTION 'invalid directory data: uuid %',
+				new.directory;
+			return new;
+		END IF;
 
-	-- проверка наличия директории
-	CASE
-	WHEN new.directory_id IS NOT NULL THEN
-		SELECT * INTO _row FROM directory
-		WHERE rootdir_id = new.rootdir_id AND id = new.directory_id;
-	WHEN new.directory IS NOT NULL THEN
-		SELECT * INTO _row FROM directory
-		WHERE rootdir_id = new.rootdir_id AND directory = new.directory;
-	END CASE;
+		new.path = _row.path;
+		new.directory_id = _row.directory_id;
 
-	IF _row IS NOT NULL THEN
-		new.directory_id = _row.id;
-		new.directory = _row.directory;
+		-- сбор всех директорий на удаление
+		SELECT array_agg(id) INTO _dirs
+		FROM directory
+		WHERE
+			directory.path LIKE new.path || '%' AND
+			directory.id != new.directory_id;
+
+		-- принудительное "удаление" файлов
+		UPDATE file
+		SET
+			directory_id = _trash_id,
+			deleted = TRUE
+		WHERE
+			file.directory_id = ANY(_dirs::bigint[]) OR
+			file.directory_id = new.directory_id;
+	
+		SELECT COUNT(*) AS c INTO _row
+		FROM file WHERE file.directory_id = ANY(_dirs::bigint[]);
+
+		-- удаление директорий
+		DELETE FROM directory WHERE id = ANY(_dirs::bigint[]);
+
+		new.path := NULL;
+		new.fin := TRUE;
 	ELSE
-		new.directory_id = nextval('directory_seq');
+
+		SELECT NULL INTO _row;
+
+		-- проверка наличия директории
+		CASE
+		WHEN new.directory_id IS NOT NULL THEN
+			SELECT * INTO _row FROM directory
+			WHERE rootdir_id = new.rootdir_id AND id = new.directory_id;
+		WHEN new.directory IS NOT NULL THEN
+			SELECT * INTO _row FROM directory
+			WHERE rootdir_id = new.rootdir_id AND directory = new.directory;
+		END CASE;
+
+		IF _row IS NOT NULL THEN
+			new.directory_id = _row.id;
+			new.directory = _row.directory;
+		ELSE
+			new.directory_id = nextval('directory_seq');
+		END IF;
 	END IF;
 
 	-- получение checkpoint в логе
@@ -515,11 +588,33 @@ CREATE OR REPLACE FUNCTION directory_log_action_after()
 	RETURNS trigger AS $$
 DECLARE
 	_row record;
+	_logs bigint[];
 BEGIN
 	IF new.path IS NULL THEN
-		RAISE EXCEPTION 'directory deletion not implemented';
+		IF new.directory_id IS NULL THEN
+			RAISE EXCEPTION 'incomplete directory_log_action: no directory_id';
+			return new;
+		END IF;
+
+		DELETE FROM directory WHERE id = new.directory_id;
+
+		-- нужно спрятать все события по этой директории из лога
+		UPDATE event SET hidden = TRUE
+		WHERE "type" = 'directory' AND
+			target_id IN
+				(SELECT id
+					FROM directory_log
+					WHERE directory_log.directory_id = new.directory_id) AND
+			target_id != new.id;
+		
 		return new;
 	END IF;
+
+	-- дальнейшая обработка не нужна
+	IF new.fin = TRUE THEN
+		return new;
+	END IF;
+
 
 	WITH _row AS (
 		UPDATE directory SET
@@ -555,7 +650,18 @@ CREATE OR REPLACE FUNCTION file_meta_action()
 DECLARE
 	_rootdir rootdir.rootdir%TYPE;
 	_r record;
+	_trash_id bigint;
 BEGIN
+	-- получение id треша
+	SELECT directory.id
+	FROM options, directory, file
+	INTO _trash_id
+	WHERE
+		options."key" = 'trash_dir' AND
+		file.id = new.file_id AND
+		directory.rootdir_id = file.rootdir_id AND
+		directory.directory = options.value_u;
+
 	-- костыль: если checkpoint == 0, то события в event не создаётся
 	IF new.checkpoint IS NULL OR new.checkpoint != 0 THEN
 		-- получение rootdir_guid
@@ -564,23 +670,26 @@ BEGIN
 			rootdir.id = file.rootdir_id;
 		-- добавление евента в лог
 		WITH _row AS (
-			INSERT INTO event (rootdir, "type", target_id)
-			VALUES (_rootdir, 'file_meta', new.id)
+			INSERT INTO event (rootdir, "type", target_id, hidden)
+			VALUES (_rootdir, 'file_meta', new.id, new.directory_id = _trash_id)
 			RETURNING *
 		) SELECT INTO _r checkpoint, id FROM _row;
 		new.checkpoint := _r.checkpoint;
 		new.event_id = _r.id;
 	END IF;
 
-	IF new.directory_id IS NULL AND new.filename IS NULL THEN
+	IF new.directory_id IS NULL AND new.filename IS NULL OR
+		new.directory_id = _trash_id THEN
 		-- удаление, обновляем соотвествующее поле
 		UPDATE file SET deleted = TRUE WHERE id = new.file_id;
+
 		-- объявляем все события, кроме текущего, устаревшими
 		UPDATE event SET hidden = TRUE
 		WHERE
 			"type" = 'file_meta' AND
 			target_id != new.id AND
 			target_id IN (SELECT id FROM file_meta WHERE file_id = new.file_id);
+
 		UPDATE event SET hidden = TRUE
 		WHERE
 			"type" = 'file_revision' AND
@@ -1130,18 +1239,12 @@ DECLARE
 	_ur record;
 BEGIN
 	-- сбор информации о пользователе
-	SELECT _life_.username AS username,
-		_life_.user_id AS user_id,
-		rootdir.id AS rootdir_id
+	SELECT
+		r_username AS username,
+		r_user_id AS user_id,
+		r_rootdir_id AS rootdir_id
 	INTO _ur
-	FROM options, _life_, rootdir
-	WHERE options."key" = 'life_mark' AND
-		_life_.mark = options.value_u AND
-		rootdir.user_id = _life_.user_id AND
-		rootdir.rootdir = _rootdir;
-	IF _ur IS NULL THEN
-		r_error := concat('1:unknown rootdir ', _rootdir);
-	END IF;
+	FROM life_data(_rootdir);
 
 	-- проверка существования директории (и это не переименование)
 	WITH _row AS (
@@ -1562,6 +1665,10 @@ CREATE TRIGGER tr_file_revision_update_action BEFORE UPDATE ON file_revision
 CREATE TRIGGER tr_file_revision AFTER DELETE ON file_revision
 	FOR EACH ROW EXECUTE PROCEDURE file_delete();
 
+-- directory
+CREATE TRIGGER tr_directory_delete AFTER DELETE ON directory
+	FOR EACH ROW EXECUTE PROCEDURE directory_delete();
+
 -- ?
 CREATE TRIGGER tr_file_chunk_action_after AFTER INSERT ON file_chunk
 	FOR EACH ROW EXECUTE PROCEDURE file_chunk_action_after();
@@ -1569,6 +1676,8 @@ CREATE TRIGGER tr_file_chunk_action_after AFTER INSERT ON file_chunk
 
 INSERT INTO options ("key", value_c, value_u)
 	VALUES ('trash_dir', '.Trash', '00000000-0000-0000-0000-000000000000');
+INSERT INTO options ("key", value_c, value_u)
+	VALUES ('incomplete_dir', '.Incomplete', 'FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFFFFFF');
 INSERT INTO options ("key", value_c, value_u)
 	VALUES ('1_rootdir', 'First',
 		'00000001-2003-5406-7008-900000000000');
