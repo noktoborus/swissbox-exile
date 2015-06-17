@@ -496,7 +496,6 @@ def proto(s, user, secret, devid, cmd = None):
     if cmd:
         cmd.reverse()
     while (type(cmd) == list and cmd and r) or cmd is None:
-        #__import__("pdb").set_trace()
         c = ""
         write_std('input queue len: %s\n' %(len(_input_queue)))
         if cmd:
@@ -562,7 +561,7 @@ def proto(s, user, secret, devid, cmd = None):
                 write_std("# try to cmd `sync` or `mkdir` (rootdir: %s, directory: %s)\n" %(X_rootdir, X_directory))
                 continue
             # вгружаем всё в текущей директории, кроме директорий и файлов с "."
-            for _n in [x for x in os.walk('.') if not x[0].startswith('./.')]:
+            for _n in [x for x in os.walk('.') if not x[0].startswith('./user')]:
                 # создаём директорию
                 _d = mkdir(s, X_rootdir, X_prefix + _n[0])
                 if not _d:
@@ -580,20 +579,22 @@ def proto(s, user, secret, devid, cmd = None):
             continue
         if c == "read":
             if not X_rootdir:
-                r = False
                 write_std("# try to cmd `sync` and `write` (rootdir: %s)\n" %(X_rootdir))
+                r = False
                 continue
-            for _n in [x for x in os.listdir('.') if os.path.isfile(x)]:
-                if not recvFile(s, X_rootdir, _n):
-                    r = False
-                    break
+            for _n in [x for x in os.walk('.') if not x[0].startswith('./user')]:
+                for _f in _n[2]:
+                    _f = _n[0] + '/' + _f 
+                    if not recvFile(s, X_rootdir, _f):
+                        r = False
+                        break
         if c == "sync":
             r = proto_sync(s)
             continue
     return r
 
 def connect(host, user, secret, devid, cmd = None):
-    write_std("# connect to %s\n" %host)
+    write_std("# connect to %s, cmd: %s\n" %(host, str(cmd)))
     sock = None
     port = "0"
     r =  False
