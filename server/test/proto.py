@@ -138,7 +138,7 @@ def proto_bootstrap(s, user, secret, devid):
                 msg.domain = "it-grad.ru"
                 msg.username = user
                 msg.authToken = secret
-                msg.device_id = int(hashlib.md5(socket.gethostname() + devid).hexdigest()[:16], 16)
+                msg.device_id = int(hashlib.md5(socket.gethostname() + str(devid)).hexdigest()[:16], 16)
                 send_message(s, msg)
             elif rmsg.__class__.__name__ == "Ok":
                 write_std("# auth ok\n")
@@ -340,6 +340,7 @@ def proto_sync(s):
     _oks = []
     _session_id = 100
     _id = 200
+    r = True
     msg = FEP.WantSync()
     msg.id = _id
     msg.checkpoint = 0
@@ -353,10 +354,12 @@ def proto_sync(s):
         rmsg = recv_message(s, ("FileUpdate", "RootdirUpdate", "DirectoryUpdate", "Error", "Ok", "End"))
         if not rmsg:
             write_std("# eof\n")
+            r = False
             break
         if rmsg.__class__.__name__ == "Ok":
             if rmsg.id not in _oks:
                 write_std("# sync exception: ok id: %s, expected: %s\n" %(rmsg.id, str(_oks)))
+                r = False
                 break
             else:
                 write_std("# sync id=%s ok\n" %rmsg.id)
@@ -369,10 +372,12 @@ def proto_sync(s):
 
         if rmsg.__class__.__name__ == "Error":
             write_std("# sync error: %s\n" %rmsg.message)
+            r = False
             break
 
         elif rmsg.session_id not in _sessions:
             write_std("# sync exception: sessid got %s, expect %s\n" %(rmsg.session_id, str(_sessions)))
+            r = False
             break
 
         if rmsg.__class__.__name__ in ("FileUpdate", "DirectoryUpdate", "RootdirUpdate"):
@@ -415,6 +420,7 @@ def proto_sync(s):
 
         if rmsg.no == rmsg.max:
             write_std("# sync sid=%s complete\n" %(rmsg.session_id))
+    return r
 
 def mkdir(s, rootdir, path):
     msg = FEP.DirectoryUpdate()
@@ -475,17 +481,29 @@ def examine(msg):
             %(_type, maybe(msg, "id"), maybe(msg, "session_id")))
     return True
 
-def proto(s, user, secret, devid):
+def proto(s, user, secret, devid, cmd = None):
     global X_files
     global X_rootdir
     global X_directory
     write_std("# orpot\n")
     if not proto_bootstrap(s, user, secret, devid):
         return
-    while True:
-        write_std('input queue len: %s\n' %(len(_input_queue)));
-        c = input('help> ');
-
+    r = True
+    if type(cmd) == str:
+        cmd = [cmd,]
+    elif type(cmd) == tuple:
+        cmd = list(cmd)
+    if cmd:
+        cmd.reverse()
+    while (type(cmd) == list and cmd and r) or cmd is None:
+        #__import__("pdb").set_trace()
+        c = ""
+        write_std('input queue len: %s\n' %(len(_input_queue)))
+        if cmd:
+            c = cmd.pop()
+        elif cmd is None:
+            c = input('help> ');
+        
         if c == "help":
             write_std("ping, wait sync write mkdir remove\n")
             continue
@@ -494,6 +512,7 @@ def proto(s, user, secret, devid):
         if c == "rmdir":
             if not X_directory:
                 write_std("# try to cmd `sync` or `mkdir` (rootdir: %s, directory: %s)\n" %(X_rootdir, X_directory))
+                r = False
                 continue
             msg = FEP.DirectoryUpdate()
             msg.id  = random.randint(1, 10000)
@@ -502,10 +521,12 @@ def proto(s, user, secret, devid):
             send_message(s, msg)
             rmsg = recv_message(s, ["Error", "OkUpdate"])
             examine(rmsg)
-
+            if rmsg.__class__.__name__ == "Error":
+                r = False
             continue
         if c == "mkdir":
             if not X_rootdir:
+                r = False
                 write_std("# try to cmd `sync` (rootdir: %s)\n" %(X_rootdir))
                 continue
             
@@ -513,6 +534,8 @@ def proto(s, user, secret, devid):
             if _x:
                 write_std("acquire directory=%s\n" %(_x))
                 X_directory = _x
+            else:
+                r = False
             continue
         if c == "ping":
             msg = FEP.Ping()
@@ -535,6 +558,7 @@ def proto(s, user, secret, devid):
                 continue
         if c == "write":
             if not X_rootdir or not X_directory:
+                r = False
                 write_std("# try to cmd `sync` or `mkdir` (rootdir: %s, directory: %s)\n" %(X_rootdir, X_directory))
                 continue
             # вгружаем всё в текущей директории, кроме директорий и файлов с "."
@@ -542,11 +566,13 @@ def proto(s, user, secret, devid):
                 # создаём директорию
                 _d = mkdir(s, X_rootdir, X_prefix + _n[0])
                 if not _d:
+                    r = False
                     break
                 for _f in _n[2]:
                     _f = _n[0] + '/' + _f 
                     if not sendFile(s, X_rootdir, _d, _f):
                         _d = None
+                        r = False
                         break
                 if not _d:
                     break
@@ -554,19 +580,23 @@ def proto(s, user, secret, devid):
             continue
         if c == "read":
             if not X_rootdir:
+                r = False
                 write_std("# try to cmd `sync` and `write` (rootdir: %s)\n" %(X_rootdir))
                 continue
             for _n in [x for x in os.listdir('.') if os.path.isfile(x)]:
                 if not recvFile(s, X_rootdir, _n):
+                    r = False
                     break
         if c == "sync":
-            proto_sync(s)
+            r = proto_sync(s)
             continue
+    return r
 
-def connect(host, user, secret, devid):
+def connect(host, user, secret, devid, cmd = None):
     write_std("# connect to %s\n" %host)
     sock = None
     port = "0"
+    r =  False
     if ":" in host:
         e = host.rsplit(":", 1)
         host = e[0]
@@ -582,10 +612,11 @@ def connect(host, user, secret, devid):
             write_std("# connect fail: " + str(exc) + "\n")
             sock = None
         if sock:
-            proto(sock, user, secret, devid)
+            r = proto(sock, user, secret, devid, cmd)
             sock.shutdown(socket.SHUT_RDWR)
             sock.close()
             break
+    return r
     write_std("# end of sockets\n")
 
 
