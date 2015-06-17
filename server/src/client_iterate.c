@@ -69,9 +69,9 @@ client_cum_free(struct client_cum *ccum)
 	if (ccum == clients_cum.first)
 		clients_cum.first = ccum->next ? ccum->next : ccum->prev;
 	if (ccum->next)
-		ccum->next = ccum->prev;
+		ccum->next->prev = ccum->prev;
 	if (ccum->prev)
-		ccum->prev = ccum->next;
+		ccum->prev->next = ccum->next;
 	pthread_mutex_unlock(&clients_cum.lock);
 
 	pthread_mutex_destroy(&ccum->lock);
