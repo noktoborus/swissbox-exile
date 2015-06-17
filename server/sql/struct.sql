@@ -29,7 +29,6 @@ BEGIN
 			USING HINT = 'try to `CREATE EXCEPTION pgcrypto` in this database';
 	END;
 
-
 	RETURN _struct_version_value;
 END $$ LANGUAGE plpgsql;
 
@@ -309,11 +308,33 @@ CREATE TABLE IF NOT EXISTS file_chunk
 CREATE OR REPLACE FUNCTION file_delete()
 	RETURNS trigger AS $$
 BEGIN
-	IF old.event_id IS NOT NULL THEN
-		UPDATE event SET hidden = True
-		WHERE id = old.event_id AND hidden = False;
-	END IF;
+	RAISE EXCEPTION 'use `UPDATE file SET deleted = TRUE;`';
 	return old;
+END $$ LANGUAGE plpgsql;
+
+
+CREATE OR REPLACE FUNCTION file_update()
+	RETURNS trigger AS $$
+DECLARE
+	_status boolean;
+BEGIN
+	IF new.deleted = TRUE AND old.deleted = FALSE THEN
+		_status := TRUE;
+	ELSE
+		_status := FALSE;
+	END IF;
+
+	-- обновление event при изменении статуса
+	UPDATE event SET hidden = _status
+	WHERE
+		hidden != _status AND
+		("type" = 'file_meta' AND
+			target_id IN
+				(SELECT id FROM file_meta WHERE file_id = old.id)) OR
+		("type" = 'file_revision' AND
+			target_id IN
+				(SELECT id from file_revision WHERE file_id = old.id));
+	return new;
 END $$ LANGUAGE plpgsql;
 
 -- автозаполнение полей
@@ -459,8 +480,8 @@ END $$ LANGUAGE plpgsql;
 CREATE OR REPLACE FUNCTION directory_delete()
 	RETURNS trigger AS $$
 BEGIN
-	INSERT INTO directory_log (rootdir_id, directory_id, directory, fin)
-	VALUES (old.rootdir_id, old.id, old.directory, TRUE);
+	--INSERT INTO directory_log (rootdir_id, directory_id, directory, fin)
+	--VALUES (old.rootdir_id, old.id, old.directory, TRUE);
 	return old;
 END $$ LANGUAGE plpgsql;
 
@@ -590,6 +611,7 @@ DECLARE
 	_row record;
 	_logs bigint[];
 BEGIN
+
 	IF new.path IS NULL THEN
 		IF new.directory_id IS NULL THEN
 			RAISE EXCEPTION 'incomplete directory_log_action: no directory_id';
@@ -662,6 +684,16 @@ BEGIN
 		directory.rootdir_id = file.rootdir_id AND
 		directory.directory = options.value_u;
 
+	IF new.directory_id IS NULL AND new.filename IS NULL OR
+		new.directory_id = _trash_id THEN
+		-- удаление, обновляем соотвествующее поле
+		UPDATE file SET deleted = TRUE WHERE id = new.file_id;
+	ELSE
+		-- обновление значений в file
+		UPDATE file SET filename = new.filename, directory_id = new.directory_id
+		WHERE id = new.file_id;
+	END IF;
+
 	-- костыль: если checkpoint == 0, то события в event не создаётся
 	IF new.checkpoint IS NULL OR new.checkpoint != 0 THEN
 		-- получение rootdir_guid
@@ -676,28 +708,6 @@ BEGIN
 		) SELECT INTO _r checkpoint, id FROM _row;
 		new.checkpoint := _r.checkpoint;
 		new.event_id = _r.id;
-	END IF;
-
-	IF new.directory_id IS NULL AND new.filename IS NULL OR
-		new.directory_id = _trash_id THEN
-		-- удаление, обновляем соотвествующее поле
-		UPDATE file SET deleted = TRUE WHERE id = new.file_id;
-
-		-- объявляем все события, кроме текущего, устаревшими
-		UPDATE event SET hidden = TRUE
-		WHERE
-			"type" = 'file_meta' AND
-			target_id != new.id AND
-			target_id IN (SELECT id FROM file_meta WHERE file_id = new.file_id);
-
-		UPDATE event SET hidden = TRUE
-		WHERE
-			"type" = 'file_revision' AND
-			target_id IN (SELECT id FROM file_revision WHERE file_id = new.file_id);
-	ELSE
-		-- обновление значений в file
-		UPDATE file SET filename = new.filename, directory_id = new.directory_id
-		WHERE id = new.file_id;
 	END IF;
 
 	IF new.checkpoint = 0 THEN
@@ -1646,6 +1656,10 @@ CREATE TRIGGER tr_directory_log_action BEFORE INSERT ON directory_log
 
 CREATE TRIGGER tr_directory_log_action_after AFTER INSERT ON directory_log
 	FOR EACH ROW EXECUTE PROCEDURE directory_log_action_after();
+
+-- file
+CREATE TRIGGER tr_file_update AFTER UPDATE ON file
+	FOR EACH ROW EXECUTE PROCEDURE file_update();
 
 -- file_meta
 CREATE TRIGGER tr_file_meta_action BEFORE INSERT ON file_meta
