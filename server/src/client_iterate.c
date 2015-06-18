@@ -534,8 +534,7 @@ _active_sync(struct client *c, guid_t *rootdir, uint64_t checkpoint,
 		spq_f_logDirFile_free(&gs);
 		return false;
 	}
-	if (session_id == C_NOSESSID)
-		xsyslog(LOG_INFO, "ATAT");
+
 	memcpy(&rs->v, &gs, sizeof(struct logDirFile));
 	rs->id = session_id;
 	rs->type = RESULT_LOGDIRFILE;
@@ -1742,10 +1741,6 @@ _client_iterate_result_logdf(struct client *c, struct logDirFile *ldf)
 			msg.session_id = c->rout->id;
 			msg.has_session_id = true;
 		}
-
-		xsyslog(LOG_INFO, "@@@ directory sessid: %u", msg.session_id);
-		if (msg.session_id == 0)
-			xsyslog(LOG_INFO, "X");
 
 		c->rout->packets++;
 		return send_message(c->cev, FEP__TYPE__tDirectoryUpdate, &msg);
