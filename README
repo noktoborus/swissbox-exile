@@ -1,0 +1,10 @@
+Сборка сервера:
+	cd server && make
+сборка сервера с отладкой:
+	cd server && make debug
+запуск сервера:
+	cd server && ./bin/server
+запуск тестов:
+	cd server && make runtest
+
+в server/additional_flags добавлять флаги для компилятора (разделять пробелами)
