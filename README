@@ -3,6 +3,7 @@
 сборка сервера с отладкой:
 	cd server && make debug
 запуск сервера:
+	psql fepserver <sql/struct.sql
 	cd server && ./bin/server
 запуск тестов:
 	cd server && make runtest
