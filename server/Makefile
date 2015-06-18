@@ -20,8 +20,8 @@ clean:
 debug:
 	make clean && make EF=-DDEEPDEBUG ${BIN}
 
-runtest: ${BIN} proto/fep_pb2.py
-	python2 test/proto.py ${BIN} auth
+runtest: proto/fep_pb2.py
+	python test/unit_all_test.py
 
 ${BIN}: .buildflags .sqlversion ${SOURCES}
 	${CC} -o ${BIN} ${CFLAGS} -DSQLSTRUCTVER=`cat .sqlversion` ${SOURCES} ${LIBS} `cat .buildflags`
