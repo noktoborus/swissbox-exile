@@ -194,8 +194,8 @@ def recvFileRevision(s, rootdir, file_, revision):
             return False
     return _ok
 
-def recvFile(s, rootdir, path):
-    _file_guid = str(uuid.UUID(bytes=hashlib.md5(path).digest()))
+def recvFile(s, rootdir, path, devid):
+    _file_guid = str(uuid.UUID(bytes=hashlib.md5(path + "@" + str(devid)).digest()))
     write_std("recv file '%s' (%s, rootdir: %s)\n" %(path, _file_guid, rootdir))
 
     # сначала нужно получить ревизии файла
@@ -206,7 +206,6 @@ def recvFile(s, rootdir, path):
     msg.file_guid = _file_guid
     msg.depth = 3
     send_message(s, msg)
-
 
     _rev = None
 
@@ -232,12 +231,12 @@ def recvFile(s, rootdir, path):
     else:
         _ok = False
         write_std("revision for file '%s' not received\n" %(_file_guid))
-        
+
     if _ok:
         write_std("recv file '%s' complete\n" %(_file_guid))
     return _ok
 
-def sendFile(s, rootdir, directory, path):
+def sendFile(s, rootdir, directory, path, devid):
     _chunk_size = 1048576 # размер чанка
     _hash = None
 
@@ -252,7 +251,7 @@ def sendFile(s, rootdir, directory, path):
     fmsg.id = random.randint(1, 10000)
     fmsg.rootdir_guid = rootdir
     fmsg.directory_guid = directory
-    fmsg.file_guid = str(uuid.UUID(bytes=hashlib.md5(path).digest()))
+    fmsg.file_guid = str(uuid.UUID(bytes=hashlib.md5(path + "@" + str(devid)).digest()))
     fmsg.revision_guid = str(uuid.uuid4())
 
     fmsg.enc_filename = os.path.basename(path)
@@ -326,6 +325,18 @@ def sendFile(s, rootdir, directory, path):
         return True
     return False
 
+def deleteFile(s, rootdir, path, devid):
+    msg = FEP.FileUpdate()
+    msg.id = random.randint(1, 10000)
+    msg.rootdir_guid = rootdir
+    msg.file_guid = str(uuid.UUID(bytes=hashlib.md5(path + "@" + str(devid)).digest()))
+    send_message(s, msg)
+    rmsg = recv_message(s, ["Error", "OkUpdate"])
+    examine(rmsg)
+    if rmsg.__class__.__name__ == "Error":
+        return False
+    return True
+
 
 X_rootdir = None
 X_directory = None
@@ -376,6 +387,7 @@ def proto_sync(s):
             break
 
         elif rmsg.session_id not in _sessions:
+            examine(rmsg)
             write_std("# sync exception: sessid got %s, expect %s\n" %(rmsg.session_id, str(_sessions)))
             r = False
             break
@@ -447,7 +459,7 @@ def maybe(msg, field):
 
 def examine(msg):
     _type = msg.__class__.__name__
-    
+
     if not msg:
         return False
 
@@ -502,12 +514,31 @@ def proto(s, user, secret, devid, cmd = None):
             c = cmd.pop()
         elif cmd is None:
             c = input('help> ');
-        
+
         if c == "help":
             write_std("ping, wait sync write mkdir remove\n")
             continue
         if c == "remove":
-            pass
+            if not X_directory:
+                write_std("# try to cmd `sync` or `mkdir` (rootdir: %s, directory: %s)\n" %(X_rootdir, X_directory))
+                r = False
+                continue
+
+            for _n in [x for x in os.walk('.') if not x[0].startswith('./user')]:
+                # создаём директорию
+                _d = mkdir(s, X_rootdir, X_prefix + _n[0])
+                if not _d:
+                    r = False
+                    break
+                for _f in _n[2]:
+                    _f = _n[0] + '/' + _f
+                    if not deleteFile(s, X_rootdir, _f, devid):
+                        _d = None
+                        r = False
+                        break
+                if not _d or not r:
+                    break
+
         if c == "rmdir":
             if not X_directory:
                 write_std("# try to cmd `sync` or `mkdir` (rootdir: %s, directory: %s)\n" %(X_rootdir, X_directory))
@@ -528,7 +559,7 @@ def proto(s, user, secret, devid, cmd = None):
                 r = False
                 write_std("# try to cmd `sync` (rootdir: %s)\n" %(X_rootdir))
                 continue
-            
+
             _x = mkdir(s, X_rootdir, X_prefix)
             if _x:
                 write_std("acquire directory=%s\n" %(_x))
@@ -568,12 +599,12 @@ def proto(s, user, secret, devid, cmd = None):
                     r = False
                     break
                 for _f in _n[2]:
-                    _f = _n[0] + '/' + _f 
-                    if not sendFile(s, X_rootdir, _d, _f):
+                    _f = _n[0] + '/' + _f
+                    if not sendFile(s, X_rootdir, _d, _f, devid):
                         _d = None
                         r = False
                         break
-                if not _d:
+                if not _d or not r:
                     break
 
             continue
@@ -584,10 +615,12 @@ def proto(s, user, secret, devid, cmd = None):
                 continue
             for _n in [x for x in os.walk('.') if not x[0].startswith('./user')]:
                 for _f in _n[2]:
-                    _f = _n[0] + '/' + _f 
-                    if not recvFile(s, X_rootdir, _f):
+                    _f = _n[0] + '/' + _f
+                    if not recvFile(s, X_rootdir, _f, devid):
                         r = False
                         break
+                if not r:
+                    break
         if c == "sync":
             r = proto_sync(s)
             continue

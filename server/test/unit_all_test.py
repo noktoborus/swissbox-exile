@@ -33,17 +33,24 @@ class TestSetUper():
 
 class ReadWriteTests(TestSetUper, unittest.TestCase):
 
-    def test_mkdir(self):
+    def test_1_mkdir(self):
         # создание и удаление директории в первой попавшейся рутдире
         self.assertEqual(proto.connect(self.host, self.username, self.secret, self.devid, ["sync", "mkdir", "rmdir"]), True)
    
-    def test_WriteRead(self):
+    def test_2_WriteRead(self):
         # загрузка всех файлов и каталогов в текущей директории и чтение их же
         self.assertEqual(proto.connect(self.host, self.username, self.secret, self.devid, ["sync", "mkdir", "write", "read"]), True)
-    
-    def test_rmdir(self):
+
+    def test_3_rmdir(self):
         # проверка удаления всех накачанных файлов 
         self.assertEqual(proto.connect(self.host, self.username, self.secret, self.devid, ["sync", "mkdir", "rmdir"]), True)
+
+    def test_4_remove(self):
+        # перегенарация devid, что бы избежать наложения uuid файлов
+        self.devid = random.randint(0, 1 << 32)
+        # последовательная загрузка, удаление и попытка чтения файлов
+        self.assertEqual(proto.connect(self.host, self.username, self.secret, self.devid, ["sync", "mkdir", "write", "remove"]), True)
+        self.assertEqual(proto.connect(self.host, self.username, self.secret, self.devid, ["sync", "read"]), False)
 
 if __name__ == '__main__':
     unittest.main()
