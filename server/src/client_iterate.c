@@ -2164,8 +2164,8 @@ client_iterate(struct sev_ctx *cev, bool last, void **p)
 		pthread_mutex_lock(&c->cum->lock);
 		for (unsigned i = 0; i < c->rootdir.c; i++) {
 			/* пропускаем не активные рутдиры */
-			if (!c->rootdir.g[i].active)
-				continue;
+			/*if (!c->rootdir.g[i].active)
+				continue;*/
 
 			hash = hash_pjw((void*)&c->rootdir.g[i].rootdir, sizeof(guid_t));
 			/* если не найдена директория в разделяемом списке,
