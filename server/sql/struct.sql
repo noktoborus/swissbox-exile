@@ -702,8 +702,8 @@ BEGIN
 			rootdir.id = file.rootdir_id;
 		-- добавление евента в лог
 		WITH _row AS (
-			INSERT INTO event (rootdir, "type", target_id, hidden)
-			VALUES (_rootdir, 'file_meta', new.id, new.directory_id = _trash_id)
+			INSERT INTO event (rootdir, "type", target_id)
+			VALUES (_rootdir, 'file_meta', new.id)
 			RETURNING *
 		) SELECT INTO _r checkpoint, id FROM _row;
 		new.checkpoint := _r.checkpoint;
@@ -1425,9 +1425,11 @@ DECLARE
 BEGIN
 	FOR _row IN
 		SELECT file_chunk.* FROM rootdir, file, file_revision, file_chunk
-		WHERE rootdir.rootdir = _rootdir AND
+		WHERE
+			rootdir.rootdir = _rootdir AND
 			file.rootdir_id = rootdir.id AND
 			file.file = _file AND
+			file.deleted = FALSE AND
 			file_revision.file_id = file.id AND
 			file_revision.revision = _revision AND
 			file_chunk.revision_id = file_revision.id
@@ -1469,6 +1471,7 @@ BEGIN
 				WHERE
 					file.rootdir_id = r_rootdir_id AND
 					file.file = _file AND
+					file.deleted = FALSE AND
 					file_revision.file_id = file.id AND
 					file_revision.fin = TRUE
 				ORDER BY file_revision.checkpoint DESC LIMIT _depth
