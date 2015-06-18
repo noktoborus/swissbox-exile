@@ -258,6 +258,7 @@ client_local_rootdir(struct client *c, guid_t *rootdir, uint64_t checkpoint)
 		p = realloc(c->rootdir.g, (i + 1) * sizeof(struct rootdir_g));
 		if (p) {
 			c->rootdir.g = p;
+			memset(&c->rootdir.g[i], 0u, sizeof(struct rootdir_g));
 			memcpy(&c->rootdir.g[i].rootdir, rootdir, sizeof(guid_t));
 			c->rootdir.g[i].hash = hash;
 			c->rootdir.c++;
@@ -271,13 +272,13 @@ client_local_rootdir(struct client *c, guid_t *rootdir, uint64_t checkpoint)
 #if DEEPDEBUG
 	{
 		char _rootdir[GUID_MAX + 1];
-		guid2string(rootdir, PSIZE(_rootdir));
+		guid2string(&c->rootdir.g[i].rootdir, PSIZE(_rootdir));
 		xsyslog(LOG_DEBUG,
 				"client[%p] change checkpoint (%s): %"PRIu64" -> %"PRIu64
-				" (%s:%"PRIX64")",
+				" (%s:%"PRIX64") [%u]",
 				(void*)c->cev, _rootdir,
 				c->rootdir.g[i].checkpoint, checkpoint,
-				c->name, c->device_id);
+				c->name, c->device_id, i);
 	}
 #endif
 	if (checkpoint != C_ROOTDIR_ACTIVATE)
@@ -1704,9 +1705,6 @@ _client_iterate_result_logdf(struct client *c, struct logDirFile *ldf)
 		uint32_t packets = c->rout->packets;
 		rout_free(c);
 		if (sessid != C_NOSESSID) {
-			/* активируем отправку лога в этой рутдире */
-			client_local_rootdir(c, &ldf->rootdir, C_ROOTDIR_ACTIVATE);
-			/* и сообщаем клиенту что список кончился */
 			return send_end(c, sessid, packets);
 		} else
 			return true;
@@ -1714,7 +1712,14 @@ _client_iterate_result_logdf(struct client *c, struct logDirFile *ldf)
 
 	guid2string(&ldf->rootdir, rootdir, sizeof(rootdir));
 
+	/* обновляем чекпоинт в рутдире */
 	client_local_rootdir(c, &ldf->rootdir, ldf->checkpoint);
+
+	if (c->rout->id != C_NOSESSID && ldf->row == ldf->max) {
+		/* активируем отправку лога в этой рутдире */
+		client_local_rootdir(c, &ldf->rootdir, C_ROOTDIR_ACTIVATE);
+	}
+
 	/* отсылка данных */
 	if (ldf->type == 'd') {
 		Fep__DirectoryUpdate msg = FEP__DIRECTORY_UPDATE__INIT;
@@ -2164,8 +2169,8 @@ client_iterate(struct sev_ctx *cev, bool last, void **p)
 		pthread_mutex_lock(&c->cum->lock);
 		for (unsigned i = 0; i < c->rootdir.c; i++) {
 			/* пропускаем не активные рутдиры */
-			/*if (!c->rootdir.g[i].active)
-				continue;*/
+			if (!c->rootdir.g[i].active)
+				continue;
 
 			hash = hash_pjw((void*)&c->rootdir.g[i].rootdir, sizeof(guid_t));
 			/* если не найдена директория в разделяемом списке,
