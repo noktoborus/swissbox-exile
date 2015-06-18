@@ -91,11 +91,13 @@ struct chunk_send {
 
 struct client_cum;
 
+#define C_ROOTDIR_ACTIVATE (uint64_t)-1
 struct rootdir_g {
 	uint32_t hash;
 	guid_t rootdir;
 	uint64_t checkpoint;
 	uint64_t device_id;
+	bool active; /* флаг необходимости отправки обновлений в этой рутдире */
 };
 
 #define C_NAMELEN 128

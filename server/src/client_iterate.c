@@ -280,7 +280,10 @@ client_local_rootdir(struct client *c, guid_t *rootdir, uint64_t checkpoint)
 				c->name, c->device_id);
 	}
 #endif
-	c->rootdir.g[i].checkpoint = checkpoint;
+	if (checkpoint != C_ROOTDIR_ACTIVATE)
+		c->rootdir.g[i].checkpoint = checkpoint;
+	else
+		c->rootdir.g[i].active = true;
 }
 
 static inline bool
@@ -531,6 +534,8 @@ _active_sync(struct client *c, guid_t *rootdir, uint64_t checkpoint,
 		spq_f_logDirFile_free(&gs);
 		return false;
 	}
+	if (session_id == C_NOSESSID)
+		xsyslog(LOG_INFO, "ATAT");
 	memcpy(&rs->v, &gs, sizeof(struct logDirFile));
 	rs->id = session_id;
 	rs->type = RESULT_LOGDIRFILE;
@@ -1699,9 +1704,12 @@ _client_iterate_result_logdf(struct client *c, struct logDirFile *ldf)
 		uint32_t sessid = c->rout->id;
 		uint32_t packets = c->rout->packets;
 		rout_free(c);
-		if (sessid != C_NOSESSID)
+		if (sessid != C_NOSESSID) {
+			/* активируем отправку лога в этой рутдире */
+			client_local_rootdir(c, &ldf->rootdir, C_ROOTDIR_ACTIVATE);
+			/* и сообщаем клиенту что список кончился */
 			return send_end(c, sessid, packets);
-		else
+		} else
 			return true;
 	}
 
@@ -1730,11 +1738,14 @@ _client_iterate_result_logdf(struct client *c, struct logDirFile *ldf)
 		msg.has_no = true;
 		msg.has_max = true;
 
-
 		if (c->rout->id != C_NOSESSID) {
 			msg.session_id = c->rout->id;
 			msg.has_session_id = true;
 		}
+
+		xsyslog(LOG_INFO, "@@@ directory sessid: %u", msg.session_id);
+		if (msg.session_id == 0)
+			xsyslog(LOG_INFO, "X");
 
 		c->rout->packets++;
 		return send_message(c->cev, FEP__TYPE__tDirectoryUpdate, &msg);
@@ -2157,6 +2168,10 @@ client_iterate(struct sev_ctx *cev, bool last, void **p)
 		 */
 		pthread_mutex_lock(&c->cum->lock);
 		for (unsigned i = 0; i < c->rootdir.c; i++) {
+			/* пропускаем не активные рутдиры */
+			if (!c->rootdir.g[i].active)
+				continue;
+
 			hash = hash_pjw((void*)&c->rootdir.g[i].rootdir, sizeof(guid_t));
 			/* если не найдена директория в разделяемом списке,
 			 * то можно не волноваться, обновлений в ней не было
