@@ -506,37 +506,42 @@ _active_sync(struct client *c, guid_t *rootdir, uint64_t checkpoint,
 		uint32_t session_id, uint64_t to_checkpoint)
 {
 	/* генерация списка последних обновлений директорий и файлов */
-	struct logDirFile gs;
 	struct result_send *rs;
 #if DEEPDEBUG
-	xsyslog(LOG_DEBUG,
-			"client[%p] activate sync from checkpoint=%"PRIu64
-			" for device=%"PRIX64,
-			(void*)c->cev, c->checkpoint, c->device_id);
+	{
+		char _rootdir[GUID_MAX + 1];
+		guid2string(rootdir, PSIZE(_rootdir));
+		xsyslog(LOG_DEBUG,
+				"client[%p] activate sync from checkpoint=%"PRIu64
+				" for device=%"PRIX64" in '%s'",
+				(void*)c->cev, c->checkpoint, c->device_id, _rootdir);
+	}
 #endif
 
-	memset(&gs, 0, sizeof(struct logDirFile));
+	rs = calloc(1, sizeof(struct result_send));
+	if (!rs) {
+		return false;
+	}
+
 	/* TODO: NULL для листинга rootdir,
 	 * с указанием rootdir_guid - для файлов/дир
 	 */
-	if (!spq_f_logDirFile(c->name, rootdir, checkpoint, c->device_id, &gs)) {
+	if (!spq_f_logDirFile(c->name, rootdir, checkpoint, c->device_id,
+				&rs->v.df)) {
+		free(rs);
 		return false;
 	}
 
 	/* если результат пустой,то нужно обновить текущий чекпоинт
 	 * до последнего, что бы не шумел
 	 */
-	if (!gs.max && to_checkpoint) {
+	if (!rs->v.df.max && to_checkpoint && rootdir) {
 		client_local_rootdir(c, rootdir, to_checkpoint);
 	}
 
-	rs = calloc(1, sizeof(struct result_send));
-	if (!rs) {
-		spq_f_logDirFile_free(&gs);
-		return false;
-	}
+	if (rootdir)
+		memcpy(&rs->rootdir, rootdir, sizeof(guid_t));
 
-	memcpy(&rs->v, &gs, sizeof(struct logDirFile));
 	rs->id = session_id;
 	rs->type = RESULT_LOGDIRFILE;
 	rs->free = (void(*)(void*))spq_f_logDirFile_free;
@@ -562,6 +567,8 @@ _handle_want_sync(struct client *c, unsigned type, Fep__WantSync *msg)
 		string2guid(PSLEN(msg->rootdir_guid), &rootdir);
 		/* добавление rootdir в список клиента */
 		client_local_rootdir(c, &rootdir, msg->checkpoint);
+	} else {
+		string2guid(NULL, 0, &rootdir);
 	}
 
 	c->checkpoint = msg->checkpoint;
@@ -1703,22 +1710,22 @@ _client_iterate_result_logdf(struct client *c, struct logDirFile *ldf)
 	if (!spq_f_logDirFile_it(ldf)) {
 		uint32_t sessid = c->rout->id;
 		uint32_t packets = c->rout->packets;
-		rout_free(c);
 		if (sessid != C_NOSESSID) {
+			/* активируем отправку лога в этой рутдире */
+			if (c->rout->rootdir.not_null)
+				client_local_rootdir(c, &c->rout->rootdir, C_ROOTDIR_ACTIVATE);
+			rout_free(c);
 			return send_end(c, sessid, packets);
-		} else
+		} else {
+			rout_free(c);
 			return true;
+		}
 	}
 
 	guid2string(&ldf->rootdir, rootdir, sizeof(rootdir));
 
 	/* обновляем чекпоинт в рутдире */
 	client_local_rootdir(c, &ldf->rootdir, ldf->checkpoint);
-
-	if (c->rout->id != C_NOSESSID && ldf->row == ldf->max) {
-		/* активируем отправку лога в этой рутдире */
-		client_local_rootdir(c, &ldf->rootdir, C_ROOTDIR_ACTIVATE);
-	}
 
 	/* отсылка данных */
 	if (ldf->type == 'd') {
@@ -2171,7 +2178,6 @@ client_iterate(struct sev_ctx *cev, bool last, void **p)
 			/* пропускаем не активные рутдиры */
 			if (!c->rootdir.g[i].active)
 				continue;
-
 			hash = hash_pjw((void*)&c->rootdir.g[i].rootdir, sizeof(guid_t));
 			/* если не найдена директория в разделяемом списке,
 			 * то можно не волноваться, обновлений в ней не было

@@ -473,21 +473,21 @@ def examine(msg):
         return True
 
     if _type == "DirectoryUpdate":
-        write_std("%% Directory: (id: %s, sid: %s, rootdir: %s, %s) %s\n"
-                %(msg.id, maybe(msg, "session_id"), msg.rootdir_guid,
+        write_std("%% Directory: [%s] (id: %s, sid: %s, rootdir: %s, %s) %s\n"
+                %(maybe(msg, "checkpoint"), msg.id, maybe(msg, "session_id"), msg.rootdir_guid,
                     msg.directory_guid, maybe(msg, "path")))
         return True
 
     if _type == "FileUpdate":
-        write_std("%% File: (id: %s, sid: %s, rootdir: %s, directory: %s, %s) %s\n"
-                %(msg.id, maybe(msg, "session_id"), msg.rootdir_guid,
+        write_std("%% File: [%s] (id: %s, sid: %s, rootdir: %s, directory: %s, %s) %s\n"
+                %(maybe(msg, "checkpoint"), msg.id, maybe(msg, "session_id"), msg.rootdir_guid,
                     maybe(msg, "directory_guid"), msg.file_guid,
                     maybe(msg, "enc_filename")))
         return True
 
     if _type == "OkUpdate":
-        write_std("%% OkUpdate: (id: %s, sid: %s, checkpoint: %s): %s\n"
-                %(msg.id, maybe(msg, "session_id"), msg.checkpoint, maybe(msg, "message")));
+        write_std("%% OkUpdate: [%s] (id: %s, sid: %s): %s\n"
+                %(msg.checkpoint, msg.id, maybe(msg, "session_id"), maybe(msg, "message")));
 
     write_std("%% %s: (id: %s, sid: %s)\n"
             %(_type, maybe(msg, "id"), maybe(msg, "session_id")))

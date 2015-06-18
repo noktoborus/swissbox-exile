@@ -60,6 +60,8 @@ struct result_send {
 	uint32_t packets;
 	/* тип результата */
 	result_send_t type;
+	/* в какой рутдире произошёл запрос */
+	guid_t rootdir;
 
 	union {
 		struct getChunks c;
