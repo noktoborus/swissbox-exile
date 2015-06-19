@@ -299,7 +299,9 @@ CREATE TABLE IF NOT EXISTS file_chunk
 	"offset" integer NOT NULL,
 	hash character varying(256) NOT NULL,
 	-- путь к файлу
-	address text NOT NULL
+	address text NOT NULL,
+
+	UNIQUE(file_id, chunk)
 );
 
 /* триггеры и процедурки */
