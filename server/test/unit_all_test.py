@@ -41,11 +41,15 @@ class ReadWriteTests(TestSetUper, unittest.TestCase):
         # загрузка всех файлов и каталогов в текущей директории и чтение их же
         self.assertEqual(proto.connect(self.host, self.username, self.secret, self.devid, ["sync", "mkdir", "write", "read"]), True)
 
-    def test_3_rmdir(self):
+    def test_3_revision(self):
+        # проверка на обновление ревизий
+        self.assertEqual(proto.connect(self.host, self.username, self.secret, self.devid, ["sync", "read", "revision"]), True)
+
+    def test_4_rmdir(self):
         # проверка удаления всех накачанных файлов 
         self.assertEqual(proto.connect(self.host, self.username, self.secret, self.devid, ["sync", "mkdir", "rmdir"]), True)
 
-    def test_4_remove(self):
+    def test_5_remove(self):
         # перегенарация devid, что бы избежать наложения uuid файлов
         self.devid = random.randint(0, 1 << 32)
         # последовательная загрузка, удаление и попытка чтения файлов

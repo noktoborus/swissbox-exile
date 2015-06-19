@@ -172,6 +172,7 @@ def recvFileRevision(s, rootdir, file_, revision):
     send_message(s, msg)
     _ok = True
     _chunks = []
+    _directory = None
     while True:
         # вместо Ok приходит FileMeta
         rmsg = recv_message(s, ["ResultChunk", "Error", "FileMeta", "End"])
@@ -183,16 +184,19 @@ def recvFileRevision(s, rootdir, file_, revision):
             write_std("query chunks end: sid=%s, packets=%s\n" %(rmsg.session_id, rmsg.packets))
             break
         if rmsg.__class__.__name__ == "FileMeta":
-            write_std("file info: chunks=%s, enc_filename=%s, directory=%s, parent_revision=%s\n"
-                    %(rmsg.chunks, rmsg.enc_filename, rmsg.directory_guid, hasattr(rmsg, 'parent_revision_guid') and rmsg.parent_revision_guid or None))
+            examine(rmsg)
+            _directory = rmsg.directory_guid
             continue
         # из ResultChunk можно получить адрес чанка и сам чанк
-        _chunks.append(rmsg.chunk_guid)
+        _chunks.append(str(rmsg.chunk_guid))
 
+    r_chunks = tuple(_chunks)
     while _chunks:
         if not recvFileChunk(s, rootdir, file_, _chunks.pop()):
-            return False
-    return _ok
+            return None
+    if not _ok:
+        return None
+    return (str(revision), str(_directory), r_chunks)
 
 def recvFile(s, rootdir, path, devid):
     _file_guid = str(uuid.UUID(bytes=hashlib.md5(path + "@" + str(devid)).digest()))
@@ -210,7 +214,7 @@ def recvFile(s, rootdir, path, devid):
     _rev = None
 
     # получаем ревизию
-    _ok = True
+    _ok = None
     while True:
         rmsg = recv_message(s, ["ResultRevision", "Error", "Ok", "End"])
         if rmsg.__class__.__name__ == "Error":
@@ -229,12 +233,53 @@ def recvFile(s, rootdir, path, devid):
         # обработка ResultRevision
         _ok = recvFileRevision(s, rootdir, _file_guid, _rev)
     else:
-        _ok = False
+        _ok = None
         write_std("revision for file '%s' not received\n" %(_file_guid))
 
     if _ok:
-        write_std("recv file '%s' complete\n" %(_file_guid))
-    return _ok
+        _ok = (_file_guid, _ok)
+        write_std("recv file '%s' complete (data: %s)\n" %(_file_guid, str(_ok)))
+        return _ok
+    return None
+
+def updateRevision(s, rootdir, file_guid, directory, revision_guid, chunks, devid):
+    r = True
+    if not chunks:
+        write_std("no chunks -- no work\n")
+        return True
+    new_revision = str(uuid.UUID(bytes=hashlib.md5(revision_guid + "@" + str(devid)).digest()))
+    write_std("work with %s\n" %(str(chunks)))
+    for chunk in chunks:
+        msg = FEP.RenameChunk()
+        msg.id = random.randint(1, 10000)
+        msg.rootdir_guid = rootdir
+        msg.file_guid = file_guid
+        msg.chunk_guid = chunk
+        msg.to_revision_guid = new_revision
+        msg.to_chunk_guid = str(uuid.UUID(bytes=hashlib.md5(chunk + "@" + str(devid)).digest()))
+        write_std("link chunk %s to revision %s (new uuid: %s)\n"
+                %(chunk, new_revision, msg.to_chunk_guid))
+        send_message(s, msg)
+        rmsg = recv_message(s, ["Error", "Ok"])
+        examine(rmsg)
+        if rmsg.__class__.__name__ == "Error":
+            r = False
+            break
+    if r:
+        msg = FEP.FileMeta()
+        msg.id = random.randint(1, 10000)
+        msg.parent_revision_guid = revision_guid
+        msg.rootdir_guid = rootdir
+        msg.directory_guid = directory
+        msg.file_guid = file_guid
+        msg.revision_guid = new_revision
+        msg.chunks = len(chunks)
+        send_message(s, msg)
+        rmsg = recv_message(s, ["Ok", "OkUpdate", "Error"])
+        examine(rmsg)
+        if rmsg.__class__.__name__ == "Error":
+            r = False
+    return r
 
 def sendFile(s, rootdir, directory, path, devid):
     _chunk_size = 1048576 # размер чанка
@@ -497,6 +542,7 @@ def proto(s, user, secret, devid, cmd = None):
     global X_files
     global X_rootdir
     global X_directory
+    _file_readed = []
     write_std("# orpot\n")
     if not proto_bootstrap(s, user, secret, devid):
         return
@@ -613,17 +659,38 @@ def proto(s, user, secret, devid, cmd = None):
                 write_std("# try to cmd `sync` and `write` (rootdir: %s)\n" %(X_rootdir))
                 r = False
                 continue
+            _file_readed = []
             for _n in [x for x in os.walk('.') if not x[0].startswith('./user')]:
                 for _f in _n[2]:
                     _f = _n[0] + '/' + _f
-                    if not recvFile(s, X_rootdir, _f, devid):
+                    _e = recvFile(s, X_rootdir, _f, devid)
+                    if not _e:
                         r = False
                         break
+                    _file_readed.append(_e)
                 if not r:
                     break
+            continue
         if c == "sync":
             r = proto_sync(s)
             continue
+        if c == "revision":
+            if not X_rootdir or not _file_readed:
+                write_std("no files readed, try cmd `read`: (rootdir: %s, files: %s)"
+                        %(X_rootdir, len(_file_readed)))
+                r = False
+                continue
+            for _f in _file_readed:
+                for _r in _f[1:]:
+                    if not updateRevision(s, X_rootdir, _f[0], _r[1], _r[0], _r[2], devid):
+                        r = False
+                        break
+                if r is False:
+                    break
+            continue
+        if c == "pdb":
+            __import__("pdb").set_trace()
+
     return r
 
 def connect(host, user, secret, devid, cmd = None):
