@@ -27,6 +27,7 @@ struct spq {
 
 #if DEEPDEBUG
 	const char *acquired_by;
+	unsigned acquires;
 #endif
 
 	struct spq *next;
@@ -60,11 +61,13 @@ spq_ac() {
 	fprintf(stderr, "stats: (pool=%u, end=%s, active=%u)\n",
 			_spq.pool, _spq.end ? "yes" : "no", _spq.active);
 	for (sc = _spq.first; sc; sc = sc->next, c++) {
-		fprintf(stderr, "n#%02u: active: %s, acquired: %s, status: %d\n",
+		fprintf(stderr, "n#%02u: active: %s, acquired: %s (%u), status: %d @ %p\n",
 			   c,
 			   sc->mark_active ? "yes" : "no",
 			   sc->acquired_by,
-			   PQstatus(sc->conn));
+			   sc->acquires,
+			   PQstatus(sc->conn),
+			   (void*)sc);
 	}
 
 }
@@ -176,6 +179,7 @@ __acquire_conn(struct spq_root *spq, const char *funcname)
 	if ((c = _acquire_conn(spq))) {
 		xsyslog(LOG_DEBUG, "acquire %p in %s", (void*)c, funcname);
 		c->acquired_by = funcname;
+		c->acquires++;
 	}
 	return c;
 }
@@ -281,7 +285,7 @@ _thread_mgm(struct spq_root *spq)
 				 */
 				if (!sc)
 					break;
-			} else if (tvc.tv_sec - sc->lc.tv_sec > 10) {
+			} else if (tvc.tv_sec - sc->lc.tv_sec > 10 && !sc->mark_active) {
 				/* еже-десятисекундная проверка соеденения
 				 * на самом деле не очень ок, потому что зафлуживает бд
 				 * TODO: добавить в конфигурашку
