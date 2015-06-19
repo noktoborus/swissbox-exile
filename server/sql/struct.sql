@@ -40,7 +40,7 @@ BEGIN
 END $$ LANGUAGE plpgsql IMMUTABLE;
 
 /* обновление табличного пространства */
-
+/*
 -- удаление таблиц не должно вызывать NOTICE с нерзрешёнными CONSTRAINT
 DROP TABLE IF EXISTS file_meta CASCADE;
 DROP TABLE IF EXISTS file_chunk CASCADE;
@@ -72,7 +72,7 @@ DROP TYPE IF EXISTS event_type CASCADE;
 
 -- костыль для гроханья всех хранимых процедур
 CREATE TYPE _drop_ AS ENUM ('drop');
-
+*/
 CREATE SEQUENCE user_seq;
 CREATE TABLE IF NOT EXISTS "user"
 (
@@ -1486,6 +1486,100 @@ BEGIN
 		r_chunks := _row.chunks;
 		r_checkpoint := _row.checkpoint;
 		return next;
+	END LOOP;
+	return;
+END $$ LANGUAGE plpgsql;
+
+-- листинг состояния (список текущих файлов и директорий)
+CREATE OR REPLACE FUNCTION state_list(_rootdir UUID,
+	_drop_ _drop_ DEFAULT 'drop')
+	RETURNS TABLE
+	(
+		r_type event_type,
+		r_checkpoint bigint,
+		r_rootdir UUID,
+		r_file UUID,
+		r_revision UUID,
+		r_directory UUID,
+		r_parent_revision UUID,
+		r_name text,
+		r_pubkey text,
+		r_count integer
+	) AS $$
+DECLARE
+	_ur record;
+	_row record;
+BEGIN
+	SELECT INTO _ur
+		r_user_id AS user_id,
+		r_rootdir_id AS rootdir_id
+	FROM life_data(_rootdir);
+	FOR _row IN (
+		SELECT * FROM (
+			-- что бы получить последний чекпоинт файла
+			-- нужно получить последнюю запись из file_meta
+			-- и сравнить её с чекпоинтом из file_revision
+			SELECT
+				'file_revision' AS event_type,
+				f.checkpoint,
+				f.file,
+				f.revision,
+				f.directory,
+				f.name,
+				f.pubkey,
+				f.count,
+				file_revision.revision AS parent_revision
+			FROM (
+				SELECT
+					GREATEST(COALESCE(file_meta.checkpoint, 0),
+						file_revision.checkpoint) AS checkpoint,
+					file.file AS file,
+					file_revision.revision AS revision,
+					directory.directory AS directory,
+					file.filename AS name,
+					file.pubkey AS pubkey,
+					file_revision.chunks AS count,
+					file_revision.parent_id AS parent_id
+				FROM file, file_meta, file_revision, directory
+				WHERE
+					file.rootdir_id = _ur.rootdir_id AND
+					file_meta.id =
+						(SELECT MAX(id) FROM file_meta
+						WHERE file_meta.file_id = file.id) AND
+					file_revision.id =
+						(SELECT MAX(id) FROM file_revision
+						WHERE fin = TRUE AND file_revision.file_id = file.id) AND
+					directory.id = file.directory_id
+			) AS f
+			LEFT JOIN file_revision ON file_revision.id = f.parent_id
+			UNION SELECT
+				'directory' AS event_type,
+				directory_log.checkpoint AS checkpoint,
+				NULL AS file,
+				NULL AS revision,
+				directory.directory AS directory,
+				directory.path AS name,
+				NULL AS pubkey,
+				0 AS count,
+				NULL AS parent_revision
+			FROM directory, directory_log
+			WHERE
+				directory.rootdir_id = _ur.rootdir_id AND
+				directory_log.id = directory.log_id
+		) AS g ORDER BY checkpoint
+	)
+	LOOP
+		r_type := _row.event_type;
+		r_checkpoint := _row.checkpoint;
+		r_rootdir := _rootdir;
+		r_file := _row.file;
+		r_revision := _row.revision;
+		r_directory := _row.directory;
+		r_parent_revision := _row.parent_revision;
+		r_name := _row.name;
+		r_pubkey := _row.pubkey;
+		r_count := _row.count;
+		return NEXT;
 	END LOOP;
 	return;
 END $$ LANGUAGE plpgsql;
