@@ -40,7 +40,7 @@ BEGIN
 END $$ LANGUAGE plpgsql IMMUTABLE;
 
 /* обновление табличного пространства */
-/*
+
 -- удаление таблиц не должно вызывать NOTICE с нерзрешёнными CONSTRAINT
 DROP TABLE IF EXISTS file_meta CASCADE;
 DROP TABLE IF EXISTS file_chunk CASCADE;
@@ -72,7 +72,7 @@ DROP TYPE IF EXISTS event_type CASCADE;
 
 -- костыль для гроханья всех хранимых процедур
 CREATE TYPE _drop_ AS ENUM ('drop');
-*/
+
 CREATE SEQUENCE user_seq;
 CREATE TABLE IF NOT EXISTS "user"
 (
