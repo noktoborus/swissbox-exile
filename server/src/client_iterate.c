@@ -1420,6 +1420,7 @@ static struct handle handle[] =
 	INVALID_P_HANDLE_S(FEP__TYPE__tRootdirUpdate, "RootdirUpdate",
 			rootdir_update), /* 23 */
 	INVALID_P_HANDLE_S(FEP__TYPE__tOkWrite, "OkRead", ok_read), /* 24 */
+	INVALID_P_HANDLE_S(FEP__TYPE__tRoar, "Roar", roar), /* 25 */
 };
 
 const char*

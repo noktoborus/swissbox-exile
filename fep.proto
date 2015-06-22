@@ -114,6 +114,7 @@ enum Type {
 	tOkUpdate = 22;
 	tRootdirUpdate = 23;
 	tOkRead = 24;
+	tRoar = 25;
 }
 
 /*
@@ -516,6 +517,25 @@ message RootdirUpdate {
 	optional uint32 no = 202;
 	optional uint32 max = 203;
 }
-/*
-TODO: добавить сообщение нотификации отдельных файлов
-*/
+
+/* сообщение от клиента другим клиентам (в рамках одной учётной записи)
+	если device_to не указан, то сообщение
+	доставляется всем подключённым клиентам
+
+	Возможные ответы:
+	Ok, Error
+	*/
+message Roar {
+	required uint64 id = 1 [default = 0];
+	required uint64 device_id_from = 21;
+	optional uint64 device_id_to = 22;
+
+	/* если не использовать это поле,
+	   то сообщение рассылается в пределах пользователя,
+	   от которого сообщение было послано
+	   */
+	optional string user_to = 30;
+
+	required bytes message = 50;
+}
+
