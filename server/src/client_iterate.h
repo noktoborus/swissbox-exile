@@ -51,6 +51,15 @@ struct result_send {
 	struct result_send *next;
 };
 
+struct roar_store {
+	uint64_t device_id_from;
+	char name_from[C_NAMELEN];
+
+	/* само собщение */
+	size_t len;
+	char buffer[1];
+};
+
 #define C_NOSESSID ((uint32_t)-1)
 struct chunk_send {
 	int fd;
