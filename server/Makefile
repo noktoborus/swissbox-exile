@@ -5,12 +5,11 @@ CFLAGS=-ggdb2 -D_GNU_SOURCE -D_POSIX_C_SOURCE -D_BSD_SOURCE -D_DEFAULT_SOURCE -W
 CFLAGS+=${EF}
 BIN=bin/server
 SRC=src/
-FAKEDB=fakedb/fakedb.c
 SIMPLEPQ=simplepq/simplepq.c
 JUNK=junk/guid.c junk/utils.c
 
 SOURCES=${SRC}/main.c ${SRC}/client_iterate.c proto/fep.pb-c.c\
-	${SRC}/client_cb.c ${SRC}/list.c ${FAKEDB} ${SIMPLEPQ} ${JUNK}
+	${SRC}/client_cb.c ${SRC}/list.c ${SIMPLEPQ} ${JUNK}
 
 all: ${BIN}
 

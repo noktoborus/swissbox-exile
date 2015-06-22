@@ -307,6 +307,15 @@ is_legal_guid(char *guid)
 	return true;
 }
 
+bool
+_handle_roar(struct client *c, unsigned type, Fep__Roar *msg)
+{
+	if (msg->user_to) {
+		return send_error(c, msg->id, "send to user not allowed", -1);
+	}
+	return send_ok(c, msg->id, C_OK_SIMPLE, NULL);
+}
+
 /* переименование/перемещение или удаление файла */
 bool
 _handle_file_update(struct client *c, unsigned type, Fep__FileUpdate *msg)
@@ -1420,7 +1429,7 @@ static struct handle handle[] =
 	INVALID_P_HANDLE_S(FEP__TYPE__tRootdirUpdate, "RootdirUpdate",
 			rootdir_update), /* 23 */
 	INVALID_P_HANDLE_S(FEP__TYPE__tOkWrite, "OkRead", ok_read), /* 24 */
-	INVALID_P_HANDLE_S(FEP__TYPE__tRoar, "Roar", roar), /* 25 */
+	TYPICAL_HANDLE_S(FEP__TYPE__tRoar, "Roar", roar), /* 25 */
 };
 
 const char*
@@ -1667,8 +1676,6 @@ client_destroy(struct client *c)
 	while (rout_free(c));
 
 	/* ? */
-	fdb_uncursor(c->fdb);
-
 	client_cum_free(c->cum);
 
 	/* буфера */
@@ -2003,24 +2010,6 @@ _client_iterate_read(struct client *c)
 }
 
 static inline bool
-_client_iterate_fdb(struct client *c)
-{
-	struct fdb_head *inm;
-	while ((inm = fdb_walk(c->fdb)) != NULL) {
-		if (inm->type != C_FILEUPDATE) {
-			xsyslog(LOG_INFO, "client[%p] not file update", (void*)c->cev);
-			return true;
-		}
-		{
-			struct fdb_fileUpdate *ffu = (void*)inm;
-			ffu->msg.id = generate_id(c);
-			send_message(c->cev, FEP__TYPE__tFileUpdate, &ffu->msg);
-		}
-	}
-	return true;
-}
-
-static inline bool
 _client_iterate_handle(struct client *c)
 {
 	register int lval;
@@ -2096,11 +2085,6 @@ client_iterate(struct sev_ctx *cev, bool last, void **p)
 		if (!(*p = (void*)c))
 			return true;
 		c->cev->recv_timeout = 2;
-		c->fdb = fdb_cursor();
-		if (!c->fdb) {
-			xsyslog(LOG_WARNING, "client[%p] can't get fdb cursor",
-					(void*)cev);
-		}
 	} else if (!p) {
 		xsyslog(LOG_WARNING, "client[%p] field for structure not passed",
 				(void*)cev);
@@ -2128,13 +2112,6 @@ client_iterate(struct sev_ctx *cev, bool last, void **p)
 		} else {
 			xsyslog(LOG_WARNING, "client[%p] no hello with memory fail: %s",
 					(void*)cev, strerror(errno));
-		}
-	}
-
-	if (c->state > CEV_AUTH) {
-		/* всякая ерунда на отправку */
-		if (!_client_iterate_fdb(c)) {
-			return false;
 		}
 	}
 

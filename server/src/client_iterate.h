@@ -7,7 +7,6 @@
 #include "list.h"
 #include "junk/guid.h"
 #include "junk/utils.h"
-#include "fakedb/fakedb.h"
 #include "simplepq/simplepq.h"
 
 #include <stdint.h>
@@ -23,28 +22,6 @@ enum cev_state
 	CEV_MORE
 };
 
-
-enum c_fdb_type {
-	C_FILEUPDATE = 1,
-};
-
-struct fdb_head {
-	enum c_fdb_type type;
-};
-
-struct fdb_fileUpdate {
-	struct fdb_head head;
-	Fep__FileUpdate msg;
-	char rootdir_guid[GUID_MAX + 1];
-	char file_guid[GUID_MAX + 1];
-	char parent_revision_guid[GUID_MAX + 1];
-	char revision_guid[GUID_MAX + 1];
-
-	uint8_t *key;
-	size_t key_len;
-	char *hash_filename;
-	char *enc_filename;
-};
 
 typedef enum _result_send {
 	RESULT_CHUNKS = 1,
@@ -147,8 +124,6 @@ struct client {
 	uint64_t genid;
 	uint32_t gensid;
 	enum cev_state state;
-
-	struct fdbCursor *fdb;
 
 	struct {
 		struct rootdir_g *g;

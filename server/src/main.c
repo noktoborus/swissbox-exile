@@ -4,7 +4,6 @@
 #include "main.h"
 #include "junk/utils.h"
 #include "simplepq/simplepq.h"
-#include "fakedb/fakedb.h"
 #include "client_iterate.h"
 
 #include <arpa/inet.h>
@@ -702,7 +701,6 @@ main(int argc, char *argv[])
 	struct main pain;
 	openlog(NULL, LOG_PERROR | LOG_PID, LOG_LOCAL0);
 	xsyslog(LOG_INFO, "--- START ---");
-	fdb_open();
 	spq_open(10, "dbname = fepserver");
 	/* всякая ерунда с бд */
 	if (spq_create_tables()) {
@@ -731,7 +729,6 @@ main(int argc, char *argv[])
 		ev_loop_destroy(loop);
 		client_threads_bye();
 	}
-	fdb_close();
 	spq_close();
 	closelog();
 	xsyslog(LOG_INFO, "--- EXIT ---");
