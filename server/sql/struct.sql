@@ -1543,6 +1543,7 @@ BEGIN
 				FROM file, file_meta, file_revision, directory
 				WHERE
 					file.rootdir_id = _ur.rootdir_id AND
+					file.deleted = FALSE AND
 					file_meta.id =
 						(SELECT MAX(id) FROM file_meta
 						WHERE file_meta.file_id = file.id) AND
@@ -1605,6 +1606,10 @@ DECLARE
 	_row record;
 	_xrow record;
 BEGIN
+	IF _checkpoint = 0 THEN
+		return QUERY SELECT * FROM state_list(_rootdir);
+		return;
+	END IF;
 	-- получение базовой информации
 	-- TODO: заменить говнище на life_data()
 	BEGIN
