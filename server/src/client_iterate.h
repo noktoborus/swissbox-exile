@@ -51,6 +51,7 @@ struct result_send {
 	struct result_send *next;
 };
 
+#define C_NAMELEN 128
 struct roar_store {
 	uint64_t device_id_from;
 	char name_from[C_NAMELEN];
@@ -88,7 +89,6 @@ struct rootdir_g {
 	bool active; /* флаг необходимости отправки обновлений в этой рутдире */
 };
 
-#define C_NAMELEN 128
 struct client {
 	unsigned char *buffer;
 	size_t blen;
