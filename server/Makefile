@@ -6,10 +6,11 @@ CFLAGS+=${EF}
 BIN=bin/server
 SRC=src/
 SIMPLEPQ=simplepq/simplepq.c
+SQUEUE=squeue/squeue.c
 JUNK=junk/guid.c junk/utils.c
 
 SOURCES=${SRC}/main.c ${SRC}/client_iterate.c proto/fep.pb-c.c\
-	${SRC}/client_cb.c ${SRC}/list.c ${SIMPLEPQ} ${JUNK}
+	${SRC}/client_cb.c ${SRC}/list.c ${SQUEUE} ${SIMPLEPQ} ${JUNK}
 
 all: ${BIN}
 
