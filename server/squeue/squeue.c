@@ -1,7 +1,7 @@
 /* vim: ft=c ff=unix fenc=utf-8
  * file: squeue/squeue.c
  */
-#include "squeue/squeue.h"
+#include "squeue.h"
 #include "junk/xsyslog.h"
 
 #include <pthread.h>
@@ -17,28 +17,6 @@ struct squeue_data {
 
 	struct squeue_data *next;
 	struct squeue_data *prev;
-};
-
-struct squeue {
-	pthread_mutex_t lock;
-
-	unsigned long gen_id;
-
-	unsigned count;
-	struct squeue_data *n;
-
-	struct squeue_cursor *c;
-	unsigned ref;
-};
-
-struct squeue_cursor {
-	unsigned long last_id;
-
-	struct squeue *root;
-	struct squeue_data *current;
-
-	struct squeue_cursor *next;
-	struct squeue_cursor *prev;
 };
 
 /* отчистка от старых записей */
@@ -143,27 +121,47 @@ squeue_unsubscribe(struct squeue_cursor *c)
 	pthread_mutex_unlock(&c->root->lock);
 }
 
-
-bool
-squeue_put(struct squeue_cursor *c, void *data, void(*data_free)(void*))
+static struct squeue_data *
+_squeue_append(struct squeue *q, void *data, void(*data_free)(void*))
 {
 	struct squeue_data *n;
 	n = calloc(1, sizeof(struct squeue_data));
 	if (!n)
 		return false;
-	pthread_mutex_lock(&c->root->lock);
 	/* инкрементируем счётчик и присваиваем значение новому члену */
-	n->id = ++(c->root->gen_id);
+	n->id = ++(q->gen_id);
 	n->data = data;
 	n->data_free = data_free;
 	/* вклячивание в список */
-	if ((n->next = c->root->n) != NULL) {
+	if ((n->next = q->n) != NULL) {
 		n->next->prev = n;
 	}
-	c->root->n = n;
-	c->root->count++;
+	q->n = n;
+	q->count++;
+	return n;
+}
+
+bool
+squeue_send(struct squeue *q, void *data, void(*data_free)(void*))
+{
+	struct squeue_data *n = NULL;
+	pthread_mutex_lock(&q->lock);
+	/* если слушателей нет, то добавлять нет смысла */
+	if (!q->ref)
+		return false;
+	n = _squeue_append(q, data, data_free);
+	pthread_mutex_unlock(&q->lock);
+	return n != NULL;
+}
+
+bool
+squeue_put(struct squeue_cursor *c, void *data, void(*data_free)(void*))
+{
+	struct squeue_data *n = NULL;
+	pthread_mutex_lock(&c->root->lock);
+	n = _squeue_append(c->root, data, data_free);
 	pthread_mutex_unlock(&c->root->lock);
-	return true;
+	return n != NULL;
 }
 
 void *
