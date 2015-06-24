@@ -586,7 +586,7 @@ _handle_read_ask(struct client *c, unsigned type, Fep__ReadAsk *msg)
 	{
 		Fep__OkRead rdok = FEP__OK_READ__INIT;
 		rdok.id = msg->id;
-		rdok.session_id = generate_sid(c);
+		rdok.session_id = chs->session_id;
 		rdok.size = st.st_size;
 		rdok.offset = offset;
 
