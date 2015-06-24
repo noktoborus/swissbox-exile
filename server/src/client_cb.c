@@ -72,6 +72,9 @@ c_auth_cb(struct client *c, uint64_t id, unsigned int msgtype, void *msg, void *
 	c->state++;
 	c->status.auth_ok = true;
 	c->device_id = amsg->device_id;
+	/* регистрация в списке и подписка на сообщения */
+	c->cum = client_cum_create(hash_pjw(c->name, strlen(c->name)));
+	squeue_subscribe(&c->cum->broadcast, &c->broadcast_c);
 
 	strcpy(c->name, amsg->username);
 	xsyslog(LOG_INFO, "client[%p] authorized as %s, device=%"PRIX64,

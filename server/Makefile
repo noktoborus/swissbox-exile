@@ -10,7 +10,7 @@ SQUEUE=squeue/squeue.c
 JUNK=junk/guid.c junk/utils.c
 
 SOURCES=${SRC}/main.c ${SRC}/client_iterate.c proto/fep.pb-c.c\
-	${SRC}/client_cb.c ${SRC}/list.c ${SQUEUE} ${SIMPLEPQ} ${JUNK}
+	${SRC}/list.c ${SRC}/client/cum.c ${SRC}/client_cb.c ${SQUEUE} ${SIMPLEPQ} ${JUNK}
 
 all: ${BIN}
 

@@ -22,110 +22,16 @@ TYPICAL_HANDLE_F(Fep__Ok, ok, &c->mid)
 TYPICAL_HANDLE_F(Fep__Error, error, &c->mid)
 TYPICAL_HANDLE_F(Fep__Pending, pending, &c->mid)
 
-struct client_cum {
-	uint32_t namehash;
-	pthread_mutex_t lock;
-	/* обращение только после захвата client_cum.lock */
-	unsigned ref; /* подсчёт ссылок */
-
-	uint64_t new_checkpoint;
-	uint64_t from_device;
-
-	/* список рутдир */
-	struct listRoot rootdir;
-
-	/* к этим областям нужно обращаться только
-	 * после блокировки корня (clients_cum.lock)
-	 */
-	struct client_cum *next;
-	struct client_cum *prev;
-};
-
-static struct clients_cum {
-	bool inited;
-	struct client_cum *first;
-	pthread_mutex_t lock;
-} clients_cum;
-
-static void
-client_cum_free(struct client_cum *ccum)
-{
-	unsigned ref;
-	if (!ccum)
-		return;
-	/* считаем ссылки */
-	pthread_mutex_lock(&ccum->lock);
-	ref = (--ccum->ref);
-	pthread_mutex_unlock(&ccum->lock);
-
-	/* не нужно ничего чистить, если на структуру ещё ссылаются */
-	if (ref)
-		return;
-
-	pthread_mutex_lock(&clients_cum.lock);
-	/* выпатрашиваем список rootdir */
-	while (list_free_root(&ccum->rootdir, (void(*)(void*))&free));
-	/* развязываем список */
-	if (ccum == clients_cum.first)
-		clients_cum.first = ccum->next ? ccum->next : ccum->prev;
-	if (ccum->next)
-		ccum->next->prev = ccum->prev;
-	if (ccum->prev)
-		ccum->prev->next = ccum->next;
-	pthread_mutex_unlock(&clients_cum.lock);
-
-	pthread_mutex_destroy(&ccum->lock);
-	free(ccum);
-}
-
-static struct client_cum*
-client_cum_create(uint32_t namehash)
-{
-	struct client_cum *ccum = NULL;
-
-	if (pthread_mutex_lock(&clients_cum.lock))
-		return NULL;
-
-	for (ccum = clients_cum.first; ccum; ccum = ccum->next) {
-		if (ccum->namehash == namehash)
-			break;
-	}
-
-	if (!ccum) {
-		ccum = calloc(1, sizeof(struct client_cum));
-		if (!ccum) {
-			xsyslog(LOG_WARNING, "memory fail when communication with over");
-		} else {
-			pthread_mutex_init(&ccum->lock, NULL);
-			ccum->namehash = namehash;
-			if ((ccum->next = clients_cum.first) != NULL)
-				ccum->next->prev = ccum;
-			clients_cum.first = ccum;
-		}
-	}
-
-	pthread_mutex_unlock(&clients_cum.lock);
-	/* нужно отметиться */
-	ccum->ref++;
-
-	return ccum;
-}
-
 void
 client_threads_bye()
 {
-	while (clients_cum.first)
-		client_cum_free(clients_cum.first);
-
-	pthread_mutex_destroy(&clients_cum.lock);
-	clients_cum.inited = false;
+	client_cum_destroy();
 }
 
 void
 client_threads_prealloc()
 {
-	pthread_mutex_init(&clients_cum.lock, NULL);
-	clients_cum.inited = true;
+	client_cum_init();
 }
 
 static struct result_send*
@@ -310,10 +216,42 @@ is_legal_guid(char *guid)
 bool
 _handle_roar(struct client *c, unsigned type, Fep__Roar *msg)
 {
+	struct roar_store *rs;
+	if (!c->status.auth_ok)
+		return send_error(c, msg->id, "Unauthorized", -1);
+
 	if (msg->user_to) {
 		return send_error(c, msg->id, "send to user not allowed", -1);
 	}
-	return send_ok(c, msg->id, C_OK_SIMPLE, NULL);
+
+	/* если списка нет, то клиент не авторизирован? */
+	if (!c->cum) {
+		return send_error(c, msg->id,
+				"no external links, check auth procedure", -1);
+	}
+
+	rs = calloc(1, sizeof(struct roar_store) + msg->message.len);
+	if (!rs) {
+		return send_error(c, msg->id, "Internal error 2230", -1);
+	}
+
+	/* копирование сообщения */
+	rs->len = msg->message.len;
+	memcpy(rs->buffer, msg->message.data, msg->message.len);
+
+	/* копирование имени отправителя
+	 * (в сообщениях в пределах одной учётки не нужен)
+	 */
+	strncpy(rs->name_from, c->name, C_NAMELEN);
+	/* и id устройства-отправителя */
+	rs->device_id_from = c->device_id;
+
+	if (!squeue_send(&c->cum->broadcast, (void*)rs, free)) {
+		free(rs);
+		return send_error(c, msg->id, "No listeners", -1);
+	} else {
+		return send_ok(c, msg->id, C_OK_SIMPLE, NULL);
+	}
 }
 
 /* переименование/перемещение или удаление файла */
@@ -2187,20 +2125,4 @@ client_iterate(struct sev_ctx *cev, bool last, void **p)
 	return true;
 }
 
-#if DEEPDEBUG
-
-static void
-cli_cum()
-{
-	struct client_cum *cum;
-	unsigned c = 1u;
-	fprintf(stderr, "stats \n");
-	for (cum = clients_cum.first; cum; cum = cum->next, c++) {
-		fprintf(stderr, "n#%02u ref: %u, checkpoint: %"PRIu64
-				", device: %"PRIX64"\n", c, cum->ref, cum->new_checkpoint,
-				cum->from_device);
-	}
-}
-
-#endif
 

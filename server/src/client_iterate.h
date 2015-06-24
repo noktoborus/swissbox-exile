@@ -3,11 +3,13 @@
  */
 #ifndef _SRC_CLIENT_ITERATE_1423393202_H_
 #define _SRC_CLIENT_ITERATE_1423393202_H_
+#include "src/client/cum.h"
 #include "main.h"
 #include "list.h"
 #include "junk/guid.h"
 #include "junk/utils.h"
 #include "simplepq/simplepq.h"
+#include "squeue/squeue.h"
 
 #include <stdint.h>
 #include <polarssl/sha256.h>
@@ -54,11 +56,11 @@ struct result_send {
 #define C_NAMELEN 128
 struct roar_store {
 	uint64_t device_id_from;
-	char name_from[C_NAMELEN];
+	char name_from[C_NAMELEN + 1];
 
 	/* само собщение */
 	size_t len;
-	char buffer[1];
+	uint8_t buffer[1];
 };
 
 #define C_NOSESSID ((uint32_t)-1)
@@ -77,8 +79,6 @@ struct chunk_send {
 
 	struct chunk_send *next;
 };
-
-struct client_cum;
 
 #define C_ROOTDIR_ACTIVATE (uint64_t)-1
 struct rootdir_g {
@@ -119,6 +119,8 @@ struct client {
 
 	struct result_send *rout; /* список для ответов на всякие Query* */
 
+	/* курсор по списку сообщений */
+	struct squeue_cursor broadcast_c;
 	/* счётчик ошибок
 	 * TODO: добавить в конфигурашку
 	 */
