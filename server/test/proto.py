@@ -133,7 +133,6 @@ def proto_bootstrap(s, user, secret, devid):
             if rmsg.__class__.__name__ == "ReqAuth":
                 msg = FEP.Auth()
                 msg.id = rmsg.id
-                msg.device_id = 4000
                 msg.authType = FEP.tUserToken
                 msg.domain = "it-grad.ru"
                 msg.username = user
@@ -529,6 +528,14 @@ def examine(msg):
                     maybe(msg, "directory_guid"), msg.file_guid,
                     maybe(msg, "enc_filename")))
         return True
+    
+    if _type == "Roar":
+        write_std("%% %s: (id: %s, sid: %s, user_from: %s, device_id_from: %s, user_to: %s, device_id_to: %s): %s\n"
+            %(_type, maybe(msg, "id"), maybe(msg, "session_id"),
+                maybe(msg, "user_from"), msg.device_id_from,
+                maybe(msg, "user_to"), maybe(msg, "device_id_to"),
+                msg.message))
+        return True
 
     if _type == "OkUpdate":
         write_std("%% OkUpdate: [%s] (id: %s, sid: %s): %s\n"
@@ -562,7 +569,16 @@ def proto(s, user, secret, devid, cmd = None):
             c = input('help> ');
 
         if c == "help":
-            write_std("ping, wait sync write mkdir remove\n")
+            write_std("ping, wait sync write mkdir remove roar\n")
+            continue
+        if c == "roar":
+            msg = FEP.Roar()
+            msg.id = random.randint(1, 10000)
+            msg.device_id_from = int(hashlib.md5(socket.gethostname() + str(devid)).hexdigest()[:16], 16)
+            msg.message = "XXXF!"
+            send_message(s, msg);
+            rmsg = recv_message(s, ["Ok", "Error"])
+            examine(rmsg);
             continue
         if c == "remove":
             if not X_directory:

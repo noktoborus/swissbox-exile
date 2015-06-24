@@ -246,6 +246,11 @@ _handle_roar(struct client *c, unsigned type, Fep__Roar *msg)
 	/* и id устройства-отправителя */
 	rs->device_id_from = c->device_id;
 
+	if (msg->has_device_id_to) {
+		rs->unicast = true;
+		rs->device_id_to = msg->has_device_id_to;
+	}
+
 	if (!squeue_send(&c->cum->broadcast, (void*)rs, free)) {
 		free(rs);
 		return send_error(c, msg->id, "No listeners", -1);
@@ -1925,6 +1930,40 @@ _client_iterate_chunk(struct client *c)
 	return true;
 }
 
+static inline bool
+_client_iterate_broadcast(struct client *c)
+{
+	struct roar_store *rs;
+	/* если новых сообщений нет, то можно не волноваться */
+	if (!squeue_has_new(&c->broadcast_c))
+		return true;
+	/* случается что из очереди выходит пустота */
+	if (!(rs = squeue_query(&c->broadcast_c)))
+		return true;
+	/* наже же сообщение */
+	if (c->device_id == rs->device_id_from && !strcmp(c->name, rs->name_from))
+		return true;
+	/* или сообщение адресовалось не нам */
+	if (rs->unicast && rs->device_id_to != c->device_id)
+		return true;
+
+	{
+		Fep__Roar msg = FEP__ROAR__INIT;
+		msg.id = generate_id(c);
+		/* заполняем все поля, что бы клиент не запаниковал */
+		msg.device_id_from = rs->device_id_from;
+		msg.user_from = rs->name_from;
+		msg.device_id_to = c->device_id;
+		msg.user_to = c->name;
+		msg.message.data = rs->buffer;
+		msg.message.len = rs->len;
+
+		return send_message(c->cev, FEP__TYPE__tRoar, &msg);
+	}
+
+	return false;
+}
+
 bool static inline
 _client_iterate_read(struct client *c)
 {
@@ -2072,6 +2111,9 @@ client_iterate(struct sev_ctx *cev, bool last, void **p)
 	} else {
 		/* отправка куска чанка-файла клиенту, если такие есть в очереди */
 		if (!_client_iterate_chunk(c))
+			return false;
+		/* и проверяем новые сообщения */
+		if (!_client_iterate_broadcast(c))
 			return false;
 	}
 

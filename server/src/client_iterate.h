@@ -58,6 +58,14 @@ struct roar_store {
 	uint64_t device_id_from;
 	char name_from[C_NAMELEN + 1];
 
+	bool unicast;
+	uint64_t device_id_to;
+
+/*
+	bool outdoor;
+	char name_to[C_NAMELEN + 1];
+*/
+
 	/* само собщение */
 	size_t len;
 	uint8_t buffer[1];

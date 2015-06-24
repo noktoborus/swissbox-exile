@@ -57,6 +57,7 @@ client_cum_create(uint32_t namehash)
 			xsyslog(LOG_WARNING, "memory fail when communication with over");
 		} else {
 			pthread_mutex_init(&ccum->lock, NULL);
+			squeue_init(&ccum->broadcast);
 			ccum->namehash = namehash;
 			if ((ccum->next = clients_cum.first) != NULL)
 				ccum->next->prev = ccum;
@@ -67,7 +68,6 @@ client_cum_create(uint32_t namehash)
 	/* нужно отметиться */
 	ccum->ref++;
 	/* и разметить список */
-	squeue_init(&ccum->broadcast);
 	pthread_mutex_unlock(&clients_cum.lock);
 
 	return ccum;
