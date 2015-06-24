@@ -645,8 +645,15 @@ _handle_read_ask(struct client *c, unsigned type, Fep__ReadAsk *msg)
 	xsyslog(LOG_DEBUG, "client[%p] -> ReadAsk id = %"PRIu64,
 			(void*)c->cev, msg->id);
 #endif
-	/* TODO: OkRead */
-	return send_ok(c, msg->id, C_OK_SIMPLE, NULL);
+	{
+		Fep__OkRead rdok = FEP__OK_READ__INIT;
+		rdok.id = msg->id;
+		rdok.session_id = generate_sid(c);
+		rdok.size = st.st_size;
+		rdok.offset = offset;
+
+		return send_message(c->cev, FEP__TYPE__tOkRead, &rdok);
+	}
 }
 
 bool
