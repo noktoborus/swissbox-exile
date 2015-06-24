@@ -528,12 +528,13 @@ message RootdirUpdate {
 message Roar {
 	required uint64 id = 1 [default = 0];
 	required uint64 device_id_from = 21;
-	optional uint64 device_id_to = 22;
 
 	/* если не использовать это поле,
 	   то сообщение рассылается в пределах пользователя,
 	   от которого сообщение было послано
+	   или в пределах пользователя, которому было послано
 	   */
+	optional uint64 device_id_to = 22;
 	optional string user_to = 30;
 
 	required bytes message = 50;
