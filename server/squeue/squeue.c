@@ -39,10 +39,9 @@ _squeue_sanitary(struct squeue *q)
 		register struct squeue_data *f;
 		n = q->n;
 		while (n) {
-			if (n->id < min) {
+			if (n->id < min && n->readed == q->ref) {
 				/* подлежит удалению если количество прочитавших соотвествует
-				 *
-				 * */
+				 */
 				f = n;
 			}
 			n = n->next;
@@ -125,6 +124,11 @@ static struct squeue_data *
 _squeue_append(struct squeue *q, void *data, void(*data_free)(void*))
 {
 	struct squeue_data *n;
+	/* выполняем чистку перед тем, как положить
+	 * т.к. нельзя удалять сообщения сразу после query()
+	 */
+	_squeue_sanitary(q);
+
 	n = calloc(1, sizeof(struct squeue_data));
 	if (!n)
 		return false;
@@ -181,14 +185,14 @@ squeue_query(struct squeue_cursor *c)
 			c->last_id = c->current->id;
 		}
 	} else {
+		/* отмечаем как прочтённый после того, перешли к следующему узлу */
+		c->current->readed++;
 		/* если подписчик всё ещё в тренде
 		 * движемся в сторону предыдущих, потому что новые элементы
 		 * добавляются в начало списка
 		 */
 		if ((c->current = c->current->prev) != NULL)
 			c->last_id = c->current->id;
-		/* и выполняем чистку */
-		_squeue_sanitary(c->root);
 	}
 	pthread_mutex_unlock(&c->root->lock);
 	return c->current ? c->current->data : NULL;
