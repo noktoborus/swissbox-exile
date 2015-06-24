@@ -1620,6 +1620,9 @@ client_destroy(struct client *c)
 	while (cout_free(c));
 	while (rout_free(c));
 
+	/* отписываемся от рассылки сообщений */
+	squeue_unsubscribe(&c->broadcast_c);
+
 	/* ? */
 	client_cum_free(c->cum);
 
