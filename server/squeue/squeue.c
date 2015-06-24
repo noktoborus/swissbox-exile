@@ -204,6 +204,8 @@ squeue_query(struct squeue_cursor *c)
 bool
 squeue_has_new(struct squeue_cursor *c)
 {
+	if (!c->root)
+		return false;
 	return c->last_id < c->root->gen_id;
 }
 
