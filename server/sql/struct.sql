@@ -1606,7 +1606,7 @@ DECLARE
 	_row record;
 	_xrow record;
 BEGIN
-	IF _checkpoint = 0 THEN
+	IF _checkpoint = 0 AND _rootdir IS NOT NULL THEN
 		return QUERY SELECT * FROM state_list(_rootdir);
 		return;
 	END IF;
