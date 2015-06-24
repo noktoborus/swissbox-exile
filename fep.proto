@@ -114,7 +114,7 @@ enum Type {
 	tOkUpdate = 22;
 	tRootdirUpdate = 23;
 	tOkRead = 24;
-	tRoar = 25;
+	tChat = 25;
 }
 
 /*
@@ -525,7 +525,7 @@ message RootdirUpdate {
 	Возможные ответы:
 	Ok, Error
 	*/
-message Roar {
+message Chat {
 	required uint64 id = 1 [default = 0];
 	required uint64 device_id_from = 21;
 

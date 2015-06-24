@@ -54,7 +54,7 @@ struct result_send {
 };
 
 #define C_NAMELEN 128
-struct roar_store {
+struct chat_store {
 	uint64_t device_id_from;
 	char name_from[C_NAMELEN + 1];
 

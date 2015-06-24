@@ -214,9 +214,9 @@ is_legal_guid(char *guid)
 }
 
 bool
-_handle_roar(struct client *c, unsigned type, Fep__Roar *msg)
+_handle_chat(struct client *c, unsigned type, Fep__Chat *msg)
 {
-	struct roar_store *rs;
+	struct chat_store *rs;
 	if (!c->status.auth_ok)
 		return send_error(c, msg->id, "Unauthorized", -1);
 
@@ -230,7 +230,7 @@ _handle_roar(struct client *c, unsigned type, Fep__Roar *msg)
 				"no external links, check auth procedure", -1);
 	}
 
-	rs = calloc(1, sizeof(struct roar_store) + msg->message.len);
+	rs = calloc(1, sizeof(struct chat_store) + msg->message.len);
 	if (!rs) {
 		return send_error(c, msg->id, "Internal error 2230", -1);
 	}
@@ -1379,7 +1379,7 @@ static struct handle handle[] =
 	INVALID_P_HANDLE_S(FEP__TYPE__tRootdirUpdate, "RootdirUpdate",
 			rootdir_update), /* 23 */
 	INVALID_P_HANDLE_S(FEP__TYPE__tOkWrite, "OkRead", ok_read), /* 24 */
-	TYPICAL_HANDLE_S(FEP__TYPE__tRoar, "Roar", roar), /* 25 */
+	TYPICAL_HANDLE_S(FEP__TYPE__tChat, "chat", chat), /* 25 */
 };
 
 const char*
@@ -1933,7 +1933,7 @@ _client_iterate_chunk(struct client *c)
 static inline bool
 _client_iterate_broadcast(struct client *c)
 {
-	struct roar_store *rs;
+	struct chat_store *rs;
 	/* если новых сообщений нет, то можно не волноваться */
 	if (!squeue_has_new(&c->broadcast_c))
 		return true;
@@ -1948,7 +1948,7 @@ _client_iterate_broadcast(struct client *c)
 		return true;
 
 	{
-		Fep__Roar msg = FEP__ROAR__INIT;
+		Fep__Chat msg = FEP__CHAT__INIT;
 		msg.id = generate_id(c);
 		/* заполняем все поля, что бы клиент не запаниковал */
 		msg.device_id_from = rs->device_id_from;
@@ -1958,7 +1958,7 @@ _client_iterate_broadcast(struct client *c)
 		msg.message.data = rs->buffer;
 		msg.message.len = rs->len;
 
-		return send_message(c->cev, FEP__TYPE__tRoar, &msg);
+		return send_message(c->cev, FEP__TYPE__tChat, &msg);
 	}
 
 	return false;
