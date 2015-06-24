@@ -93,6 +93,7 @@ squeue_subscribe(struct squeue *q, struct squeue_cursor *c)
 	memset(c, 0, sizeof(struct squeue_cursor));
 	c->root = q;
 	c->root->ref++;
+	xsyslog(LOG_INFO, "XXS %u", c->root->ref);
 	/* добавляем в начало списка */
 	if ((c->next = c->root->c) != NULL)
 		c->root->c->prev = c;
@@ -108,6 +109,7 @@ squeue_unsubscribe(struct squeue_cursor *c)
 		return;
 	pthread_mutex_lock(&c->root->lock);
 	c->root->ref--;
+	xsyslog(LOG_INFO, "XXE %u", c->root->ref);
 	/* вычленение из списка */
 	if (c->next)
 		c->next->prev = c->prev;
@@ -117,8 +119,8 @@ squeue_unsubscribe(struct squeue_cursor *c)
 		c->root->c = c->next ? c->next : c->prev;
 	/* отчистка памяти от всякой ерунды */
 	_squeue_sanitary(c->root);
-	memset(c, 0u, sizeof(struct squeue_cursor));
 	pthread_mutex_unlock(&c->root->lock);
+	memset(c, 0u, sizeof(struct squeue_cursor));
 }
 
 static struct squeue_data *
