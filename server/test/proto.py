@@ -156,7 +156,21 @@ def proto_bootstrap(s, user, secret, devid):
 
 def recvFileChunk(s, rootdir, file_, chunk):
     write_std("get chunk '%s' from file '%s'\n" %(chunk, file_))
-    # TODO
+    msg = FEP.ReadAsk()
+    msg.id = random.randint(1, 10000)
+    msg.rootdir_guid = rootdir
+    msg.file_guid = file_
+    msg.chunk_guid = chunk
+    send_message(s, msg)
+
+    while True:
+        rmsg = recv_message(s, ["OkRead", "Error", "xfer", "End"])
+        examine(rmsg)
+        if rmsg.__class__.__name__  == "Error":
+            return False
+        if rmsg.__class__.__name__ in ["Error", "End"]:
+            break
+
     return True
 
 def recvFileRevision(s, rootdir, file_, revision):
@@ -539,7 +553,20 @@ def examine(msg):
 
     if _type == "OkUpdate":
         write_std("%% OkUpdate: [%s] (id: %s, sid: %s): %s\n"
-                %(msg.checkpoint, msg.id, maybe(msg, "session_id"), maybe(msg, "message")));
+                %(msg.checkpoint, msg.id, maybe(msg, "session_id"), maybe(msg, "message")))
+        return True
+
+    if _type == "xfer":
+        write_std("%% %s: (id: %s, sid: %s, offset: %s, len: %s)\n"
+                %(_type, maybe(msg, "id"), maybe(msg, "session_id"), msg.offset, len(msg.data)))
+        return True
+
+    if _type == "OkRead":
+        write_std("%% %s: (id: %s, sid: %s, offset: %s, size: %s)\n"
+                %(_type, maybe(msg, "id"), maybe(msg, "session_id"), msg.offset, msg.size))
+        return True
+
+
 
     write_std("%% %s: (id: %s, sid: %s)\n"
             %(_type, maybe(msg, "id"), maybe(msg, "session_id")))
