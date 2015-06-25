@@ -193,26 +193,6 @@ client_local_rootdir(struct client *c, guid_t *rootdir, uint64_t checkpoint)
 		c->rootdir.g[i].active = true;
 }
 
-static inline bool
-is_legal_guid(char *guid)
-{
-	register size_t guid_len;
-	register size_t i;
-
-	for (guid_len = strlen(guid), i = 0u; i < guid_len; i++)
-	{
-		if (!((guid[i] >= 'A' && guid[i] <= 'Z')
-				|| (guid[i] >= 'a' && guid[i] <= 'z')
-				|| (guid[i] >= '0' && guid[i] <= '9')
-				|| guid[i] == '-'
-				|| guid[i] == '{'
-				|| guid[i] == '}'))
-			return false;
-	}
-
-	return true;
-}
-
 bool
 _handle_chat(struct client *c, unsigned type, Fep__Chat *msg)
 {
@@ -606,6 +586,10 @@ _handle_write_ask(struct client *c, unsigned type, Fep__WriteAsk *msg)
 	struct wait_store *ws;
 	struct wait_xfer wx;
 
+	guid_t rootdir;
+	guid_t file;
+	guid_t chunk;
+
 	uint64_t hash;
 	struct wait_store *fid_ws;
 	struct wait_file *wf;
@@ -623,11 +607,11 @@ _handle_write_ask(struct client *c, unsigned type, Fep__WriteAsk *msg)
 		errmsg = "Chunk without guids? No way";
 	}
 
-	if (!is_legal_guid(msg->rootdir_guid))
+	if (!string2guid(PSLEN(msg->rootdir_guid), &rootdir))
 		errmsg = "illegal guid: rootdir_guid";
-	if (!is_legal_guid(msg->file_guid))
+	if (!string2guid(PSLEN(msg->file_guid), &file))
 		errmsg = "illegal guid: file_guid";
-	if (!is_legal_guid(msg->chunk_guid))
+	if (!string2guid(PSLEN(msg->chunk_guid), &chunk))
 		errmsg = "illegal guid: chunk_guid";
 	if (!msg->chunk_hash.len)
 		errmsg = "Chunk hash is empty";
