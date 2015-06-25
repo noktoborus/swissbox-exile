@@ -45,6 +45,11 @@ bool squeue_send(struct squeue *q, void *data, void(*data_free)(void*));
 bool squeue_put(struct squeue_cursor *c, void *data, void(*data_free)(void*));
 
 void *squeue_query(struct squeue_cursor *c);
+
+/* получение количества подписчиков по корню и из курсора */
+unsigned squeue_count_subscribers(struct squeue *q);
+unsigned squeue_count_subscribers_c(struct squeue_cursor *c);
+
 bool squeue_has_new(struct squeue_cursor *c);
 
 

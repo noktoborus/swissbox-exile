@@ -224,10 +224,9 @@ _handle_chat(struct client *c, unsigned type, Fep__Chat *msg)
 		return send_error(c, msg->id, "send to user not allowed", -1);
 	}
 
-	/* если списка нет, то клиент не авторизирован? */
-	if (!c->cum) {
-		return send_error(c, msg->id,
-				"no external links, check auth procedure", -1);
+	/* если из подписчиков только один клиент */
+	if (squeue_count_subscribers_c(&c->broadcast_c) == 1) {
+		return send_error(c, msg->id, "No listeners", -1);
 	}
 
 	rs = calloc(1, sizeof(struct chat_store) + msg->message.len);
@@ -251,7 +250,7 @@ _handle_chat(struct client *c, unsigned type, Fep__Chat *msg)
 		rs->device_id_to = msg->has_device_id_to;
 	}
 
-	if (!squeue_send(&c->cum->broadcast, (void*)rs, free)) {
+	if (!squeue_put(&c->broadcast_c, (void*)rs, free)) {
 		free(rs);
 		return send_error(c, msg->id, "No listeners", -1);
 	} else {

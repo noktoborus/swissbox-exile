@@ -209,3 +209,15 @@ squeue_has_new(struct squeue_cursor *c)
 	return c->last_id < c->root->gen_id;
 }
 
+unsigned
+squeue_count_subscribers_c(struct squeue_cursor *c)
+{
+	return c ? (c->root ? c->root->ref : 0u) : 0u;
+}
+
+unsigned
+squeue_count_subscribers(struct squeue *q)
+{
+	return q ? q->ref : 0u;
+}
+
