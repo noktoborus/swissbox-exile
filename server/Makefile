@@ -11,6 +11,7 @@ JUNK=junk/guid.c junk/utils.c
 
 SOURCES=${SRC}/main.c ${SRC}/client_iterate.c proto/fep.pb-c.c\
 	${SRC}/list.c ${SRC}/client/cum.c ${SRC}/client_cb.c ${SQUEUE} ${SIMPLEPQ} ${JUNK}
+INC_SOURCES=${SRC}/client/include/send.c ${SRC}/client/include/handle.c
 
 all: ${BIN}
 
@@ -23,7 +24,7 @@ debug:
 runtest: proto/fep_pb2.py
 	python test/unit_all_test.py
 
-${BIN}: .buildflags .sqlversion ${SOURCES}
+${BIN}: .buildflags .sqlversion ${SOURCES} ${INC_SOURCES}
 	${CC} -o ${BIN} ${CFLAGS} -DSQLSTRUCTVER=`cat .sqlversion` ${SOURCES} ${LIBS} `cat .buildflags`
 	echo "build ok"
 
