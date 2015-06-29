@@ -416,7 +416,7 @@ _handle_read_ask(struct client *c, unsigned type, Fep__ReadAsk *msg)
 	struct chunk_send *chs;
 	struct stat st;
 	size_t offset;
-	struct spq_hint hint;;
+	struct spq_hint hint;
 
 	if (!c->status.auth_ok)
 		return send_error(c, msg->id, "Unauthorized", -1);
@@ -604,6 +604,7 @@ _handle_write_ask(struct client *c, unsigned type, Fep__WriteAsk *msg)
 	xsyslog(LOG_DEBUG, "client[%p] fd#%d for %s [%"PRIu32"]",
 			(void*)c->cev, wx.fd, wx.path, wrok.session_id);
 #endif
+	/* инициализаци полей wait_file */
 	wait_id(c, &c->sid, wrok.session_id, ws);
 	if (fid_ws) {
 		wf = fid_ws->data;
