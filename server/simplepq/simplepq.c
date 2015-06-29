@@ -1074,6 +1074,73 @@ spq_check_user(char *username, char *secret)
 	return r;
 }
 
+bool
+_spq_load_file(guid_t *rootdir, guid_t *file, guid_t *revision,
+		struct spq_file_info *finfo, struct spq_hint *hint)
+{
+	PGresult *res;
+	ExecStatusType pqs;
+	const char tb[] = "";
+
+	const int fmt[3] = {0, 0, 0};
+
+	char _rootdir[GUID_MAX + 1];
+	char _file[GUID_MAX + 1];
+	char _revision[GUID_MAX + 1];
+
+	const char *_m = NULL;
+	char *val[3];
+	int len[3];
+
+	len[0] = guid2string(rootdir, PSIZE(_rootdir));
+	len[1] = guid2string(file, PSIZE(_file));
+	len[2] = guid2string(revision, PSIZE(_file));
+
+	val[0] = rootdir;
+	val[1] = file;
+	val[2] = revision;
+
+	res = PQexecParams(pgc, tb, sizeof(val) / sizeof(*val), NULL,
+			(const char *const*)val, len, fmt, 0);
+	pqs = PQresultStatus(res);
+
+	{
+		char *_m;
+		if (pqs != PGRES_TUPLES_OK) {
+			_m = PQresultErrorMessage(res);
+			xsyslog(LOG_INFO, "exec load_file error: %s", _m);
+			PQclear(res);
+			return false;
+		}
+		else if (PQgetlength(res, 0, 0)) {
+			_m = PQgetvalue(res, 0, 0);
+			if (hint)
+				strncpy(hint->message, _m, SPQ_ERROR_LEN);
+			xsyslog(LOG_INFO, "exec load_file warning: %s", _m);
+		}
+	}
+
+	/* TODO */
+
+	return false;
+}
+
+bool
+spq_load_file(char *username, uint64_t device_id,
+		guid_t *rootdir, guid_t *file, guid_t *revision,
+		struct spq_file_info *finfo, struct spq_hint *hint)
+{
+	bool r = false;
+	struct spq *c;
+	if ((c = acquire_conn(&_spq)) != NULL) {
+		r = spq_begin_life(c->conn, username, device_id);
+		/*	&& _spq_load_file(c->conn, rootdir, file, revision,
+			finfo, hint);*/
+		release_conn(&_spq, c);
+	}
+	return r;
+}
+
 #include "complex/getRevisions.c"
 #include "complex/getChunks.c"
 #include "complex/logDirFile.c"
