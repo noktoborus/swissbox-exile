@@ -215,6 +215,7 @@ CREATE TABLE IF NOT EXISTS file
 	filename varchar(4096) DEFAULT NULL,
 
 	deleted boolean DEFAULT FALSE,
+	uploaded boolean DEFAULT FALSE,
 
 	UNIQUE(rootdir_id, file)
 );
@@ -797,6 +798,14 @@ BEGIN
 
 END $$ LANGUAGE plpgsql;
 
+CREATE OR REPLACE FUNCTION commit_revision(
+	_rootdir_guid UUID, _file_guid UUID, _revision_guid UUID)
+	RETURNS TABLE(r_error text, r_checkpoint bigint) AS $$
+DECLARE
+BEGIN
+	return next;
+END $$ LANGUAGE plpgsql;
+
 -- впихивание ревизии, фактически -- обновление parent_id, ключа, имени и директории у файла
 CREATE OR REPLACE FUNCTION insert_revision(
 	_rootdir_guid UUID, _file_guid UUID, _revision_guid UUID, _parent_revision_guid UUID,
@@ -1292,6 +1301,7 @@ END $$ LANGUAGE plpgsql;
 -- информация о файле (ревизии)
 -- если _revision IS NULL, то извлекается последняя ревизия
 CREATE OR REPLACE FUNCTION file_get(_rootdir UUID, _file UUID, _revision UUID,
+	uncompleted boolean DEFAULT FALSE,
 	_drop_ _drop_ DEFAULT 'drop')
 	RETURNS TABLE
 	(
@@ -1301,7 +1311,8 @@ CREATE OR REPLACE FUNCTION file_get(_rootdir UUID, _file UUID, _revision UUID,
 		r_directory directory.directory%TYPE,
 		r_filename file.filename%TYPE,
 		r_pubkey file.pubkey%TYPE,
-		r_chunks file_revision.chunks%TYPE
+		r_chunks file_revision.chunks%TYPE,
+		r_stored_chunks file_revision.stored_chunks%TYPE
 	)
 	AS $$
 DECLARE
@@ -1337,6 +1348,7 @@ BEGIN
 	SELECT
 		file_revision.revision AS revision_guid,
 		file_revision.chunks AS chunks,
+		file_revision.stored_chunks AS stored_chunks,
 		parent_revision.revision AS parent_guid
 	INTO _rev
 	FROM file_revision
@@ -1350,7 +1362,7 @@ BEGIN
 			ELSE
 				TRUE
 		END AND
-		file_revision.fin = TRUE
+		file_revision.fin = NOT COALESCE(uncompleted, False)
 	ORDER BY file_revision.checkpoint DESC LIMIT 1;
 
 	IF _rev IS NULL THEN
@@ -1366,6 +1378,7 @@ BEGIN
 	r_filename := _r.filename;
 	r_pubkey := _r.pubkey;
 	r_chunks := _rev.chunks;
+	r_stored_chunks := _rev.stored_chunks;
 	return next;
 END $$ LANGUAGE plpgsql;
 

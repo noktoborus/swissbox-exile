@@ -64,6 +64,18 @@ uint64_t spq_directory_create(char *username, uint64_t device_id,
 		guid_t *rootdir, guid_t *new_directory, char *new_dirname,
 		struct spq_hint *hint);
 
+
+struct spq_user
+{
+	char *module;
+};
+/* получение информации по пользователю
+ * и модуля, обслуживающего его
+ */
+bool spq_user_query(char *username, char *secret, uint64_t device_id,
+		/* возвращаемые значения: */
+		struct spq_user *user, struct spq_hint *hint);
+
 /* */
 
 bool spq_getChunkPath(char *username, uint64_t device_id,
@@ -180,6 +192,7 @@ struct spq_FileMeta {
 	char *dir;
 
 	uint32_t chunks;
+	uint32_t stored_chunks;
 
 	char *parent_rev;
 	char *enc_filename;
@@ -200,8 +213,8 @@ struct spq_FileMeta {
  */
 bool spq_getFileMeta(char *username, uint64_t device_id,
 		guid_t *rootdir, guid_t *file,
-		guid_t *revision, struct spq_FileMeta *fmeta,
-		struct spq_hint *hint);
+		guid_t *revision, bool uncompleted,
+		struct spq_FileMeta *fmeta, struct spq_hint *hint);
 void spq_getFileMeta_free(struct spq_FileMeta *fmeta);
 
 /* проверка наличия пользователя в бд */

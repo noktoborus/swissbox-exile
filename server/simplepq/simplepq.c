@@ -457,13 +457,13 @@ spq_getChunkPath(char *username, uint64_t device_id,
 
 bool
 _spq_getFileMeta(PGconn *pgc, guid_t *rootdir, guid_t *file,
-		guid_t *revision, struct spq_FileMeta *fmeta,
-		struct spq_hint *hint)
+		guid_t *revision, bool uncompleted,
+		struct spq_FileMeta *fmeta, struct spq_hint *hint)
 {
 	PGresult *res;
 	ExecStatusType pqs;
 	const char *tb =
-		"SELECT * FROM file_get($1::UUID, $2::UUID, $3::UUID);";
+		"SELECT * FROM file_get($1::UUID, $2::UUID, $3::UUID, $4::boolean);";
 
 	const int fmt[4] = {0, 0, 0};
 
@@ -471,18 +471,20 @@ _spq_getFileMeta(PGconn *pgc, guid_t *rootdir, guid_t *file,
 	char _file[GUID_MAX + 1];
 	char _revision[GUID_MAX + 1];
 
-	char *val[3];
-	int len[3];
+	char *val[4];
+	int len[4];
 
 	len[0] = guid2string(rootdir, _rootdir, sizeof(_rootdir));
 	len[1] = guid2string(file, _file, sizeof(_file));
 	len[2] = guid2string(revision, _revision, sizeof(_revision));
+	len[3] = uncompleted ? 4 : 5;
 
 	val[0] = _rootdir;
 	val[1] = _file;
 	val[2] = len[2] ? _revision : NULL;
+	val[3] = uncompleted ? "TRUE" : "FALSE";
 
-	res = PQexecParams(pgc, tb, 3, NULL, (const char *const*)val, len, fmt, 0);
+	res = PQexecParams(pgc, tb, 4, NULL, (const char *const*)val, len, fmt, 0);
 	pqs = PQresultStatus(res);
 	if (pqs != PGRES_TUPLES_OK && pqs != PGRES_EMPTY_QUERY) {
 		xsyslog(LOG_INFO, "getFileMeta exec error: %s",
@@ -516,6 +518,12 @@ _spq_getFileMeta(PGconn *pgc, guid_t *rootdir, guid_t *file,
 	} else {
 		fmeta->chunks = 0u;
 	}
+	if (PQgetlength(res, 0, 7) > 0) {
+		fmeta->stored_chunks =
+			(uint32_t)strtoul(PQgetvalue(res, 0, 7), NULL, 10);
+	} else {
+		fmeta->stored_chunks = 0u;
+	}
 	fmeta->parent_rev = PQgetvalue(res, 0, 2);
 	fmeta->enc_filename = PQgetvalue(res, 0, 4);
 	{
@@ -535,15 +543,15 @@ _spq_getFileMeta(PGconn *pgc, guid_t *rootdir, guid_t *file,
 bool
 spq_getFileMeta(char *username, uint64_t device_id,
 		guid_t *rootdir, guid_t *file,
-		guid_t *revision, struct spq_FileMeta *fmeta,
-		struct spq_hint *hint)
+		guid_t *revision, bool uncompleted,
+		struct spq_FileMeta *fmeta, struct spq_hint *hint)
 {
 	bool retval = false;
 	struct spq *c;
 	if ((c = acquire_conn(&_spq)) != NULL) {
 		if (!spq_begin_life(c->conn, username, device_id) ||
 				!(retval = _spq_getFileMeta(c->conn,
-						rootdir, file, revision, fmeta, hint))
+						rootdir, file, revision, uncompleted, fmeta, hint))
 				|| fmeta->empty) {
 			memset(fmeta, 0u, sizeof(struct spq_FileMeta));
 			fmeta->empty = true;
@@ -1069,73 +1077,6 @@ spq_check_user(char *username, char *secret)
 	struct spq *c;
 	if ((c = acquire_conn(&_spq)) != NULL) {
 		r = _spq_check_user(c->conn, username, secret);
-		release_conn(&_spq, c);
-	}
-	return r;
-}
-
-bool
-_spq_load_file(guid_t *rootdir, guid_t *file, guid_t *revision,
-		struct spq_file_info *finfo, struct spq_hint *hint)
-{
-	PGresult *res;
-	ExecStatusType pqs;
-	const char tb[] = "";
-
-	const int fmt[3] = {0, 0, 0};
-
-	char _rootdir[GUID_MAX + 1];
-	char _file[GUID_MAX + 1];
-	char _revision[GUID_MAX + 1];
-
-	const char *_m = NULL;
-	char *val[3];
-	int len[3];
-
-	len[0] = guid2string(rootdir, PSIZE(_rootdir));
-	len[1] = guid2string(file, PSIZE(_file));
-	len[2] = guid2string(revision, PSIZE(_file));
-
-	val[0] = rootdir;
-	val[1] = file;
-	val[2] = revision;
-
-	res = PQexecParams(pgc, tb, sizeof(val) / sizeof(*val), NULL,
-			(const char *const*)val, len, fmt, 0);
-	pqs = PQresultStatus(res);
-
-	{
-		char *_m;
-		if (pqs != PGRES_TUPLES_OK) {
-			_m = PQresultErrorMessage(res);
-			xsyslog(LOG_INFO, "exec load_file error: %s", _m);
-			PQclear(res);
-			return false;
-		}
-		else if (PQgetlength(res, 0, 0)) {
-			_m = PQgetvalue(res, 0, 0);
-			if (hint)
-				strncpy(hint->message, _m, SPQ_ERROR_LEN);
-			xsyslog(LOG_INFO, "exec load_file warning: %s", _m);
-		}
-	}
-
-	/* TODO */
-
-	return false;
-}
-
-bool
-spq_load_file(char *username, uint64_t device_id,
-		guid_t *rootdir, guid_t *file, guid_t *revision,
-		struct spq_file_info *finfo, struct spq_hint *hint)
-{
-	bool r = false;
-	struct spq *c;
-	if ((c = acquire_conn(&_spq)) != NULL) {
-		r = spq_begin_life(c->conn, username, device_id);
-		/*	&& _spq_load_file(c->conn, rootdir, file, revision,
-			finfo, hint);*/
 		release_conn(&_spq, c);
 	}
 	return r;

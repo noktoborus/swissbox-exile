@@ -99,7 +99,7 @@ _handle_file_meta(struct client *c, unsigned type, Fep__FileMeta *msg)
 #endif
 		memset(&fmeta, 0u, sizeof(struct spq_FileMeta));
 		if (!spq_getFileMeta(c->name, c->device_id,
-					&_rootdir, &_file, NULL, &fmeta, NULL)) {
+					&_rootdir, &_file, NULL, false, &fmeta, NULL)) {
 			return send_error(c, msg->id, "Internal error 1759", -1);
 		}
 		if (fmeta.empty) {
@@ -607,12 +607,27 @@ _handle_write_ask(struct client *c, unsigned type, Fep__WriteAsk *msg)
 	/* инициализаци полей wait_file */
 	wait_id(c, &c->sid, wrok.session_id, ws);
 	if (fid_ws) {
+		struct spq_FileMeta _fmeta;
+		memset(&_fmeta, 0u, sizeof(struct spq_FileMeta));
+
 		wf = fid_ws->data;
+		string2guid(msg->rootdir_guid, strlen(msg->rootdir_guid),
+				&wf->rootdir);
 		string2guid(msg->file_guid, strlen(msg->file_guid), &wf->file);
 		string2guid(msg->revision_guid, strlen(msg->revision_guid),
 				&wf->revision);
-		string2guid(msg->rootdir_guid, strlen(msg->rootdir_guid),
-				&wf->rootdir);
+
+		/* если запрос завершился неудачно, то файла, вероятнее всего нет */
+		if (spq_getFileMeta(c->name, c->device_id,
+					&wf->rootdir, &wf->file, &wf->revision, true,
+					&_fmeta, NULL)) {
+			/*  в другом случае нужно заполнить поля в wait_file */
+			if (!_fmeta.empty) {
+				/* TODO */
+			}
+			spq_getFileMeta_free(&_fmeta);
+		}
+
 		wf->id = hash;
 		wait_id(c, &c->fid, hash, fid_ws);
 	}
@@ -812,7 +827,7 @@ _handle_query_chunks(struct client *c, unsigned type, Fep__QueryChunks *msg)
 		memset(&fmeta, 0u, sizeof(struct spq_FileMeta));
 		memset(&_hint, 0u, sizeof(struct spq_hint));
 		if (!spq_getFileMeta(c->name, c->device_id,
-					&rootdir, &file, &revision, &fmeta, &_hint)) {
+					&rootdir, &file, &revision, false, &fmeta, &_hint)) {
 			free(rs);
 			if (*_hint.message)
 				return send_error(c, msg->id, _hint.message, -1);
