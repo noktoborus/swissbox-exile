@@ -810,15 +810,9 @@ BEGIN
 
 END $$ LANGUAGE plpgsql;
 
-CREATE OR REPLACE FUNCTION commit_revision(
-	_rootdir_guid UUID, _file_guid UUID, _revision_guid UUID)
-	RETURNS TABLE(r_error text, r_checkpoint bigint) AS $$
-DECLARE
-BEGIN
-	return next;
-END $$ LANGUAGE plpgsql;
-
 -- впихивание ревизии, фактически -- обновление parent_id, ключа, имени и директории у файла
+--  _prepare указывает на то, что это не есть завершение загрузки файла
+-- а лишь сохранение данных по файлу
 create or replace function insert_revision(
 	_rootdir_guid uuid,
 	_file_guid uuid,
@@ -1203,28 +1197,6 @@ BEGIN
 	r_rootdir_id := _r.rootdir_id;
 	return next;
 END $$ LANGUAGE plpgsql;
-
-/*
--- удаление файла
-CREATE OR REPLACE FUNCTION remove_file(_rootdir UUID, _file UUID)
-	RETURNS TABLE(r_error text, r_checkpoint bigint) AS $$
-DECLARE
-	_trash record;
-	_fid record;
-BEGIN
-	-- удаление в двух стадиях:
-	-- 1. перенос файла в специальную директорию ".Trash"
-	-- 2. физическое удаление записей (пометка как "удалённые)
-
-	SELECT
-		directory.rootdir_id AS rootdir_id,
-		directory.id AS directory_id,
-	INTO _trash
-	FROM life_data(_rootdir), directory
-	WHERE
-		directory.rootdir_id = r_rootdir_id AND
-		directory.path = '/.Trash';
-END $$ LANGUAGE plpgsql;*/
 
 -- переименование и перемещение файла
 CREATE OR REPLACE FUNCTION update_file(_rootdir UUID, _file UUID,
