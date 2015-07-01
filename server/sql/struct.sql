@@ -42,6 +42,7 @@ END $$ LANGUAGE plpgsql IMMUTABLE;
 /* обновление табличного пространства */
 
 -- удаление таблиц не должно вызывать NOTICE с нерзрешёнными CONSTRAINT
+DROP TABLE IF EXISTS file_temp CASCADE;
 DROP TABLE IF EXISTS file_meta CASCADE;
 DROP TABLE IF EXISTS file_chunk CASCADE;
 DROP TABLE IF EXISTS file_revision CASCADE;
@@ -218,6 +219,17 @@ CREATE TABLE IF NOT EXISTS file
 	uploaded boolean DEFAULT FALSE,
 
 	UNIQUE(rootdir_id, file)
+);
+
+/* таблица для сохранения временных значений файлов, недокачанных, к примеру */
+CREATE TABLE IF NOT EXISTS file_temp
+(
+	id bigint NOT NULL REFERENCES file(id) ON DELETE CASCADE,
+	directory UUID DEFAULT NULL,
+	directory_id bigint DEFAULT NULL,
+	filename varchar(4096) DEFAULT NULL,
+	pubkey varchar(4096) DEFAULT NULL,
+	chunks integer DEFAULT NULL
 );
 
 CREATE OR REPLACE FUNCTION _check_is_trash(_rootdir_id bigint,
@@ -807,11 +819,18 @@ BEGIN
 END $$ LANGUAGE plpgsql;
 
 -- впихивание ревизии, фактически -- обновление parent_id, ключа, имени и директории у файла
-CREATE OR REPLACE FUNCTION insert_revision(
-	_rootdir_guid UUID, _file_guid UUID, _revision_guid UUID, _parent_revision_guid UUID,
-	_filename character varying(4096), _pubkey character varying(4096), _dir_guid UUID,
-	_chunks integer, _drop_ _drop_ DEFAULT 'drop')
-	RETURNS TABLE(r_error text, r_checkpoint bigint) AS $$
+create or replace function insert_revision(
+	_rootdir_guid uuid,
+	_file_guid uuid,
+	_revision_guid uuid,
+	_parent_revision_guid uuid,
+	_filename character varying(4096),
+	_pubkey character varying(4096),
+	_dir_guid uuid,
+	_chunks integer,
+	_prepare boolean default FALSE,
+	_drop_ _drop_ default 'drop')
+	returns table(r_error text, r_checkpoint bigint) as $$
 DECLARE
 	_row record;
 	_parent record;
@@ -916,6 +935,31 @@ BEGIN
 		return;
 	END IF;
 
+	-- если это подготовка, то выполнение всего следующего кода не нужно
+	IF _prepare = TRUE THEN
+		INSERT INTO file_temp SELECT
+			_ur.file_id,
+			_dir_guid,
+			_ur.directory_id,
+			_filename,
+			_pubkey,
+			_chunks;
+		return next;
+		return;
+	END IF;
+
+	-- получение сохранённой информации о файле
+	SELECT * INTO _row
+	FROM file_temp
+	WHERE id = _ur.revision_id;
+
+	IF _row IS NOT NULL THEN
+		_dir_guid := COALESCE(_row.directory, _dir_guid);
+		_filename := COALESCE(_row.filename, _filename);
+		_pubkey := COALESCE(_row.pubkey, _pubkey);
+		_chunks := COALESCE(_row.chunks, _chunks);
+	END IF;
+
 	-- 2. проверка количества чанков
 	SELECT stored_chunks INTO _w
 	FROM file_revision
@@ -960,8 +1004,8 @@ BEGIN
 		SELECT * INTO _row FROM file_revision
 		WHERE revision = _parent_revision_guid;
 		IF _row IS NULL THEN
-			r_error := concat('1:revision "', _parent_revision_guid, '" not found in ',
-				'file "', _file_guid, '" ',
+			r_error := concat('1:revision "', _parent_revision_guid,
+				'" not found in file "', _file_guid, '" ',
 				'rootdir "', _rootdir_guid, '"');
 			return next;
 			return;
@@ -979,6 +1023,9 @@ BEGIN
 			RETURNING *
 		) SELECT INTO r_checkpoint checkpoint FROM _row;
 	END IF;
+
+	-- удаление не нужных данных
+	DELETE FROM file_temp WHERE id = _ur.file_id;
 
 	return next;
 END $$ LANGUAGE plpgsql;
@@ -1323,17 +1370,17 @@ BEGIN
 	SELECT
 		file.id AS file_id,
 		r_rootdir_id AS rootdir_id,
-		directory.id AS directory_id,
 		file.file AS file_guid,
-		directory.directory AS directory_guid,
-		file.filename AS filename,
-		file.pubkey AS pubkey
+		COALESCE(file_temp.directory, directory.directory) AS directory_guid,
+		COALESCE(file_temp.filename, file.filename) AS filename,
+		COALESCE(file_temp.pubkey, file.pubkey) AS pubkey
 	INTO _r
 	FROM life_data(_rootdir), file, directory
+	LEFT JOIN file_temp ON file_temp.id = file.id
+	LEFT JOIN directory ON directory.id = file.directory_id
 	WHERE
 		file.rootdir_id = r_rootdir_id AND
-		file.file = _file AND
-		directory.id = file.directory_id;
+		file.file = _file;
 
 	IF _r IS NULL THEN
 		r_error := concat('1:file "', _file, '" in rootdir "', _rootdir, '" ',
