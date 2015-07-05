@@ -58,6 +58,7 @@ uint64_t spq_insert_revision(char *username, uint64_t device_id,
 		char *filename, char *pubkey,
 		guid_t *dir,
 		unsigned chunks,
+		bool prepare,
 		struct spq_hint *hint);
 
 uint64_t spq_directory_create(char *username, uint64_t device_id,

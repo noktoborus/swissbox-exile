@@ -920,6 +920,7 @@ _spq_insert_revision(PGconn *pgc,
 		char *filename, char *pubkey,
 		guid_t *dir,
 		unsigned chunks,
+		bool prepare,
 		struct spq_hint *hint)
 {
 	uint64_t result;
@@ -934,9 +935,10 @@ _spq_insert_revision(PGconn *pgc,
 		"	$5::character varying,"
 		"	$6::character varying,"
 		"	$7::UUID,"
-		"	$8::integer"
+		"	$8::integer,"
+		"	$9::boolean"
 		");";
-	const int fmt[8] = {0, 0, 0, 0, 0, 0, 0, 0};
+	const int fmt[9] = {0, 0, 0, 0, 0, 0, 0, 0, 0};
 
 	char _rootdir[GUID_MAX + 1];
 	char _file[GUID_MAX + 1];
@@ -946,8 +948,8 @@ _spq_insert_revision(PGconn *pgc,
 	char _chunks[32];
 
 	const char *_m = NULL;
-	char *val[8];
-	int len[8];
+	char *val[9];
+	int len[9];
 
 	len[0] = guid2string(rootdir, PSIZE(_rootdir));
 	len[1] = guid2string(file, PSIZE(_file));
@@ -957,6 +959,7 @@ _spq_insert_revision(PGconn *pgc,
 	len[5] = strlen(pubkey);
 	len[6] = guid2string(dir, PSIZE(_dir));
 	len[7] = snprintf(_chunks, sizeof(_chunks), "%u", chunks);
+	len[8] = prepare ? 4 : 5;
 
 	val[0] = _rootdir;
 	val[1] = _file;
@@ -966,8 +969,9 @@ _spq_insert_revision(PGconn *pgc,
 	val[5] = pubkey;
 	val[6] = _dir;
 	val[7] = _chunks;
+	val[8] = prepare ? "TRUE" : "FALSE";
 
-	res = PQexecParams(pgc, tb, 8, NULL, (const char *const*)val, len, fmt, 0);
+	res = PQexecParams(pgc, tb, 9, NULL, (const char *const*)val, len, fmt, 0);
 	pqs = PQresultStatus(res);
 
 	if (pqs != PGRES_TUPLES_OK)
@@ -995,6 +999,7 @@ spq_insert_revision(char *username, uint64_t device_id,
 		char *filename, char *pubkey,
 		guid_t *dir,
 		unsigned chunks,
+		bool prepare,
 		struct spq_hint *hint)
 {
 	uint64_t r = 0lu;
@@ -1003,7 +1008,7 @@ spq_insert_revision(char *username, uint64_t device_id,
 		if (spq_begin_life(c->conn, username, device_id)) {
 			r = _spq_insert_revision(c->conn, rootdir, file,
 					revision, parent_revision, filename, pubkey, dir, chunks,
-					hint);
+					prepare, hint);
 		}
 		release_conn(&_spq, c);
 	}

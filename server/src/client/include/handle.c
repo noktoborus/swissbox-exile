@@ -7,12 +7,21 @@
  * возвращает состояние линии
  */
 static bool
-_file_complete(struct client *c, struct wait_file *wf)
+_file_complete(struct client *c, struct wait_file *wf, bool prepare)
 {
 	uint64_t checkpoint;
 	struct spq_hint hint;
 	bool retval = true;
 	if (wf->chunks != wf->chunks_ok) {
+		if (prepare) {
+			size_t pkeysize = wf->key_len * 2 + 1;
+			char *pkeyhex = alloca(pkeysize);
+			bin2hex(wf->key, wf->key_len, pkeyhex, pkeysize);
+			checkpoint = spq_insert_revision(c->name, c->device_id,
+					&wf->rootdir, &wf->file, &wf->revision, &wf->parent,
+					wf->enc_filename, pkeyhex, &wf->dir, wf->chunks, true,
+					&hint);
+		}
 		return true;
 	}
 	memset(&hint, 0, sizeof(struct spq_hint));
@@ -23,7 +32,7 @@ _file_complete(struct client *c, struct wait_file *wf)
 		bin2hex(wf->key, wf->key_len, pkeyhex, pkeysize);
 		checkpoint = spq_insert_revision(c->name, c->device_id,
 				&wf->rootdir, &wf->file, &wf->revision, &wf->parent,
-				wf->enc_filename, pkeyhex, &wf->dir, wf->chunks,
+				wf->enc_filename, pkeyhex, &wf->dir, wf->chunks, false,
 				&hint);
 	}
 	if (!checkpoint) {
@@ -167,8 +176,7 @@ _handle_file_meta(struct client *c, unsigned type, Fep__FileMeta *msg)
 			enc_filename, msg->file_guid, msg->revision_guid, key_len,
 			hash);
 #endif
-
-	return _file_complete(c, wf);
+	return _file_complete(c, wf, true);
 }
 
 bool
@@ -308,7 +316,7 @@ _handle_end(struct client *c, unsigned type, Fep__End *end)
 		/* нет смысла пытаться отправить "Ok" клиенту, если
 		 * соеденение отвалилось при отправке OkUpdate
 		 */
-		if (!_file_complete(c, wf))
+		if (!_file_complete(c, wf, false))
 			return false;
 		return send_ok(c, end->id, C_OK_SIMPLE, NULL);
 	} else {
