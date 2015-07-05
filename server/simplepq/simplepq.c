@@ -913,6 +913,37 @@ spq_update_file(char *username, uint64_t device_id,
 	return r;
 }
 
+bool
+spq_feed_hint(const char *msg, size_t msglen, struct spq_hint *hint)
+{
+	if (!msg || !msglen || !hint)
+		return false;
+
+	if (!msg || !msglen) {
+		hint->level = SPQ_ERR;
+		return true;
+	}
+
+	if (msglen >= 2u && msg[1] == ':') {
+		switch(msg[0]) {
+		case '2':
+			hint->level = SPQ_WARN;
+			break;
+		case '3':
+			hint->level = SPQ_NOTICE;
+			break;
+		default:
+			hint->level = SPQ_ERR;
+			break;
+		}
+		strncpy(hint->message, &msg[2], MIN(SPQ_ERROR_LEN, msglen - 2));
+	} else {
+		hint->level = SPQ_ERR;
+		strncpy(hint->message, msg, MIN(SPQ_ERROR_LEN, msglen));
+	}
+	return true;
+}
+
 uint64_t
 _spq_insert_revision(PGconn *pgc,
 		guid_t *rootdir, guid_t *file,
@@ -948,6 +979,8 @@ _spq_insert_revision(PGconn *pgc,
 	char _chunks[32];
 
 	const char *_m = NULL;
+	size_t _mlen = 0u;
+
 	char *val[9];
 	int len[9];
 
@@ -974,19 +1007,18 @@ _spq_insert_revision(PGconn *pgc,
 	res = PQexecParams(pgc, tb, 9, NULL, (const char *const*)val, len, fmt, 0);
 	pqs = PQresultStatus(res);
 
-	if (pqs != PGRES_TUPLES_OK)
+	if (pqs != PGRES_TUPLES_OK) {
 		_m = PQresultErrorMessage(res);
-	else if (PQgetlength(res, 0, 0)) {
-		_m = PQgetvalue(res, 0, 0);
-		if (_m && hint)
-			strncpy(hint->message, _m, SPQ_ERROR_LEN);
-	}
-
-	if (_m) {
+		spq_feed_hint(NULL, 0u, hint);
 		xsyslog(LOG_INFO, "exec insert_revision error: %s", _m);
 		PQclear(res);
 		return 0;
+	} else if ((_mlen = PQgetlength(res, 0, 0)) > 0u) {
+		_m = PQgetvalue(res, 0, 0);
+		spq_feed_hint(_m, _mlen, hint);
+		xsyslog(LOG_INFO, "exec insert_revision warning: %s", _m);
 	}
+
 	result = strtoul(PQgetvalue(res, 0, 1), NULL, 10);
 	PQclear(res);
 	return result;
