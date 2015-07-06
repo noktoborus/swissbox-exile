@@ -876,25 +876,23 @@ BEGIN
 		return;
 	END IF;
 
-	IF _chunks IS NULL OR _chunks = 0 THEN
-		-- проверка существования файла (и создание его)
-		IF _ur.file_id IS NULL THEN
-			WITH _x AS (
-				INSERT INTO file (file, rootdir_id, directory_id)
-				VALUES (_file_guid, _ur.rootdir_id, _ur.directory_id)
-				RETURNING *
-			) SELECT id INTO _ur.file_id FROM _x;
-		END IF;
+	-- проверка существования файла (и создание его)
+	IF _ur.file_id IS NULL THEN
+		WITH _x AS (
+			INSERT INTO file (file, rootdir_id, directory_id)
+			VALUES (_file_guid, _ur.rootdir_id, _ur.directory_id)
+			RETURNING *
+		) SELECT id INTO _ur.file_id FROM _x;
+	END IF;
 
-		-- и ревизии
-		IF _ur.revision_id IS NULL THEN
-			-- и добавляем ревизию, если таковых нет
-			WITH _x AS (
-				INSERT INTO file_revision (file_id, revision, chunks)
-				VALUES (_ur.file_id, _revision_guid, 0)
-				RETURNING *
-			) SELECT id INTO _ur.revision_id FROM _x;
-		END IF;
+	-- и ревизии
+	IF _ur.revision_id IS NULL THEN
+		-- и добавляем ревизию, если таковых нет
+		WITH _x AS (
+			INSERT INTO file_revision (file_id, revision, chunks)
+			VALUES (_ur.file_id, _revision_guid, 0)
+			RETURNING *
+		) SELECT id INTO _ur.revision_id FROM _x;
 	END IF;
 
 
@@ -1340,19 +1338,29 @@ DECLARE
 BEGIN
 	-- выборка файла и директории
 	SELECT
-		file.id AS file_id,
-		r_rootdir_id AS rootdir_id,
-		file.file AS file_guid,
-		COALESCE(file_temp.directory, directory.directory) AS directory_guid,
-		COALESCE(file_temp.filename, file.filename) AS filename,
-		COALESCE(file_temp.pubkey, file.pubkey) AS pubkey
+		t.file_id,
+		t.rootdir_id,
+		t.file_guid,
+		COALESCE(file_temp.directory, t.directory_guid) AS directory_guid,
+		COALESCE(file_temp.filename, t.filename) AS filename,
+		COALESCE(file_temp.pubkey, t.pubkey) AS pubkey
+	FROM (
+		SELECT
+			file.id AS file_id,
+			r_rootdir_id AS rootdir_id,
+			file.file AS file_guid,
+			directory.directory AS directory_guid,
+			directory.id AS directory_id,
+			file.filename AS filename,
+			file.pubkey AS pubkey
+		FROM life_data(_rootdir), file, directory
+		WHERE
+			file.rootdir_id = r_rootdir_id AND
+			file.file = _file
+		) AS t
 	INTO _r
-	FROM life_data(_rootdir), file, directory
-	LEFT JOIN file_temp ON file_temp.id = file.id
-	LEFT JOIN directory ON directory.id = file.directory_id
-	WHERE
-		file.rootdir_id = r_rootdir_id AND
-		file.file = _file;
+	LEFT JOIN file_temp ON file_temp.id = t.file_id
+	LEFT JOIN directory ON directory.id = t.directory_id;
 
 	IF _r IS NULL THEN
 		r_error := concat('1:file "', _file, '" in rootdir "', _rootdir, '" ',
