@@ -342,7 +342,7 @@ def sendFile(s, rootdir, directory, path, devid):
         # в ответе должно прийти session_id для передачи
         rmsg = recv_message(s, ["Error", "OkWrite"])
         if rmsg.__class__.__name__ == "Error":
-            write_std("send file error: %s\n", msg.message)
+            write_std("send file error: %s\n" %rmsg.message)
             file_descr.seek(0)
             _ok = False
             break
