@@ -25,7 +25,7 @@ runtest: proto/fep_pb2.py
 	python test/unit_all_test.py
 
 ${BIN}: .buildflags .sqlversion ${SOURCES} ${INC_SOURCES}
-	${CC} -o ${BIN} ${CFLAGS} -DSQLSTRUCTVER=`cat .sqlversion` ${SOURCES} ${LIBS} `cat .buildflags`
+	${CC} -o ${BIN} ${CFLAGS} -DSQLSTRUCTVER=`cat .sqlversion` ${SOURCES} ${LIBS} `cat .buildflags` ${BUILDFLAGS}
 	echo "build ok"
 
 .buildflags: buildtools/findev.sh buildtools/findpq.sh\
