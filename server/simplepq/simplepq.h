@@ -20,6 +20,7 @@ void spq_close();
 bool spq_create_tables();
 
 enum spq_level {
+	SPQ_OK = 0,
 	SPQ_ERR,
 	SPQ_WARN,
 	SPQ_NOTICE

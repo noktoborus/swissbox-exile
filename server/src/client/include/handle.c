@@ -21,6 +21,12 @@ _file_complete(struct client *c, struct wait_file *wf, bool prepare)
 					&wf->rootdir, &wf->file, &wf->revision, &wf->parent,
 					wf->enc_filename, pkeyhex, &wf->dir, wf->chunks, true,
 					&hint);
+			/* если произошла ошибка, то нужно выйти */
+			if (hint.level != SPQ_OK) {
+				if (*hint.message)
+					return send_error(c, wf->msg_id, hint.message, -1);
+				return send_error(c, wf->msg_id, "Internal error 934", -1);
+			}
 		}
 		return true;
 	}

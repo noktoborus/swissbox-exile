@@ -916,7 +916,7 @@ spq_update_file(char *username, uint64_t device_id,
 bool
 spq_feed_hint(const char *msg, size_t msglen, struct spq_hint *hint)
 {
-	if (!msg || !msglen || !hint)
+	if (!hint)
 		return false;
 
 	if (!msg || !msglen) {
