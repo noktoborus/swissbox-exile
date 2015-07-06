@@ -2,6 +2,40 @@
  * file: src/client/include/handle.c
  */
 
+/* подгрузка имеющейся информации о файле */
+static bool
+_file_load(struct client *c, struct wait_file *wf)
+{
+	struct spq_FileMeta fmeta;
+	memset(&fmeta, 0u, sizeof(struct spq_FileMeta));
+
+	if (spq_getFileMeta(c->name, c->device_id,
+				&wf->rootdir, &wf->file, &wf->revision,
+				true, &fmeta, NULL)) {
+		/*  в другом случае нужно заполнить поля в wait_file */
+		if (!fmeta.empty) {
+			wf->chunks = fmeta.chunks;
+			wf->chunks_ok = fmeta.stored_chunks;
+
+			if (fmeta.rev)
+				string2guid(PSLEN(fmeta.rev), &wf->revision);
+			if (fmeta.dir)
+				string2guid(PSLEN(fmeta.dir), &wf->dir);
+			if (fmeta.parent_rev)
+				string2guid(PSLEN(fmeta.parent_rev), &wf->parent);
+
+			if (fmeta.key_len)
+				memcpy(wf->key, fmeta.key, fmeta.key_len);
+
+			if (fmeta.enc_filename)
+				strncpy(wf->enc_filename, fmeta.enc_filename, PATH_MAX);
+		}
+		spq_getFileMeta_free(&fmeta);
+	}
+
+	return true;
+}
+
 /* эту ерунду нужно вызывать в самом конце, после работы с wait_file,
  * т.е. при положительном результате wait_file будет освобождён
  * возвращает состояние линии
@@ -211,7 +245,7 @@ _handle_rename_chunk(struct client *c, unsigned type, Fep__RenameChunk *msg)
 	hash = MAKE_FHASH(msg->rootdir_guid, msg->file_guid);
 	if ((ws = touch_id(c, &c->fid, hash)) == NULL) {
 		/* создание нового wait_file */
-		ws = calloc(1, sizeof(struct wait_store) + sizeof(struct wait_xfer));
+		ws = calloc(1, sizeof(struct wait_store) + sizeof(struct wait_file));
 		if (!ws)
 			return send_error(c, msg->id, "Internal error 1725", -1);
 		wf = (ws->data = ws + 1);
@@ -219,6 +253,7 @@ _handle_rename_chunk(struct client *c, unsigned type, Fep__RenameChunk *msg)
 		memcpy(&wf->revision, &revision_new, sizeof(guid_t));
 		memcpy(&wf->rootdir, &rootdir, sizeof(guid_t));
 		wf->id = hash;
+		_file_load(c, wf);
 		wait_id(c, &c->fid, hash, ws);
 	} else {
 		wf = ws->data;
@@ -621,9 +656,6 @@ _handle_write_ask(struct client *c, unsigned type, Fep__WriteAsk *msg)
 	/* инициализаци полей wait_file */
 	wait_id(c, &c->sid, wrok.session_id, ws);
 	if (fid_ws) {
-		struct spq_FileMeta _fmeta;
-		memset(&_fmeta, 0u, sizeof(struct spq_FileMeta));
-
 		wf = fid_ws->data;
 		string2guid(msg->rootdir_guid, strlen(msg->rootdir_guid),
 				&wf->rootdir);
@@ -632,15 +664,7 @@ _handle_write_ask(struct client *c, unsigned type, Fep__WriteAsk *msg)
 				&wf->revision);
 
 		/* если запрос завершился неудачно, то файла, вероятнее всего нет */
-		if (spq_getFileMeta(c->name, c->device_id,
-					&wf->rootdir, &wf->file, &wf->revision, true,
-					&_fmeta, NULL)) {
-			/*  в другом случае нужно заполнить поля в wait_file */
-			if (!_fmeta.empty) {
-				/* TODO */
-			}
-			spq_getFileMeta_free(&_fmeta);
-		}
+		_file_load(c, wf);
 
 		wf->id = hash;
 		wait_id(c, &c->fid, hash, fid_ws);
