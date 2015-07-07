@@ -1646,6 +1646,7 @@ DECLARE
 	_row record;
 	_xrow record;
 BEGIN
+	-- 1. текущее состояние, если указана рутдира и checkpoint = 0
 	IF _checkpoint = 0 AND _rootdir IS NOT NULL THEN
 		return QUERY SELECT * FROM state_list(_rootdir);
 		return;
@@ -1662,8 +1663,7 @@ BEGIN
 		RAISE EXCEPTION 'try to use begin_life() before call this';
 	END IF;
 
-	-- варианты:
-	-- TODO: 1. checkpoint IS NULL or == 0: отсылается текущее состояние
+	-- 2. листинг лога
 	FOR _row IN
 		SELECT * FROM event
 		WHERE user_id = _ur.user_id AND
