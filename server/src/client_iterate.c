@@ -129,8 +129,7 @@ client_share_checkpoint(struct client *c, guid_t *rootdir, uint64_t checkpoint)
 						(void*)c);
 			}
 		}
-	} else {
-		rg = rp->data;
+	} else if ((rg = rp->data)->checkpoint < checkpoint) {
 #if DEEPDEBUG
 		{
 			char _rootdir[GUID_MAX + 1];
