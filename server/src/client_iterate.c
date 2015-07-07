@@ -138,7 +138,7 @@ client_share_checkpoint(struct client *c, guid_t *rootdir, uint64_t checkpoint)
 			xsyslog(LOG_DEBUG,
 					"client[%p] update share rootdir '%s' checkpoint: %"PRIu64
 					" -> %"PRIu64" (%s:%"PRIX64")",
-					(void*)c, _rootdir, checkpoint, rg->checkpoint,
+					(void*)c, _rootdir, rg->checkpoint, checkpoint,
 					c->name, c->device_id);
 		}
 #endif
