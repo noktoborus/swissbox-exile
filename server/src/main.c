@@ -669,15 +669,19 @@ timeout_cb(struct ev_loop *loop, ev_timer *w, int revents)
 			xsyslog(LOG_ERR, "watcher: empty server list");
 			ev_break(loop, EVBREAK_ALL);
 			return;
-		} else if (sev_it->fd == -1) {
-			/* и, немножко, серверных сокетов */
-			server_bind(loop, sev_it);
 		}
+		/* хуита */
 		if (sev_it->prev) {
 			xsyslog(LOG_WARNING, "watcher: server %p has left node %p ",
 					(void*)sev_it, (void*)sev_it->prev);
 		}
+		/* обход узлов */
 		for (; sev_it; sev_it = sev_it->next) {
+			/* ребиндим сокет, если не забинден */
+			if (sev_it->fd == -1) {
+				server_bind(loop, sev_it);
+			}
+			/* чистка клиентов */
 			if ((cev_it = sev_it->client) == NULL)
 				continue;
 			if (cev_it->prev)
@@ -765,6 +769,7 @@ main(int argc, char *argv[])
 	closelog();
 	xsyslog(LOG_INFO, "--- EXIT ---");
 
+	cfg_free(cfg);
 	free(bindline);
 	free(pg_connstr);
 
