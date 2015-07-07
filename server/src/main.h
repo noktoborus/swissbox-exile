@@ -8,6 +8,8 @@
 #include "junk/xsyslog.h"
 #include "proto/fep.pb-c.h"
 
+#include <confuse.h>
+
 #include <ev.h>
 #include <stdbool.h>
 #include <pthread.h>

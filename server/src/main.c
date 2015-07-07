@@ -699,9 +699,28 @@ main(int argc, char *argv[])
 {
 	struct ev_loop *loop;
 	struct main pain;
+	/* base configuration */
+	cfg_t *cfg;
+	char *bindline = strdup("0.0.0.0:5151");
+	char *pg_connstr = strdup("dbname = fepserver");
+	/* */
+	char cfgpath[PATH_MAX + 1];
+	cfg_opt_t opt[] = {
+		CFG_SIMPLE_STR("bind", &bindline),
+		CFG_SIMPLE_STR("pg_connstr", &pg_connstr),
+		CFG_END()
+	};
+
 	openlog(NULL, LOG_PERROR | LOG_PID, LOG_LOCAL0);
 	xsyslog(LOG_INFO, "--- START ---");
-	spq_open(10, "dbname = fepserver");
+
+	snprintf(cfgpath, PATH_MAX, "%s.conf", argv[0]);
+	xsyslog(LOG_INFO, "read config: %s", cfgpath);
+	cfg = cfg_init(opt, 0);
+	cfg_parse(cfg, cfgpath);
+
+	xsyslog(LOG_DEBUG, "pg: \"%s\"", pg_connstr);
+	spq_open(10, pg_connstr);
 	/* всякая ерунда с бд */
 	if (spq_create_tables()) {
 		loop = EV_DEFAULT;
@@ -715,14 +734,27 @@ main(int argc, char *argv[])
 		ev_timer_init(&pain.watcher, timeout_cb, 1., 15.);
 		ev_timer_start(loop, &pain.watcher);
 		/* TODO: мультисокет */
-		if (server_alloc(&pain, "0.0.0.0:5151")) {
+		{
+			char *_x = strdup(bindline);
+			char *_b = _x;
+			char *_e = NULL;
+			for (; _b; _b = _e) {
+				if ((_e = strchr(_b, ',')) != NULL) {
+					*_e = '\0';
+					_e++;
+				}
+				server_alloc(&pain, _b);
+			}
+			free(_x);
+		}
+		if (pain.sev) {
 			ev_set_userdata(loop, (void*)&pain);
 			/* выход происходит при остановке всех evio в лупе */
 			ev_run(loop, 0);
+			/* чистка серверных сокетов */
+			while (pain.sev)
+				pain.sev = server_free(loop, pain.sev);
 		}
-		/* чистка серверных сокетов */
-		while (pain.sev)
-			pain.sev = server_free(loop, pain.sev);
 		/* чистка клиентских сокетов */
 		ev_signal_stop(loop, &pain.sigint);
 		ev_timer_stop(loop, &pain.watcher);
@@ -732,6 +764,10 @@ main(int argc, char *argv[])
 	spq_close();
 	closelog();
 	xsyslog(LOG_INFO, "--- EXIT ---");
+
+	free(bindline);
+	free(pg_connstr);
+
 	return EXIT_SUCCESS;
 }
 
