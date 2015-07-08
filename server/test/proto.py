@@ -736,32 +736,34 @@ def proto(s, user, secret, devid, cmd = None):
 
     return r
 
-def connect(host, user, secret, devid, cmd = None):
-    write_std("# connect to %s, cmd: %s\n" %(host, str(cmd)))
-    sock = None
-    port = "0"
+def connect(hosts, user, secret, devid, cmd = None):
     r =  False
-    if ":" in host:
-        e = host.rsplit(":", 1)
-        host = e[0]
-        port = e[1]
-    for ai in\
-        socket.getaddrinfo(host, port, socket.AF_UNSPEC, socket.SOCK_STREAM):
-        try:
-            write_std("# use adddres info %s\n" %str(ai))
-            sock = socket.socket(ai[0], ai[1], ai[2])
-            sock.connect(ai[4])
-        except:
-            exc = sys.exc_info()
-            write_std("# connect fail: " + str(exc) + "\n")
-            sock = None
-        if sock:
-            r = proto(sock, user, secret, devid, cmd)
-            sock.shutdown(socket.SHUT_RDWR)
-            sock.close()
-            break
-    return r
+    for host in hosts.split(','):
+        write_std("# connect to %s, cmd: %s\n" %(host, str(cmd)))
+        sock = None
+        port = "0"
+        if ":" in host:
+            e = host.rsplit(":", 1)
+            host = e[0]
+            port = e[1]
+        for ai in\
+            socket.getaddrinfo(host, port, socket.AF_UNSPEC, socket.SOCK_STREAM):
+            try:
+                write_std("# use adddres info %s\n" %str(ai))
+                sock = socket.socket(ai[0], ai[1], ai[2])
+                sock.connect(ai[4])
+            except:
+                exc = sys.exc_info()
+                write_std("# connect fail: " + str(exc) + "\n")
+                sock = None
+            if sock:
+                r = proto(sock, user, secret, devid, cmd)
+                sock.shutdown(socket.SHUT_RDWR)
+                sock.close()
+                write_std("# end connetion\n")
+                return r
     write_std("# end of sockets\n")
+    return r
 
 
 def thread_entry(): # сервер вотчер ололо

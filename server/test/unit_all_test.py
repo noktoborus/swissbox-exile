@@ -8,6 +8,9 @@ import psycopg2
 import random
 import proto
 
+import ConfigParser as configparser
+import StringIO
+
 def gen_char(n):
     s = 'qwertyuiopasdfghjklzxcvbnm'
     return ''.join(random.choice(s) for i in range(n))
@@ -16,11 +19,23 @@ class TestSetUper():
     username = gen_char(3)
     secret = gen_char(6)
     host = "localhost:5151"
+    pgstring = "dbname = fepserver"
     devid = random.randint(0, 1 << 32)
     
     def setUp(self):
+        p = configparser.ConfigParser()
+        # получение конфигурации сервера
+        with open("bin/server.conf") as xf:
+            _l = StringIO.StringIO("[xxx]\n" + xf.read())
+            p.readfp(_l)
+        
+        try: self.pgstring = p.get("xxx", "pg_connstr").replace("\"", "")
+        except: pass
+        try: self.host = p.get("xxx", "bind").replace("\"", "")
+        except: pass
+
         # добавление пользователя в бд
-        con = psycopg2.connect("dbname=fepserver")
+        con = psycopg2.connect(self.pgstring)
         cur = con.cursor()
         cur.execute("INSERT INTO \"user\" (username, secret) SELECT %s, %s WHERE NOT EXISTS (SELECT * FROM \"user\" WHERE username = %s)",
                 (self.username, self.secret, self.username))
