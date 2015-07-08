@@ -50,6 +50,7 @@ _file_complete(struct client *c, struct wait_file *wf, bool prepare)
 		if (prepare) {
 			size_t pkeysize = wf->key_len * 2 + 1;
 			char *pkeyhex = alloca(pkeysize);
+			memset(&hint, 0, sizeof(struct spq_hint));
 			bin2hex(wf->key, wf->key_len, pkeyhex, pkeysize);
 			checkpoint = spq_insert_revision(c->name, c->device_id,
 					&wf->rootdir, &wf->file, &wf->revision, &wf->parent,
@@ -64,11 +65,11 @@ _file_complete(struct client *c, struct wait_file *wf, bool prepare)
 		}
 		return true;
 	}
-	memset(&hint, 0, sizeof(struct spq_hint));
 	/* файл собрался */
 	{
 		size_t pkeysize = wf->key_len * 2 + 1;
 		char *pkeyhex = alloca(pkeysize);
+		memset(&hint, 0, sizeof(struct spq_hint));
 		bin2hex(wf->key, wf->key_len, pkeyhex, pkeysize);
 		checkpoint = spq_insert_revision(c->name, c->device_id,
 				&wf->rootdir, &wf->file, &wf->revision, &wf->parent,
