@@ -916,6 +916,7 @@ spq_update_file(char *username, uint64_t device_id,
 bool
 spq_feed_hint(const char *msg, size_t msglen, struct spq_hint *hint)
 {
+	size_t e;
 	if (!hint)
 		return false;
 
@@ -936,10 +937,14 @@ spq_feed_hint(const char *msg, size_t msglen, struct spq_hint *hint)
 			hint->level = SPQ_ERR;
 			break;
 		}
-		strncpy(hint->message, &msg[2], MIN(SPQ_ERROR_LEN, msglen - 2));
+		e = MIN(SPQ_ERROR_LEN, msglen - 2);
+		strncpy(hint->message, &msg[2], e);
+		hint->message[e] = '\0';
 	} else {
 		hint->level = SPQ_ERR;
-		strncpy(hint->message, msg, MIN(SPQ_ERROR_LEN, msglen));
+		e = MIN(SPQ_ERROR_LEN, msglen);
+		strncpy(hint->message, msg, e);
+		hint->message[e] = '\0';
 	}
 	return true;
 }
@@ -1078,15 +1083,19 @@ spq_begin_life(PGconn *pgc, char *username, uint64_t device_id)
 }
 
 static inline bool
-_spq_check_user(PGconn *pgc, char *username, char *secret)
+_spq_check_user(PGconn *pgc, char *username, char *secret,
+		struct spq_UserInfo *user, struct spq_hint *hint)
 {
-	bool r = false;
 	PGresult *res;
 	const char tb[] =
-		"SELECT check_user($1::character varying, $2::character varying);";
+		"SELECT trunc(extract(epoch from r_registered)), * "
+		"FROM check_user($1::character varying, $2::character varying);";
 	const int fmt[2] = {0, 0};
 	char *val[2];
 	int len[2];
+
+	char *rval;
+	int rlen;
 
 	len[0] = strlen(username);
 	len[1] = strlen(secret);
@@ -1096,24 +1105,47 @@ _spq_check_user(PGconn *pgc, char *username, char *secret)
 
 	res = PQexecParams(pgc, tb, 2, NULL, (const char *const*)val, len, fmt, 0);
 	if (PQresultStatus(res) != PGRES_TUPLES_OK) {
+		spq_feed_hint(NULL, 0u, hint);
 		xsyslog(LOG_INFO, "exec check_user error: %s",
 				PQresultErrorMessage(res));
-	} else if (PQgetlength(res, 0, 0)) {
-		if (PQgetvalue(res, 0, 0)[0] == 't')
-			r = true;
+		PQclear(res);
+		return false;
+	} else if ((rlen = PQgetlength(res, 0, 0)) != 0) {
+		/* парсинг варнинга */
+		rval = PQgetvalue(res, 0, 1);
+		spq_feed_hint(rval, (size_t)rlen, hint);
+		xsyslog(LOG_DEBUG, "exec check_user warning: %s", rval);
+		/* обработка других полей */
+		/* r_autorized, boolean */
+		if ((rlen = PQgetlength(res, 0, 2)) != 0)
+			user->authorized = (PQgetvalue(res, 0, 2)[0] == 't');
+
+		/* r_next_server, text */
+		if ((rlen = PQgetlength(res, 0, 4)) != 0) {
+			rval = PQgetvalue(res, 0, 4);
+			strncpy(user->next_server, rval, PATH_MAX);
+			user->next_server[PATH_MAX] = '\0';
+		}
+
+		/* trunc(r_registered), bigint */
+		if ((rlen = PQgetlength(res, 0, 0)) != 0) {
+			rval = PQgetvalue(res, 0, 0);
+			user->registered = strtoull(rval, NULL, 0);
+		}
 	}
 
 	PQclear(res);
-	return r;
+	return true;
 }
 
 bool
-spq_check_user(char *username, char *secret)
+spq_check_user(char *username, char *secret,
+		struct spq_UserInfo *user, struct spq_hint *hint)
 {
 	bool r = false;
 	struct spq *c;
 	if ((c = acquire_conn(&_spq)) != NULL) {
-		r = _spq_check_user(c->conn, username, secret);
+		r = _spq_check_user(c->conn, username, secret, user, hint);
 		release_conn(&_spq, c);
 	}
 	return r;

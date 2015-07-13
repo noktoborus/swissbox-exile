@@ -66,18 +66,6 @@ uint64_t spq_directory_create(char *username, uint64_t device_id,
 		guid_t *rootdir, guid_t *new_directory, char *new_dirname,
 		struct spq_hint *hint);
 
-
-struct spq_user
-{
-	char *module;
-};
-/* получение информации по пользователю
- * и модуля, обслуживающего его
- */
-bool spq_user_query(char *username, char *secret, uint64_t device_id,
-		/* возвращаемые значения: */
-		struct spq_user *user, struct spq_hint *hint);
-
 /* */
 
 bool spq_getChunkPath(char *username, uint64_t device_id,
@@ -220,7 +208,19 @@ bool spq_getFileMeta(char *username, uint64_t device_id,
 void spq_getFileMeta_free(struct spq_FileMeta *fmeta);
 
 /* проверка наличия пользователя в бд */
-bool spq_check_user(char *username, char *secret);
+struct spq_UserInfo {
+	/* авторизован ли пользователь или нужно обращаться к next_server */
+	bool authorized;
+	/* время регистрации, если пользователь был получен от next_server,
+	 * то время последнего обновления
+	 */
+	time_t registered;
+	/* адрес следующего сервера для авторизации и прочего */
+	char next_server[PATH_MAX + 1];
+};
+
+bool spq_check_user(char *username, char *secret,
+		struct spq_UserInfo *user, struct spq_hint *hint);
 
 /* помогалки */
 bool spq_begin_life(PGconn *pgc, char *username, uint64_t device_id);

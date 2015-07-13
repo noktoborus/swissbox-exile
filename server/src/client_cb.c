@@ -39,6 +39,10 @@ c_auth_cb(struct client *c, uint64_t id, unsigned int msgtype, void *msg, void *
 	bool lval;
 	char *errmsg = NULL;
 	Fep__Auth *amsg = (Fep__Auth*)msg;
+
+	struct spq_hint hint;
+	struct spq_UserInfo user;
+
 	/* ответы: Ok, Error, Pending */
 	/* TODO: заглушка */
 	if (msgtype != FEP__TYPE__tAuth) {
@@ -55,7 +59,17 @@ c_auth_cb(struct client *c, uint64_t id, unsigned int msgtype, void *msg, void *
 		errmsg = "Username or Token has zero lenght";
 	}
 
-	if (!spq_check_user(amsg->username, amsg->authtoken)) {
+	memset(&user, 0u, sizeof(struct spq_UserInfo));
+	memset(&hint, 0u, sizeof(struct spq_hint));
+
+	if (!spq_check_user(amsg->username, amsg->authtoken, &user, &hint)) {
+		if (*hint.message)
+			errmsg = hint.message;
+		else
+			errmsg = "Internal error 96";
+	} else if (!user.authorized && *user.next_server) {
+		/* TODO: запрос к серверу авторизации */
+	} else {
 		errmsg = "Incorrect auth data";
 	}
 

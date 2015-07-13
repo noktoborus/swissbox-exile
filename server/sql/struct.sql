@@ -78,6 +78,7 @@ CREATE SEQUENCE user_seq;
 CREATE TABLE IF NOT EXISTS "user"
 (
 	id bigint NOT NULL DEFAULT nextval('user_seq') PRIMARY KEY,
+	created timestamp with time zone NOT NULL DEFAULT now(),
 	username varchar(1024) NOT NULL CHECK(char_length(username) > 0),
 	secret varchar(96) NOT NULL,
 	UNIQUE(username)
@@ -1770,13 +1771,23 @@ END $$ LANGUAGE plpgsql;
 -- проверка имени пользователя
 CREATE OR REPLACE FUNCTION check_user(_username "user".username%TYPE,
 	_secret "user".username%TYPE, _drop_ _drop_ default 'drop')
-	RETURNS boolean AS $$
+	RETURNS TABLE
+	(
+		r_error text,
+		r_authorized boolean,
+		r_registered timestamp with time zone NOT NULL DEFAULT now(),
+		r_next_server text
+	) AS $$
 BEGIN
 	IF (SELECT COUNT(*) FROM "user" WHERE username = _username
 		AND secret = _secret) = 1 THEN
-		return True;
+		r_authorized := TRUE;
+		return next;
+		return;
 	END IF;
-	return False;
+	r_authorized := FALSE;
+	r_next_server := "";
+	return next;
 END $$ LANGUAGE plpgsql;
 
 -- вешанье триггеров, инжекция базовых значений
