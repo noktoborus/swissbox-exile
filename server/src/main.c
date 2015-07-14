@@ -6,6 +6,7 @@
 #include "simplepq/simplepq.h"
 #include "client_iterate.h"
 
+#include <curl/curl.h>
 #include <arpa/inet.h>
 #include <errno.h>
 #include <inttypes.h>
@@ -715,6 +716,7 @@ main(int argc, char *argv[])
 		CFG_END()
 	};
 
+	curl_global_init(CURL_GLOBAL_ALL);
 	openlog(NULL, LOG_PERROR | LOG_PID, LOG_LOCAL0);
 	xsyslog(LOG_INFO, "--- START ---");
 
@@ -737,7 +739,7 @@ main(int argc, char *argv[])
 		/* таймер на чистку всяких устаревших структур и прочего */
 		ev_timer_init(&pain.watcher, timeout_cb, 1., 15.);
 		ev_timer_start(loop, &pain.watcher);
-		/* TODO: мультисокет */
+		/* мультисокет */
 		{
 			char *_x = strdup(bindline);
 			char *_b = _x;
@@ -772,6 +774,8 @@ main(int argc, char *argv[])
 	cfg_free(cfg);
 	free(bindline);
 	free(pg_connstr);
+
+	curl_global_cleanup();
 
 	return EXIT_SUCCESS;
 }
