@@ -7,9 +7,31 @@
 #include <stdio.h>
 #include <string.h>
 
+#include <polarssl/md5.h>
+
 #ifndef MIN
 # define MIN(x, y) (x > y ? y : x)
 #endif
+
+bool
+any2guid(const char *in, size_t inlen, guid_t *guid)
+{
+	/* получение md5 хеша входящей строки и формирование гуида */
+	char md5o[16];
+	md5((const unsigned char*)in, inlen, (unsigned char*)md5o);
+
+	memset(guid, 0u, sizeof(guid_t));
+
+	memcpy(&guid->f1, md5o, 4);
+	memcpy(&guid->f2, &md5o[4], 2);
+	memcpy(&guid->f3, &md5o[6], 2);
+	memcpy(&guid->f4, &md5o[8], 8);
+
+	guid->not_null = true;
+
+	return true;
+}
+
 /* Можно сделать и нормально, через sscanf,
  * но проще перестраховаться и не особо думать.
  *
