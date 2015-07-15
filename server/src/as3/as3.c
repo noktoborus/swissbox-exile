@@ -3,6 +3,7 @@
  */
 #include "as3.h"
 #include "junk/xsyslog.h"
+#include "junk/utils.h"
 
 #include <sys/utsname.h>
 #include <errno.h>
@@ -15,13 +16,13 @@ as3_client(char *string, size_t string_size)
 {
 	struct utsname buf;
 	memset(&buf, 0, sizeof(struct utsname));
-	if (uname(&utsname)) {
+	if (uname(&buf)) {
 		xsyslog(LOG_ERR, "uname failed[%d]: %s", errno, strerror(errno));
 		return false;
 	}
 
 	snprintf(string, string_size, "Server/OEM/%s/%s/Swissbox Server/1",
-			utsname.sysname, utsname.release);
+			buf.sysname, buf.release);
 
 	return true;
 }
@@ -39,6 +40,7 @@ as3_auth(char *path, char *name, char *secret, uint64_t device_id)
 	 */
 	CURL *curl;
 	CURLcode res;
+	struct curl_slist *x_header = NULL;
 	guid_t x_device_id;
 	char x_client[64];
 	char xaddr[64];
@@ -46,6 +48,9 @@ as3_auth(char *path, char *name, char *secret, uint64_t device_id)
 	long rcode;
 
 	as3_client(x_client, sizeof(x_client));
+
+	/* формирование device_id */
+	any2guid((char*)&device_id, sizeof(device_id), &x_device_id);
 
 	/* формирование json */
 	snprintf(xjson, sizeof(xjson), "{ username: \"%s\", password: \"%s\" }",
@@ -58,8 +63,19 @@ as3_auth(char *path, char *name, char *secret, uint64_t device_id)
 		return false;
 	}
 
+	x_header = curl_slist_append(x_header, "Content-Type: application/json");
+	{
+		char _x_device_id[GUID_MAX + 1];
+		char _t[64];
+		guid2string(&x_device_id, PSIZE(_x_device_id));
+		snprintf(_t, sizeof(_t), "X-Device-Id: %s", _x_device_id);
+		x_header = curl_slist_append(x_header, _t);
+		snprintf(_t, sizeof(_t), "X-Client: %s", x_client);
+		x_header = curl_slist_append(x_header, _t);
+	}
 	curl_easy_setopt(curl, CURLOPT_URL, xaddr);
 	curl_easy_setopt(curl, CURLOPT_POSTFIELDS, xjson);
+	curl_easy_setopt(curl, CURLOPT_HTTPHEADER, x_header);
 
 	if ((res = curl_easy_perform(curl)) != CURLE_OK) {
 		xsyslog(LOG_WARNING, "curl perform failed: %s\n",
@@ -73,6 +89,9 @@ as3_auth(char *path, char *name, char *secret, uint64_t device_id)
 
 	if (rcode == 200)
 		return true;
+	if (rcode != 401) {
+		xsyslog(LOG_WARNING, "AS3 (%s) response code: %ld", path, rcode);
+	}
 	return false;
 }
 

@@ -8,9 +8,15 @@ SRC=src/
 SIMPLEPQ=simplepq/simplepq.c
 SQUEUE=squeue/squeue.c
 JUNK=junk/guid.c junk/utils.c
+AS3=${SRC}/as3/as3.c
 
 SOURCES=${SRC}/main.c ${SRC}/client_iterate.c proto/fep.pb-c.c\
-	${SRC}/list.c ${SRC}/client/cum.c ${SRC}/client_cb.c ${SQUEUE} ${SIMPLEPQ} ${JUNK}
+	${SRC}/list.c ${SRC}/client/cum.c ${SRC}/client_cb.c\
+	${AS3}\
+	${SQUEUE}\
+	${SIMPLEPQ}\
+	${JUNK}
+
 INC_SOURCES=${SRC}/client/include/send.c ${SRC}/client/include/handle.c
 
 all: ${BIN}

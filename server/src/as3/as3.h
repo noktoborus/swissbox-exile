@@ -4,6 +4,10 @@
 #ifndef _SRC_AS3_AS3_1436863715_H_
 #define _SRC_AS3_AS3_1436863715_H_
 
+#include "junk/guid.h"
+
+#include <stdbool.h>
+#include <string.h>
 
 #endif /* _SRC_AS3_AS3_1436863715_H_ */
 
