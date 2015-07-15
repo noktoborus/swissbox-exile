@@ -31,12 +31,14 @@ ${BIN}: .buildflags .sqlversion ${SOURCES} ${INC_SOURCES}
 .buildflags: buildtools/findev.sh buildtools/findpq.sh\
 	buildtools/findprotobuf-c.sh buildtools/findpolarssl.sh\
 	buildtools/findconfuse.sh\
+	buildtools/findcurl.sh\
 	additional_flags
 	buildtools/findev.sh >>.buildflags
 	buildtools/findpq.sh >>.buildflags
 	buildtools/findprotobuf-c.sh >>.buildflags
 	buildtools/findpolarssl.sh >>.buildflags
 	buildtools/findconfuse.sh >>.buildflags
+	buildtools/findcurl.sh >>.buildflags
 	echo -n " " >>.buildflags
 	cat additional_flags >>.buildflags
 
