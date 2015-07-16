@@ -1115,23 +1115,24 @@ _spq_check_user(PGconn *pgc, char *username, char *secret,
 		rval = PQgetvalue(res, 0, 1);
 		spq_feed_hint(rval, (size_t)rlen, hint);
 		xsyslog(LOG_DEBUG, "exec check_user warning: %s", rval);
-		/* обработка других полей */
-		/* r_autorized, boolean */
-		if ((rlen = PQgetlength(res, 0, 2)) != 0)
-			user->authorized = (PQgetvalue(res, 0, 2)[0] == 't');
+	}
 
-		/* r_next_server, text */
-		if ((rlen = PQgetlength(res, 0, 4)) != 0) {
-			rval = PQgetvalue(res, 0, 4);
-			strncpy(user->next_server, rval, PATH_MAX);
-			user->next_server[PATH_MAX] = '\0';
-		}
+	/* обработка других полей */
+	/* r_autorized, boolean */
+	if ((rlen = PQgetlength(res, 0, 2)) != 0)
+		user->authorized = (PQgetvalue(res, 0, 2)[0] == 't');
 
-		/* trunc(r_registered), bigint */
-		if ((rlen = PQgetlength(res, 0, 0)) != 0) {
-			rval = PQgetvalue(res, 0, 0);
-			user->registered = strtoull(rval, NULL, 0);
-		}
+	/* r_next_server, text */
+	if ((rlen = PQgetlength(res, 0, 4)) != 0) {
+		rval = PQgetvalue(res, 0, 4);
+		strncpy(user->next_server, rval, PATH_MAX);
+		user->next_server[PATH_MAX] = '\0';
+	}
+
+	/* trunc(r_registered), bigint */
+	if ((rlen = PQgetlength(res, 0, 0)) != 0) {
+		rval = PQgetvalue(res, 0, 0);
+		user->registered = strtoull(rval, NULL, 0);
 	}
 
 	PQclear(res);
@@ -1146,6 +1147,49 @@ spq_check_user(char *username, char *secret,
 	struct spq *c;
 	if ((c = acquire_conn(&_spq)) != NULL) {
 		r = _spq_check_user(c->conn, username, secret, user, hint);
+		release_conn(&_spq, c);
+	}
+	return r;
+}
+
+bool
+_spq_add_user(PGconn *pgc, char *username, char *secret, struct spq_hint *hint)
+{
+	PGresult *res;
+	const char tb[] =
+		"INSERT INTO \"user\"(username, secret)"
+		"VALUES ($1::character varying, $2::character varying)";
+
+	const int fmt[2] = {0, 0};
+	char *val[2];
+	int len[2];
+
+	len[0] = strlen(username);
+	len[1] = strlen(secret);
+
+	val[0] = username;
+	val[1] = secret;
+
+	res = PQexecParams(pgc, tb, 2, NULL, (const char *const*)val, len, fmt, 0);
+	if (PQresultStatus(res) != PGRES_COMMAND_OK) {
+		spq_feed_hint(NULL, 0u, hint);
+		xsyslog(LOG_INFO, "exec add_user error: %s",
+				PQresultErrorMessage(res));
+		PQclear(res);
+		return false;
+	}
+
+	PQclear(res);
+	return true;
+}
+
+bool
+spq_add_user(char *username, char *secret, struct spq_hint *hint)
+{
+	bool r = false;
+	struct spq *c;
+	if ((c = acquire_conn(&_spq)) != NULL) {
+		r = _spq_add_user(c->conn, username, secret, hint);
 		release_conn(&_spq, c);
 	}
 	return r;

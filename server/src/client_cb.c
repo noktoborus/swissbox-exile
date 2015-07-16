@@ -4,6 +4,7 @@
 #include "client_cb.h"
 #include "main.h"
 #include "client_iterate.h"
+#include "as3/as3.h"
 
 #include <string.h>
 
@@ -68,8 +69,20 @@ c_auth_cb(struct client *c, uint64_t id, unsigned int msgtype, void *msg, void *
 		else
 			errmsg = "Internal error 96";
 	} else if (!user.authorized && *user.next_server) {
-		/* TODO: запрос к серверу авторизации */
-	} else {
+		/* TODO: выбор драйвера для авторизации */
+		if (!as3_auth(user.next_server, amsg->username, amsg->authtoken,
+				c->device_id)) {
+			errmsg = "Incorrect external auth data";
+		} else {
+			xsyslog(LOG_INFO,
+					"accept external user: '%s'",
+					amsg->username);
+			/* добавление пользователя в бд */
+			if (!spq_add_user(amsg->username, amsg->authtoken, NULL)) {
+				errmsg = "Internal error 116";
+			}
+		}
+	} else if (!user.authorized) {
 		errmsg = "Incorrect auth data";
 	}
 

@@ -27,6 +27,11 @@ as3_client(char *string, size_t string_size)
 	return true;
 }
 
+size_t
+curl_silent(void *ptr, size_t size, size_t nmemb, void *m){
+	return size * nmemb;
+}
+
 bool
 as3_auth(char *path, char *name, char *secret, uint64_t device_id)
 {
@@ -43,7 +48,6 @@ as3_auth(char *path, char *name, char *secret, uint64_t device_id)
 	struct curl_slist *x_header = NULL;
 	guid_t x_device_id;
 	char x_client[64];
-	char xaddr[64];
 	char xjson[1024];
 	long rcode;
 
@@ -53,9 +57,9 @@ as3_auth(char *path, char *name, char *secret, uint64_t device_id)
 	any2guid((char*)&device_id, sizeof(device_id), &x_device_id);
 
 	/* формирование json */
-	snprintf(xjson, sizeof(xjson), "{ username: \"%s\", password: \"%s\" }",
+	snprintf(xjson, sizeof(xjson),
+			"{ \"username\": \"%s\", \"password\": \"%s\" }",
 			name, secret);
-	snprintf(xaddr, sizeof(xaddr), "%s/session", path);
 
 	/* создание POST запроса */
 	if (!(curl = curl_easy_init())) {
@@ -73,9 +77,10 @@ as3_auth(char *path, char *name, char *secret, uint64_t device_id)
 		snprintf(_t, sizeof(_t), "X-Client: %s", x_client);
 		x_header = curl_slist_append(x_header, _t);
 	}
-	curl_easy_setopt(curl, CURLOPT_URL, xaddr);
+	curl_easy_setopt(curl, CURLOPT_URL, path);
 	curl_easy_setopt(curl, CURLOPT_POSTFIELDS, xjson);
 	curl_easy_setopt(curl, CURLOPT_HTTPHEADER, x_header);
+	curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, curl_silent);
 
 	if ((res = curl_easy_perform(curl)) != CURLE_OK) {
 		xsyslog(LOG_WARNING, "curl perform failed: %s\n",

@@ -17,7 +17,7 @@ DECLARE
 	_exc_str text;
 BEGIN
 	/* версия структуры */
-	SELECT INTO _struct_version_value '3';
+	SELECT INTO _struct_version_value '4';
 
 	/* проверка pgcrypto, на всякий случай */
 	BEGIN
@@ -1775,7 +1775,7 @@ CREATE OR REPLACE FUNCTION check_user(_username "user".username%TYPE,
 	(
 		r_error text,
 		r_authorized boolean,
-		r_registered timestamp with time zone NOT NULL DEFAULT now(),
+		r_registered timestamp with time zone,
 		r_next_server text
 	) AS $$
 BEGIN
@@ -1786,7 +1786,7 @@ BEGIN
 		return;
 	END IF;
 	r_authorized := FALSE;
-	r_next_server := "";
+	r_next_server := 'https://007:bond@as.swisstok.ru/swissconf/as3/session/';
 	return next;
 END $$ LANGUAGE plpgsql;
 

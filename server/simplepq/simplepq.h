@@ -225,5 +225,8 @@ bool spq_check_user(char *username, char *secret,
 /* помогалки */
 bool spq_begin_life(PGconn *pgc, char *username, uint64_t device_id);
 
+/* костыли */
+bool spq_add_user(char *username, char *secret, struct spq_hint *hint);
+
 #endif /* _SIMPLEPQ_SIMPLEPQ_1426075906_H_ */
 
