@@ -65,8 +65,10 @@ client_cum_create(uint32_t namehash)
 		}
 	}
 
-	/* нужно отметиться */
-	ccum->ref++;
+	if (ccum) {
+		/* нужно отметиться */
+		ccum->ref++;
+	}
 	/* и разметить список */
 	pthread_mutex_unlock(&clients_cum.lock);
 

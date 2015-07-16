@@ -35,8 +35,8 @@ _squeue_sanitary(struct squeue *q)
 	}
 	/* теперь нужно вычистить по списку всё, что меньше этого id */
 	{
-		register struct squeue_data *n;
-		register struct squeue_data *f;
+		register struct squeue_data *n = NULL;
+		register struct squeue_data *f = NULL;
 		n = q->n;
 		while (n) {
 			if (n->id < min && n->readed == q->ref) {

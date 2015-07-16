@@ -750,7 +750,7 @@ _spq_directory_create(PGconn *pgc, guid_t *rootdir,
 		guid_t *new_directory, char *new_dirname,
 		struct spq_hint *hint)
 {
-	uint64_t result;
+	uint64_t result = 0lu;
 	PGresult *res;
 	ExecStatusType pqs;
 	const char tb[] =

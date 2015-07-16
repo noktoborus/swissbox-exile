@@ -52,7 +52,7 @@ _file_complete(struct client *c, struct wait_file *wf, bool prepare)
 			char *pkeyhex = alloca(pkeysize);
 			memset(&hint, 0, sizeof(struct spq_hint));
 			bin2hex(wf->key, wf->key_len, pkeyhex, pkeysize);
-			checkpoint = spq_insert_revision(c->name, c->device_id,
+			spq_insert_revision(c->name, c->device_id,
 					&wf->rootdir, &wf->file, &wf->revision, &wf->parent,
 					wf->enc_filename, pkeyhex, &wf->dir, wf->chunks, true,
 					&hint);

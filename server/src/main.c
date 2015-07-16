@@ -332,7 +332,7 @@ server_cb(struct ev_loop *loop, ev_io *w, int revents)
 
 	char xaddr[48];
 	int sock;
-	struct sockaddr_storage sa;
+	struct sockaddr_storage sa = {0};
 	socklen_t salen = sizeof(struct sockaddr_storage);
 	if (revents & EV_READ) {
 		sock = accept(sev->fd, (struct sockaddr*)&sa, &salen);

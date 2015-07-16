@@ -371,7 +371,7 @@ bool
 _send_message(struct sev_ctx *cev, unsigned type, void *msg, char *name)
 {
 	ssize_t lval;
-	size_t len;
+	size_t len = 0u;
 	unsigned char *buf;
 
 	if (!type || type >= sizeof(handle) / sizeof(struct handle)) {
@@ -388,7 +388,8 @@ _send_message(struct sev_ctx *cev, unsigned type, void *msg, char *name)
 	}
 
 	/* подготавливается заголовок */
-	len = handle[type].f_sizeof(msg);
+	if (handle[type].f_sizeof)
+		len = handle[type].f_sizeof(msg);
 	buf = pack_header(type, &len);
 	if (!buf) {
 		xsyslog(LOG_WARNING, "client[%p] memory fail in %s: %s",
