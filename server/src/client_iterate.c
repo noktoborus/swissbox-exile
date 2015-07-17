@@ -178,12 +178,21 @@ client_local_rootdir(struct client *c, guid_t *rootdir, uint64_t checkpoint)
 	{
 		char _rootdir[GUID_MAX + 1];
 		guid2string(&c->rootdir.g[i].rootdir, PSIZE(_rootdir));
-		xsyslog(LOG_DEBUG,
-				"client[%p] change checkpoint (%s): %"PRIu64" -> %"PRIu64
-				" (%s:%"PRIX64") [%u]",
-				(void*)c->cev, _rootdir,
-				c->rootdir.g[i].checkpoint, checkpoint,
-				c->name, c->device_id, i);
+		if (checkpoint != C_ROOTDIR_ACTIVATE) {
+			xsyslog(LOG_DEBUG,
+					"client[%p] change checkpoint (%s): %"PRIu64" -> %"PRIu64
+					" (%s:%"PRIX64") [%u]",
+					(void*)c->cev, _rootdir,
+					c->rootdir.g[i].checkpoint, checkpoint,
+					c->name, c->device_id, i);
+		} else {
+			xsyslog(LOG_DEBUG,
+					"client[%p] Set sync active (%s): at checkpoint %"PRIu64
+					" (%s:%"PRIX64") [%u]",
+					(void*)c->cev, _rootdir,
+					c->rootdir.g[i].checkpoint,
+					c->name, c->device_id, i);
+		}
 	}
 #endif
 	if (checkpoint != C_ROOTDIR_ACTIVATE)
