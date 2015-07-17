@@ -1342,7 +1342,7 @@ BEGIN
 		t.file_id,
 		t.rootdir_id,
 		t.file_guid,
-		COALESCE(file_temp.directory, t.directory_guid) AS directory_guid,
+		COALESCE(file_temp.directory, directory.directory) AS directory_guid,
 		COALESCE(file_temp.filename, t.filename) AS filename,
 		COALESCE(file_temp.pubkey, t.pubkey) AS pubkey
 	FROM (
@@ -1350,11 +1350,10 @@ BEGIN
 			file.id AS file_id,
 			r_rootdir_id AS rootdir_id,
 			file.file AS file_guid,
-			directory.directory AS directory_guid,
-			directory.id AS directory_id,
 			file.filename AS filename,
+			file.directory_id AS directory_id,
 			file.pubkey AS pubkey
-		FROM life_data(_rootdir), file, directory
+		FROM life_data(_rootdir), file
 		WHERE
 			file.rootdir_id = r_rootdir_id AND
 			file.file = _file
