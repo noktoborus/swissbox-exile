@@ -122,11 +122,11 @@ client_share_checkpoint(struct client *c, guid_t *rootdir, uint64_t checkpoint)
 				xsyslog(LOG_DEBUG,
 						"client[%p] add share rootdir '%s' checkpoint: %"PRIu64
 						" (%s:%"PRIX64")",
-						(void*)c, _rootdir, checkpoint, c->name, c->device_id);
+						(void*)c->cev, _rootdir, checkpoint, c->name, c->device_id);
 #endif
 			} else {
 				xsyslog(LOG_WARNING, "client[%p] can't alloc root node",
-						(void*)c);
+						(void*)c->cev);
 			}
 		}
 	} else if ((rg = rp->data)->checkpoint < checkpoint) {
@@ -137,7 +137,7 @@ client_share_checkpoint(struct client *c, guid_t *rootdir, uint64_t checkpoint)
 			xsyslog(LOG_DEBUG,
 					"client[%p] update share rootdir '%s' checkpoint: %"PRIu64
 					" -> %"PRIu64" (%s:%"PRIX64")",
-					(void*)c, _rootdir, rg->checkpoint, checkpoint,
+					(void*)c->cev, _rootdir, rg->checkpoint, checkpoint,
 					c->name, c->device_id);
 		}
 #endif
@@ -169,7 +169,7 @@ client_local_rootdir(struct client *c, guid_t *rootdir, uint64_t checkpoint)
 			c->rootdir.c++;
 		} else {
 			xsyslog(LOG_WARNING, "client[%p] can't add rootdir in list: %s",
-					(void*)c, strerror(errno));
+					(void*)c->cev, strerror(errno));
 			return;
 		}
 	}
