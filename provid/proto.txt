@@ -1,0 +1,59 @@
+<property>: список допустимых ресурсов/дисков
+пример:
+[{"name": "disk1", "quota": 1024}, {"name": "disk2"}]
+
+	{
+		"name": имя ресурса, видимый пользователю,
+		"quota": лимит ресурса, в байтах. Если не используется, то без лимита
+	}
+
+
+
+1. Добавление пользователя
+	POST /op
+	{ "user": <username>, "op": "create", "secret": "password123", "prop-add": <property> }
+
+2. Удаление пользователя
+	POST /op
+	{ "user": <username>, "op": "remove" }
+
+2. Блокировка пользователя
+	POST /op
+	{ "user": <username>, "op": "block" }
+
+3. Разблокировка пользователя
+	POST op/
+	{ "user": <username>, "op": "unblock" }
+
+4. Добавление ресурсов:
+	POST op/
+	{ "user": <username>, "op": "update", "prop-add": <property> }
+
+5. Удаление ресурсов:
+	POST op/
+	{ "user": <username>, "op": "update", "prop-rem": <property> }
+	в этом случае не обязательно использовать поле "quota" для <property>
+
+6. Обновление ресурсов:
+	POST /op
+	{ "user": <username>, "op": "update", "prop-mod": <property> }
+
+7. Обновление пароля:
+	POST /op
+	{ "user": <username>, "op": "update", "secret": "newpassword123" }
+
+При одновременной отправки всех трёх полей (prop-add, prop-rem, prop-mod)
+	оперции будут выполнены в порядке:
+	1. prop-rem (удаление)
+	2. prop-add (добавление)
+	3. prop-mod (изменение)
+
+Ответы на все запросы:
+	Позитивный результат:
+		http code 200
+		{ "op": true, "msg": "..." }
+
+	Негативный результат:
+		http code 400
+		{ "op": false, "msg": "..." }
+
