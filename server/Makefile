@@ -30,6 +30,14 @@ debug:
 runtest: proto/fep_pb2.py
 	python test/unit_all_test.py
 
+pack: .pack_feps
+
+.pack_feps: ${BIN}
+	@echo pack into dist/feps-`git describe --always`.tbz
+	mkdir -p dist
+	tar -cjvf dist/feps-`git describe --always`.tbz bin/ user/.keep
+	@touch $@
+
 ${BIN}: .buildflags .sqlversion ${SOURCES} ${INC_SOURCES}
 	${CC} -o ${BIN} ${CFLAGS} -DSQLSTRUCTVER=`cat .sqlversion` ${SOURCES} ${LIBS} `cat .buildflags` ${BUILDFLAGS}
 	echo "build ok"
