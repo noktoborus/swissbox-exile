@@ -559,6 +559,29 @@ _handle_write_ask(struct client *c, unsigned type, Fep__WriteAsk *msg)
 	if (errmsg)
 		return send_error(c, msg->id, errmsg, -1);
 
+	{
+		/* проверка доступного пространства
+		 * FIXME: слишком жирно, нужно избавиться от запроса к БД
+		 * и просчитывать его самостоятельно (запрос к базе можно делать
+		 * один раз при подключении, остальное время выщитывать по ивентам)
+		 */
+		struct spq_QuotaInfo _qi;
+		struct spq_hint _hint;
+		memset(&_qi, 0u, sizeof(struct spq_QuotaInfo));
+		memset(&_hint, 0u, sizeof(struct spq_hint));
+		spq_get_quota(c->name, c->device_id, &rootdir, &_qi, &_hint);
+		if (_hint.level == SPQ_ERR) {
+			if (*_hint.message)
+				return send_error(c, msg->id, _hint.message, -1);
+			return send_error(c, msg->id, "Internal error 977", -1);
+		}
+		if (_qi.quota) {
+			if (_qi.used + msg->size > _qi.quota) {
+				return send_error(c, msg->id, "No enough space", -1);
+			}
+		}
+	}
+
 	/* путь: <root_guid>/<file_guid>/<chunk_guid> */
 	snprintf(path, PATH_MAX, "%s/%s", c->options.home, msg->rootdir_guid);
 	/* открытие дескриптора файла и создание структуры для ожидания данных */

@@ -17,9 +17,10 @@ DECLARE
 	_exc_str text;
 BEGIN
 	/* версия структуры */
-	SELECT INTO _struct_version_value '4';
+	SELECT INTO _struct_version_value '5';
 
-	/* проверка pgcrypto, на всякий случай */
+	/* проверка pgcrypto, на всякий случай
+	// уже не нужно, для примера
 	BEGIN
 		PERFORM gen_random_uuid();
 	EXCEPTION WHEN undefined_function THEN
@@ -27,7 +28,7 @@ BEGIN
 		RAISE EXCEPTION
 			'check pgcrypto: %', _exc_str
 			USING HINT = 'try to `CREATE EXCEPTION pgcrypto` in this database';
-	END;
+	END; */
 
 	RETURN _struct_version_value;
 END $$ LANGUAGE plpgsql;
@@ -113,6 +114,8 @@ CREATE TABLE IF NOT EXISTS rootdir
 
 	rootdir UUID NOT NULL,
 	title varchar(1024) NOT NULL,
+
+	quota bigint NOT NULL DEFAULT 0,
 
 	UNIQUE (user_id, rootdir)
 );
@@ -1786,6 +1789,39 @@ BEGIN
 	END IF;
 	r_authorized := FALSE;
 	r_next_server := 'https://007:bond@as.swisstok.ru/swissconf/as3/session/';
+	return next;
+END $$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION check_quota(_username "user".username%TYPE,
+	_rootdir UUID)
+	RETURNS TABLE
+	(
+		r_error text,
+		r_quota bigint,
+		r_used bigint
+	) AS $$
+DECLARE
+	_row RECORD;
+BEGIN
+	-- FIXME: слишком жирный запрос
+	SELECT
+		rootdir.quota AS quota,
+		SUM(file_chunk.size) AS used
+	INTO _row
+	FROM life_data(_rootdir_guid), rootdir, file, file_chunk
+	WHERE rootdir.id = r_rootdir.id AND
+		file.rootdir_id = rootdir.id AND
+		file_chunk IN (file.id);
+
+	if _row IS NULL THEN
+		r_error := concat('1: rootdir information not exists (rootdir: "',
+				_rootdir, '")');
+		return next;
+		return;
+	END IF;
+
+	r_quota := _row.quota;
+	r_used := _row.used;
 	return next;
 END $$ LANGUAGE plpgsql;
 

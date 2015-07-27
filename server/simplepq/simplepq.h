@@ -222,6 +222,19 @@ struct spq_UserInfo {
 bool spq_check_user(char *username, char *secret,
 		struct spq_UserInfo *user, struct spq_hint *hint);
 
+
+struct spq_QuotaInfo {
+	uint64_t used;
+	uint64_t quota;
+};
+
+/* получение информации по квоте в указанной rootdir
+ * в *qi результат запроса
+ */
+bool
+spq_get_quota(char *username, uint64_t device_id,
+		guid_t *rootdir, struct spq_QuotaInfo *qi, struct spq_hint *hint);
+
 /* помогалки */
 bool spq_begin_life(PGconn *pgc, char *username, uint64_t device_id);
 

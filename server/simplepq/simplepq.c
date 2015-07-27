@@ -18,6 +18,8 @@
 # define MIN(x, y) ((x) > (y) ? (y) : (x))
 #endif
 
+bool spq_feed_hint(const char *msg, size_t msglen, struct spq_hint *hint);
+
 struct spq {
 	PGconn *conn;
 
@@ -740,6 +742,67 @@ spq_link_chunk(char *username, uint64_t device_id,
 		r = spq_begin_life(c->conn, username, device_id) &&
 			_spq_link_chunk(c->conn, rootdir, file, chunk,
 				new_chunk, new_revision, hint);
+		release_conn(&_spq, c);
+	}
+	return r;
+}
+
+bool
+_spq_get_quota(PGconn *pgc, guid_t *rootdir, struct spq_QuotaInfo *qi,
+		struct spq_hint *hint)
+{
+	PGresult *res;
+	ExecStatusType pqs;
+	const char tb[] = "";
+	const int fmt[1] = {0};
+
+	char *m;
+	int ml;
+
+	char _rootdir[GUID_MAX + 1];
+
+	char *val[1];
+	int len[1];
+
+	len[0] = guid2string(rootdir, PSIZE(_rootdir));
+
+	val[0] = _rootdir;
+
+	res = PQexecParams(pgc, tb, 1, NULL, (const char *const*)val, len, fmt, 0);
+	pqs = PQresultStatus(res);
+	if (pqs != PGRES_TUPLES_OK) {
+		m = PQresultErrorMessage(res);
+		spq_feed_hint(NULL, 0u, hint);
+		xsyslog(LOG_INFO, "exec check_quota error: %s", m);
+		PQclear(res);
+		return false;
+	} else if ((ml = PQgetlength(res, 0, 0)) > 0) {
+		m = PQgetvalue(res, 0, 0);
+		spq_feed_hint(m, ml, hint);
+		xsyslog(LOG_INFO, "exec check_quota warning: %s", m);
+	}
+
+	if ((ml = PQgetlength(res, 0, 1)) > 0) {
+		qi->quota = strtoull(PQgetvalue(res, 0, 1), NULL, 10);
+	}
+
+	if ((ml = PQgetlength(res, 0, 2)) > 0) {
+		qi->used = strtoull(PQgetvalue(res, 0, 2), NULL, 10);
+	}
+
+	PQclear(res);
+	return false;
+}
+
+bool
+spq_get_quota(char *username, uint64_t device_id,
+		guid_t *rootdir, struct spq_QuotaInfo *qi, struct spq_hint *hint)
+{
+	bool r = false;
+	struct spq *c;
+	if ((c = acquire_conn(&_spq)) != NULL) {
+		r = spq_begin_life(c->conn, username, device_id) &&
+			_spq_get_quota(c->conn, rootdir, qi, hint);
 		release_conn(&_spq, c);
 	}
 	return r;
