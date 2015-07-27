@@ -1069,7 +1069,7 @@ client_iterate(struct sev_ctx *cev, bool last, void **p)
 		wait_store_t *s;
 		Fep__ReqAuth reqAuth = FEP__REQ_AUTH__INIT;
 		reqAuth.id = generate_id(c);
-		reqAuth.text = "hello kitty";
+		reqAuth.text = (char*)sev_version_string();
 
 		if (send_message(c->cev, FEP__TYPE__tReqAuth, &reqAuth)) {
 			c->state++;

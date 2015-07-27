@@ -117,5 +117,9 @@ typedef enum direction
 int sev_send(void *ctx, const unsigned char *buf, size_t len);
 int sev_recv(void *ctx, unsigned char *buf, size_t len);
 
+
+/* информации о версии */
+const char *const sev_version_string();
+
 #endif /* _MAIN_1422961154_H_ */
 

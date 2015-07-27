@@ -699,24 +699,30 @@ timeout_cb(struct ev_loop *loop, ev_timer *w, int revents)
 	}
 }
 
+const char *const
+sev_version_string()
+{
+#if GIT_VERSION
+# if SQLSTRUCTVER
+	return "Version: " S(GIT_VERSION) ", SQL " S(SQLSTRUCTVER) "\n";
+# else
+	return "Version: " S(GIT_VERSION) "\n";
+# endif
+#else
+# if SQLSTRUCTVER
+	return ("Version: unknown, SQL " S(SQLSTRUCTVER) "\n";
+# else
+	return "Version: " S(GIT_VERSION) ", SQL " S(SQLSTRUCTVER) "\n";
+# endif
+#endif
+}
+
 static bool
 check_args(int argc, char **argv)
 {
 	if (argc > 1) {
 		if (!strcmp(argv[1], "-V") || !strcmp(argv[1], "--version")) {
-#if GIT_VERSION
-# if SQLSTRUCTVER
-			printf("Version: " S(GIT_VERSION) ", SQL " S(SQLSTRUCTVER) "\n");
-# else
-			printf("Version: " S(GIT_VERSION) "\n");
-# endif
-#else
-# if SQLSTRUCTVER
-			printf("Version: unknown, SQL " S(SQLSTRUCTVER) "\n");
-# else
-			printf("Version: " S(GIT_VERSION) ", SQL " S(SQLSTRUCTVER) "\n");
-# endif
-#endif
+			printf(sev_version_string());
 		}
 		return true;
 	}
