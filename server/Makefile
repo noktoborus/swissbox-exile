@@ -33,9 +33,9 @@ runtest: proto/fep_pb2.py
 pack: .pack_feps
 
 .pack_feps: ${BIN}
-	@echo pack into dist/feps-`git describe --always`.tbz
+	@echo pack into dist/feps-`git describe --always --long`.tbz
 	mkdir -p dist
-	tar -cjvf dist/feps-`git describe --always`.tbz bin/ user/.keep
+	tar -cjvf dist/feps-`git describe --always --long`.tbz bin/ user/.keep
 	@touch $@
 
 ${BIN}: .buildflags .sqlversion ${SOURCES} ${INC_SOURCES}
