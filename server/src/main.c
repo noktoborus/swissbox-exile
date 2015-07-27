@@ -726,6 +726,7 @@ check_args(int argc, char **argv)
 int
 main(int argc, char *argv[])
 {
+	bool _r;
 	struct ev_loop *loop;
 	struct main pain;
 	/* base configuration */
@@ -755,7 +756,7 @@ main(int argc, char *argv[])
 	xsyslog(LOG_DEBUG, "pg: \"%s\"", pg_connstr);
 	spq_open(10, pg_connstr);
 	/* всякая ерунда с бд */
-	if (spq_create_tables()) {
+	if ((_r = spq_create_tables()) != false) {
 		loop = EV_DEFAULT;
 		memset(&pain, 0, sizeof(struct main));
 		client_threads_prealloc();
@@ -787,6 +788,8 @@ main(int argc, char *argv[])
 			/* чистка серверных сокетов */
 			while (pain.sev)
 				pain.sev = server_free(loop, pain.sev);
+		} else {
+			_r = false;
 		}
 		/* чистка клиентских сокетов */
 		ev_signal_stop(loop, &pain.sigint);
@@ -804,6 +807,8 @@ main(int argc, char *argv[])
 
 	curl_global_cleanup();
 
-	return EXIT_SUCCESS;
+	if (_r)
+		return EXIT_SUCCESS;
+	return EXIT_FAILURE;
 }
 
