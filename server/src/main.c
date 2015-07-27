@@ -699,6 +699,30 @@ timeout_cb(struct ev_loop *loop, ev_timer *w, int revents)
 	}
 }
 
+static bool
+check_args(int argc, char **argv)
+{
+	if (argc > 1) {
+		if (!strcmp(argv[1], "-V") || !strcmp(argv[1], "--version")) {
+#if GIT_VERSION
+# if SQLSTRUCTVER
+			printf("Version: " S(GIT_VERSION) ", SQL " S(SQLSTRUCTVER) "\n");
+# else
+			printf("Version: " S(GIT_VERSION) "\n");
+# endif
+#else
+# if SQLSTRUCTVER
+			printf("Version: unknown, SQL " S(SQLSTRUCTVER) "\n");
+# else
+			printf("Version: " S(GIT_VERSION) ", SQL " S(SQLSTRUCTVER) "\n");
+# endif
+#endif
+		}
+		return true;
+	}
+	return false;
+}
+
 int
 main(int argc, char *argv[])
 {
@@ -715,6 +739,9 @@ main(int argc, char *argv[])
 		CFG_SIMPLE_STR("pg_connstr", &pg_connstr),
 		CFG_END()
 	};
+
+	if (check_args(argc, argv))
+		return EXIT_SUCCESS;
 
 	curl_global_init(CURL_GLOBAL_ALL);
 	openlog(NULL, LOG_PERROR | LOG_PID, LOG_LOCAL0);

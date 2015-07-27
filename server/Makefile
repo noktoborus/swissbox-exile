@@ -39,7 +39,7 @@ pack: .pack_feps
 	@touch $@
 
 ${BIN}: .buildflags .sqlversion ${SOURCES} ${INC_SOURCES}
-	${CC} -o ${BIN} ${CFLAGS} -DSQLSTRUCTVER=`cat .sqlversion` ${SOURCES} ${LIBS} `cat .buildflags` ${BUILDFLAGS}
+	${CC} -o ${BIN} ${CFLAGS} -DSQLSTRUCTVER=`cat .sqlversion` -DGIT_VERSION=`git describe --always --long` ${SOURCES} ${LIBS} `cat .buildflags` ${BUILDFLAGS}
 	echo "build ok"
 
 .buildflags: buildtools/findev.sh buildtools/findpq.sh\
