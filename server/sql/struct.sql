@@ -1792,8 +1792,8 @@ BEGIN
 	return next;
 END $$ LANGUAGE plpgsql;
 
-CREATE OR REPLACE FUNCTION check_quota(_username "user".username%TYPE,
-	_rootdir UUID)
+CREATE OR REPLACE FUNCTION check_quota(_rootdir UUID,
+	_drop_ _drop_ default 'drop')
 	RETURNS TABLE
 	(
 		r_error text,
@@ -1806,12 +1806,13 @@ BEGIN
 	-- FIXME: слишком жирный запрос
 	SELECT
 		rootdir.quota AS quota,
-		SUM(file_chunk.size) AS used
+		COALESCE(SUM(file_chunk.size), 0) AS used
 	INTO _row
-	FROM life_data(_rootdir_guid), rootdir, file, file_chunk
-	WHERE rootdir.id = r_rootdir.id AND
-		file.rootdir_id = rootdir.id AND
-		file_chunk IN (file.id);
+	FROM life_data(_rootdir)
+	LEFT JOIN rootdir ON rootdir.id = r_rootdir_id
+	LEFT JOIN file ON file.rootdir_id = rootdir.id
+	LEFT JOIN file_chunk ON file_chunk.file_id IN (file.id)
+	GROUP BY rootdir.id;
 
 	if _row IS NULL THEN
 		r_error := concat('1: rootdir information not exists (rootdir: "',

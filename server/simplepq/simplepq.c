@@ -753,7 +753,7 @@ _spq_get_quota(PGconn *pgc, guid_t *rootdir, struct spq_QuotaInfo *qi,
 {
 	PGresult *res;
 	ExecStatusType pqs;
-	const char tb[] = "";
+	const char tb[] = "SELECT * FROM check_quota($1::UUID);";
 	const int fmt[1] = {0};
 
 	char *m;
