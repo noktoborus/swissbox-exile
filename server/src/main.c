@@ -656,11 +656,73 @@ client_cb(struct ev_loop *loop, struct ev_io *w, int revents)
 }
 
 void
+rds_disconnect_cb(const redisAsyncContext *ac, int status)
+{
+	struct main *pain = (struct main*)ac->data;
+	if (!pain)
+		return;
+
+	if (status != REDIS_OK) {
+		uint32_t _m = hash_pjw(ac->errstr, strlen(ac->errstr));
+		if (_m != pain->redis_msghash) {
+			xsyslog(LOG_INFO, "redis disconnect error: %s", ac->errstr);
+			pain->redis_msghash = _m;
+		}
+	} else {
+		syslog(LOG_INFO, "redis disconnected, status: %d\n", status);
+	}
+
+	pain->redis_connected = false;
+}
+
+void
+rds_connect_cb(const redisAsyncContext *ac, int status)
+{
+	struct main *pain = (struct main*)ac->data;
+	if (!pain)
+		return;
+
+	if (status != REDIS_OK) {
+		uint32_t _m = hash_pjw(ac->errstr, strlen(ac->errstr));
+		if (_m != pain->redis_msghash) {
+			xsyslog(LOG_INFO, "redis connect error: %s", ac->errstr);
+			pain->redis_msghash = _m;
+		}
+		pain->redis_connected = false;
+		return;
+	}
+	syslog(LOG_INFO, "redis connected, status: %d\n", status);
+}
+
+void
 timeout_cb(struct ev_loop *loop, ev_timer *w, int revents)
 {
 	struct main *pain = (struct main*)ev_userdata(loop);
 	if (!pain)
 		return;
+	/* подключение к редису */
+	if (!pain->redis_connected) {
+		if (pain->redis) {
+			pain->redis = NULL;
+		}
+		pain->redis = redisAsyncConnect("127.0.0.1", 6379);
+		if (pain->redis != NULL) {
+			if (pain->redis->err) {
+				xsyslog(LOG_INFO, "hiredis alloc error: %s",
+						pain->redis->errstr);
+				redisAsyncFree(pain->redis);
+				pain->redis = NULL;
+			} else {
+				/* цепляем редис к libev */
+				pain->redis->data = (void*)pain;
+				redisLibevAttach(loop, pain->redis);
+				redisAsyncSetConnectCallback(pain->redis, rds_connect_cb);
+				redisAsyncSetDisconnectCallback(pain->redis, rds_disconnect_cb);
+				pain->redis_connected = true;
+			}
+		}
+	}
+
 	/* подчистка устаревших клиентских структур */
 	{
 		struct sev_main *sev_it = NULL;
@@ -739,26 +801,28 @@ main(int argc, char *argv[])
 	cfg_t *cfg;
 	char *bindline = strdup("0.0.0.0:5151");
 	char *pg_connstr = strdup("dbname = fepserver");
-	/* */
-	char cfgpath[PATH_MAX + 1];
-	cfg_opt_t opt[] = {
-		CFG_SIMPLE_STR("bind", &bindline),
-		CFG_SIMPLE_STR("pg_connstr", &pg_connstr),
-		CFG_END()
-	};
+	/* получение конфигурации */
+	{
+		char cfgpath[PATH_MAX + 1];
+		cfg_opt_t opt[] = {
+			CFG_SIMPLE_STR("bind", &bindline),
+			CFG_SIMPLE_STR("pg_connstr", &pg_connstr),
+			CFG_END()
+		};
 
-	if (check_args(argc, argv))
-		return EXIT_SUCCESS;
+		if (check_args(argc, argv))
+			return EXIT_SUCCESS;
 
-	curl_global_init(CURL_GLOBAL_ALL);
-	openlog(NULL, LOG_PERROR | LOG_PID, LOG_LOCAL0);
-	xsyslog(LOG_INFO, "--- START ---");
+		curl_global_init(CURL_GLOBAL_ALL);
 
-	snprintf(cfgpath, PATH_MAX, "%s.conf", argv[0]);
-	xsyslog(LOG_INFO, "read config: %s", cfgpath);
-	cfg = cfg_init(opt, 0);
-	cfg_parse(cfg, cfgpath);
+		openlog(NULL, LOG_PERROR | LOG_PID, LOG_LOCAL0);
+		xsyslog(LOG_INFO, "--- START ---");
 
+		snprintf(cfgpath, PATH_MAX, "%s.conf", argv[0]);
+		xsyslog(LOG_INFO, "read config: %s", cfgpath);
+		cfg = cfg_init(opt, 0);
+		cfg_parse(cfg, cfgpath);
+	}
 	xsyslog(LOG_DEBUG, "pg: \"%s\"", pg_connstr);
 	spq_open(10, pg_connstr);
 	/* всякая ерунда с бд */
@@ -771,7 +835,7 @@ main(int argc, char *argv[])
 		ev_signal_init(&pain.sigpipe, signal_ignore_cb, SIGPIPE);
 		ev_signal_start(loop, &pain.sigpipe);
 		/* таймер на чистку всяких устаревших структур и прочего */
-		ev_timer_init(&pain.watcher, timeout_cb, 1., 15.);
+		ev_timer_init(&pain.watcher, timeout_cb, 1., 10.);
 		ev_timer_start(loop, &pain.watcher);
 		/* мультисокет */
 		{
@@ -805,13 +869,13 @@ main(int argc, char *argv[])
 	}
 	spq_close();
 	closelog();
-	xsyslog(LOG_INFO, "--- EXIT ---");
 
 	cfg_free(cfg);
 	free(bindline);
 	free(pg_connstr);
 
 	curl_global_cleanup();
+	xsyslog(LOG_INFO, "--- EXIT ---");
 
 	if (_r)
 		return EXIT_SUCCESS;

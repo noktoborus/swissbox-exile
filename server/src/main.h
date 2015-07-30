@@ -8,6 +8,9 @@
 #include "junk/xsyslog.h"
 #include "proto/fep.pb-c.h"
 
+#include <hiredis/hiredis.h>
+#include <hiredis/adapters/libev.h>
+
 #include <confuse.h>
 
 #include <ev.h>
@@ -95,8 +98,13 @@ struct main
 	ev_signal sigpipe;
 	ev_timer watcher;
 	ev_async alarm;
+
+	uint32_t redis_msghash;
+	redisAsyncContext *redis;
+	bool redis_connected;
 	/* server list */
 	struct sev_main *sev;
+
 };
 
 typedef enum direction
