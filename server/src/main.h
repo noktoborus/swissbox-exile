@@ -105,6 +105,10 @@ struct main
 	/* server list */
 	struct sev_main *sev;
 
+	struct {
+		char *redis_chan;
+	} options;
+
 };
 
 typedef enum direction

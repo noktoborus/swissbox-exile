@@ -665,14 +665,40 @@ rds_disconnect_cb(const redisAsyncContext *ac, int status)
 	if (status != REDIS_OK) {
 		uint32_t _m = hash_pjw(ac->errstr, strlen(ac->errstr));
 		if (_m != pain->redis_msghash) {
-			xsyslog(LOG_INFO, "redis disconnect error: %s", ac->errstr);
+			xsyslog(LOG_INFO, "redis disconnected: %s", ac->errstr);
 			pain->redis_msghash = _m;
 		}
 	} else {
 		syslog(LOG_INFO, "redis disconnected, status: %d\n", status);
+		pain->redis_msghash = 0u;
 	}
 
 	pain->redis_connected = false;
+}
+
+void
+rds_incoming_cb(redisAsyncContext *ac, redisReply *r, void *priv)
+{
+	if (!r)
+		return;
+
+	if (r->type != REDIS_REPLY_ARRAY) {
+		 xsyslog(LOG_INFO, "redis incoming not array: %d", r->type);
+		 return;
+	 }
+	 if (r->elements != 3) {
+		xsyslog(LOG_INFO, "redis incoming not has 3 elements: %"PRIuPTR,
+				r->elements);
+		return;
+	 }
+
+	if(r->element[2]->len) {
+		xsyslog(LOG_DEBUG, "redis message in \"%s\": \"%s\"",
+				r->element[1]->str, r->element[2]->str);
+	} else {
+		xsyslog(LOG_DEBUG, "redis channel \"%s\": subscribed",
+				r->element[1]->str);
+	}
 }
 
 void
@@ -692,6 +718,7 @@ rds_connect_cb(const redisAsyncContext *ac, int status)
 		return;
 	}
 	syslog(LOG_INFO, "redis connected, status: %d\n", status);
+	pain->redis_msghash = 0u;
 }
 
 void
@@ -718,6 +745,10 @@ timeout_cb(struct ev_loop *loop, ev_timer *w, int revents)
 				redisLibevAttach(loop, pain->redis);
 				redisAsyncSetConnectCallback(pain->redis, rds_connect_cb);
 				redisAsyncSetDisconnectCallback(pain->redis, rds_disconnect_cb);
+				redisAsyncCommand(pain->redis,
+						(redisCallbackFn*)rds_incoming_cb,
+						NULL, "SUBSCRIBE %s", pain->options.redis_chan);
+
 				pain->redis_connected = true;
 			}
 		}
@@ -801,12 +832,16 @@ main(int argc, char *argv[])
 	cfg_t *cfg;
 	char *bindline = strdup("0.0.0.0:5151");
 	char *pg_connstr = strdup("dbname = fepserver");
+
+	memset(&pain, 0, sizeof(struct main));
+	pain.options.redis_chan = strdup("fep_broadcast");
 	/* получение конфигурации */
 	{
 		char cfgpath[PATH_MAX + 1];
 		cfg_opt_t opt[] = {
 			CFG_SIMPLE_STR("bind", &bindline),
 			CFG_SIMPLE_STR("pg_connstr", &pg_connstr),
+			CFG_SIMPLE_STR("redis_chan", &pain.options.redis_chan),
 			CFG_END()
 		};
 
@@ -828,7 +863,6 @@ main(int argc, char *argv[])
 	/* всякая ерунда с бд */
 	if ((_r = spq_create_tables()) != false) {
 		loop = EV_DEFAULT;
-		memset(&pain, 0, sizeof(struct main));
 		client_threads_prealloc();
 		ev_signal_init(&pain.sigint, signal_cb, SIGINT);
 		ev_signal_start(loop, &pain.sigint);
@@ -873,6 +907,7 @@ main(int argc, char *argv[])
 	cfg_free(cfg);
 	free(bindline);
 	free(pg_connstr);
+	free(pain.options.redis_chan);
 
 	curl_global_cleanup();
 	xsyslog(LOG_INFO, "--- EXIT ---");
