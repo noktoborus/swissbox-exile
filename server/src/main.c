@@ -658,67 +658,78 @@ client_cb(struct ev_loop *loop, struct ev_io *w, int revents)
 void
 rds_disconnect_cb(const redisAsyncContext *ac, int status)
 {
-	struct main *pain = (struct main*)ac->data;
-	if (!pain)
+	struct redis_c *rds = (struct redis_c*)ac->data;
+	if (!rds)
 		return;
 
 	if (status != REDIS_OK) {
 		uint32_t _m = hash_pjw(ac->errstr, strlen(ac->errstr));
-		if (_m != pain->redis_msghash) {
-			xsyslog(LOG_INFO, "redis disconnected: %s", ac->errstr);
-			pain->redis_msghash = _m;
+		if (_m != rds->msghash) {
+			xsyslog(LOG_INFO, "redis[%02"PRIuPTR"] disconnected: %s",
+					rds->self, ac->errstr);
+			rds->msghash = _m;
 		}
 	} else {
-		syslog(LOG_INFO, "redis disconnected, status: %d\n", status);
-		pain->redis_msghash = 0u;
+		syslog(LOG_INFO, "redis[%02"PRIuPTR"] disconnected, status: %d\n",
+				rds->self, status);
+		rds->msghash = 0u;
 	}
 
-	pain->redis_connected = false;
+	rds->connected = false;
 }
 
 void
 rds_incoming_cb(redisAsyncContext *ac, redisReply *r, void *priv)
 {
+	struct redis_c *rds = (struct redis_c*)ac->data;
+	if (!rds)
+		return;
+
 	if (!r)
 		return;
 
 	if (r->type != REDIS_REPLY_ARRAY) {
-		 xsyslog(LOG_INFO, "redis incoming not array: %d", r->type);
+		 xsyslog(LOG_INFO, "redis[%02"PRIuPTR"] incoming not array: %d",
+				 rds->self, r->type);
 		 return;
 	 }
 	 if (r->elements != 3) {
-		xsyslog(LOG_INFO, "redis incoming not has 3 elements: %"PRIuPTR,
+		xsyslog(LOG_INFO, "redis[%02"PRIuPTR"] "
+				"incoming not has 3 elements: %"PRIuPTR,
+				rds->self,
 				r->elements);
 		return;
 	 }
 
 	if(r->element[2]->len) {
-		xsyslog(LOG_DEBUG, "redis message in \"%s\": \"%s\"",
-				r->element[1]->str, r->element[2]->str);
+		xsyslog(LOG_DEBUG, "redis[%02"PRIuPTR"] message in \"%s\": \"%s\"",
+				rds->self, r->element[1]->str, r->element[2]->str);
 	} else {
-		xsyslog(LOG_DEBUG, "redis channel \"%s\": subscribed",
-				r->element[1]->str);
+		xsyslog(LOG_DEBUG, "redis[%02"PRIuPTR"] channel \"%s\": subscribed",
+				rds->self, r->element[1]->str);
 	}
 }
 
 void
 rds_connect_cb(const redisAsyncContext *ac, int status)
 {
-	struct main *pain = (struct main*)ac->data;
-	if (!pain)
+	struct redis_c *rds = (struct redis_c*)ac->data;
+	if (!rds)
 		return;
 
 	if (status != REDIS_OK) {
 		uint32_t _m = hash_pjw(ac->errstr, strlen(ac->errstr));
-		if (_m != pain->redis_msghash) {
-			xsyslog(LOG_INFO, "redis connect error: %s", ac->errstr);
-			pain->redis_msghash = _m;
+		if (_m != rds->msghash) {
+			xsyslog(LOG_INFO, "redis[%02"PRIuPTR"] connect error: %s",
+					rds->self, ac->errstr);
+			rds->msghash = _m;
 		}
-		pain->redis_connected = false;
+		rds->connected = false;
 		return;
 	}
-	syslog(LOG_INFO, "redis connected, status: %d\n", status);
-	pain->redis_msghash = 0u;
+	syslog(LOG_INFO, "redis[%02"PRIuPTR"] connected, status: %d\n",
+			rds->self, status);
+	rds->msghash = 0u;
 }
 
 void
@@ -727,33 +738,47 @@ timeout_cb(struct ev_loop *loop, ev_timer *w, int revents)
 	struct main *pain = (struct main*)ev_userdata(loop);
 	if (!pain)
 		return;
-	/* подключение к редису */
-	if (!pain->redis_connected) {
-		if (pain->redis) {
-			pain->redis = NULL;
-		}
-		pain->redis = redisAsyncConnect("127.0.0.1", 6379);
-		if (pain->redis != NULL) {
-			if (pain->redis->err) {
-				xsyslog(LOG_INFO, "hiredis alloc error: %s",
-						pain->redis->errstr);
-				redisAsyncFree(pain->redis);
-				pain->redis = NULL;
-			} else {
-				/* цепляем редис к libev */
-				pain->redis->data = (void*)pain;
-				redisLibevAttach(loop, pain->redis);
-				redisAsyncSetConnectCallback(pain->redis, rds_connect_cb);
-				redisAsyncSetDisconnectCallback(pain->redis, rds_disconnect_cb);
-				redisAsyncCommand(pain->redis,
-						(redisCallbackFn*)rds_incoming_cb,
-						NULL, "SUBSCRIBE %s", pain->options.redis_chan);
 
-				pain->redis_connected = true;
+	/* подключение к редису */
+	for (size_t i = 0u; i < REDIS_C_MAX; i++) {
+		if (!pain->rs[i].connected) {
+			/* простая  чистка */
+			if (pain->rs[i].ac) {
+				pain->rs[i].ac = NULL;
+			}
+			/* для отладки */
+			pain->rs[i].self = i;
+			/* аллокация структур */
+			pain->rs[i].ac = redisAsyncConnect("127.0.0.1", 6379);
+			if (pain->rs[i].ac) {
+				if (pain->rs[i].ac->err) {
+					/* проверка ошибки */
+					xsyslog(LOG_INFO, "hiredis alloc error: %s",
+							pain->rs[i].ac->errstr);
+					redisAsyncFree(pain->rs[i].ac);
+					pain->rs[i].ac = NULL;
+				 } else {
+					/* цепляемся к libev */
+					pain->rs[i].ac->data = (void*)&pain->rs[i];
+					redisLibevAttach(loop, pain->rs[i].ac);
+					redisAsyncSetConnectCallback(pain->rs[i].ac,
+						rds_connect_cb);
+					redisAsyncSetDisconnectCallback(pain->rs[i].ac,
+						rds_disconnect_cb);
+					/* если это нулевое подключение, то
+					 * подписываемся на каналы
+					 */
+					if (!i) {
+						redisAsyncCommand(pain->rs[i].ac,
+								(redisCallbackFn*)rds_incoming_cb,
+								NULL,
+								"SUBSCRIBE %s", pain->options.redis_chan);
+					}
+					pain->rs[i].connected = true;
+				}
 			}
 		}
-	}
-
+	} /* for */
 	/* подчистка устаревших клиентских структур */
 	{
 		struct sev_main *sev_it = NULL;
@@ -894,6 +919,13 @@ main(int argc, char *argv[])
 				pain.sev = server_free(loop, pain.sev);
 		} else {
 			_r = false;
+		}
+		/* подчистка подключений к редису */
+		for (size_t i = 0u; i < REDIS_C_MAX; i++) {
+			if (pain.rs[i].ac) {
+				redisAsyncFree(pain.rs[i].ac);
+				pain.rs[i].ac = NULL;
+			}
 		}
 		/* чистка клиентских сокетов */
 		ev_signal_stop(loop, &pain.sigint);

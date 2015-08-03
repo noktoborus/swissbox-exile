@@ -92,6 +92,14 @@ struct sev_main
 };
 
 /* olo */
+struct redis_c {
+	size_t self;
+	uint32_t msghash;
+	redisAsyncContext *ac;
+	bool connected;
+};
+
+#define	REDIS_C_MAX 2
 struct main
 {
 	ev_signal sigint;
@@ -99,9 +107,11 @@ struct main
 	ev_timer watcher;
 	ev_async alarm;
 
-	uint32_t redis_msghash;
-	redisAsyncContext *redis;
-	bool redis_connected;
+	/* подключение к редису
+	 * нулевое подключение используется для подписок (SUBSCRIBE)
+	 */
+	struct redis_c rs[REDIS_C_MAX];
+
 	/* server list */
 	struct sev_main *sev;
 
