@@ -49,6 +49,7 @@ struct almsg_node {
 #define ALMSG_E_MEM 1
 #define ALMSG_E_KEYSIZE 2
 #define ALMSG_E_VALSIZE 3
+#define ALMSG_E_ARGS 4
 
 struct almsg_parser {
 
@@ -59,6 +60,8 @@ struct almsg_parser {
 
 		char *tkey;
 		char *tval;
+		size_t tkey_len;
+		size_t tval_len;
 	} p;
 
 	struct {
@@ -71,6 +74,9 @@ struct almsg_parser {
 		bool dirty;
 	} t;
 
+	/* размер буфера, необходимого для серилизации */
+	size_t data_size;
+	/* разобранные узлы */
 	struct almsg_node *first;
 	struct almsg_node *last;
 };
@@ -108,8 +114,10 @@ bool almsg_format_buffer(struct almsg_parser *p, char **buf, size_t *size);
  *
  * аргумент i служит для указания элемента массива
  */
-const char *almsg_get(struct almsg_parser *p, const char *key, size_t i);
+const char *almsg_get(struct almsg_parser *p,
+		const char *key, size_t key_len, size_t i);
 
+bool almsg_remove(struct almsg_parser *p, const char *key, size_t key_len);
 /*
  * получение количества вхождений элементов с ключём key
  */

@@ -8,16 +8,29 @@
 #include <stdbool.h>
 #include <string.h>
 #include <unistd.h>
-
+#include <stdint.h>
+#include <inttypes.h>
 #include "almsg.h"
 
 int
 main(int argc, char *argv[])
 {
+	char *outs;
+	size_t outsz;
+
 	struct almsg_parser alp;
-	char in[] = "key: -\nvalue\\\nx\n.\n";
+	char *in = strdup("key: -\nvalue\\\nx\n.\nkey2: -\nvalue3\\\nx\n.\nkey2: -\nvalue3\\\nx\n.\n");
+
 	almsg_init(&alp);
-	almsg_parse_buf(&alp, in, sizeof(in));
+	almsg_parse_buf(&alp, in, strlen(in));
+
+	almsg_format_buffer(&alp, &outs, &outsz);
+
+	printf("len: %"PRIuPTR", buf:\n%s", outsz, outs);
+	if (outs)
+		free(outs);
+
+	free(in);
 	almsg_destroy(&alp);
 	return EXIT_SUCCESS;
 }

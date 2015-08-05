@@ -32,16 +32,50 @@ almsg_reset(struct almsg_parser *p)
 }
 
 bool
+almsg_remove(struct almsg_parser *p, const char *key, size_t key_len)
+{
+	/* uint32_t hash = hash_pjw((char*)key, key_len); */
+	/* TODO */
+	return false;
+}
+
+bool
 almsg_destroy(struct almsg_parser *p)
 {
+	struct almsg_node *np;
+
+	/* освобождение узлов и прочего */
+	for (np = p->first, p->last = NULL; np; np = p->first) {
+		p->first = np->next;
+		/* чистка всякой херни */
+		if (np->key)
+			free(np->key);
+		if (np->val)
+			free(np->val);
+		/* удаление текущей ноды */
+		memset(np, 0u, sizeof(struct almsg_node));
+		free(np);
+	}
+
+	if (p->t.unparsed)
+		free(p->t.unparsed);
+
+	if (p->p.tkey)
+		free(p->p.tkey);
+	if (p->p.tval)
+		free(p->p.tval);
+
+	/* зануление структуры */
 	memset(p, 0u, sizeof(struct almsg_parser));
-	return false;
+	return true;
 }
 
 /* get */
 const char*
-almsg_get(struct almsg_parser *p, const char *key, size_t i)
+almsg_get(struct almsg_parser *p, const char *key, size_t key_len, size_t i)
 {
+	uint32_t hash = hash_pjw((char*)key, key_len);
+
 	return 0u;
 }
 
@@ -73,14 +107,94 @@ _realloc_unparsed(struct almsg_parser *p, const char *buf, size_t size)
 	return true;
 }
 
+/*
+ * копирует string в target с разворачиванием
+ * специальных символов ('\\' в "\\\\", '\n' в "\\\n")
+ * и добавлением завершающего '\n'
+ *
+ * предпологается что target имеет размер, подходящий для
+ * вмещения развёрнутого string
+ *
+ * возвращает количество записанных байт
+ */
+static inline size_t
+_expand_keyval(char *target, char *string, size_t len)
+{
+	size_t si = 0u;
+	size_t ti = 0u;
+	for (; si < len; si++, ti++) {
+		if (string[si] == '\n' || string[si] == '\\') {
+			target[ti++] = '\\';
+		}
+		target[ti] = string[si];
+	}
+	target[ti++] = '\n';
+	return ti;
+}
+
+/*
+ * принимает строку (string) и длину строки (*len)
+ * возвращает успех операции и изменнённую строку (string),
+ * текущую длину строки (*len) и количество символов, попавших под
+ * обрезание (*special)
+ */
+static inline bool
+_normalize_keyval(char *string, size_t *len, size_t *special)
+{
+	size_t _spec_out = 0u;
+	size_t _len_out = *len;
+	size_t i = 0u;
+	size_t ir = 0u;
+	size_t ib = 0u;
+	char last = '\0';
+
+	for (; i < _len_out; i++) {
+		if (/* обрезание двойных бекслешей */
+			(string[i] == '\\' && last == '\\')
+			/* обрезание экранированного переноса */
+			|| (string[i] == '\n' && last == '\\')) {
+
+			/* сдвиг строки на один символ влево */
+			for (ir = i, ib = --i; ir < _len_out; ir++, ib++) {
+				string[ib] = string[ir];
+			}
+
+			/* махинации над счётчиками */
+			_spec_out++;
+			_len_out--;
+			last = '\0';
+
+			/* и нолик, на всякий случай */
+			string[_len_out] = '\0';
+		} else if (
+				/* костыль для учёта одинарных бекслешей и
+				 * сиротливых переносов строк
+				 */
+				string[i] == '\n' ||
+				(string[i] != '\\' && last == '\\')) {
+			/* тот же самый костыль, что и для одинарных бекслешей */
+			special++;
+		} else {
+			last = string[i];
+		}
+	}
+	*len = _len_out;
+	if (special)
+		*special = _spec_out;
+
+	return true;
+}
+
 /* parse */
 bool
 almsg_parse_buf(struct almsg_parser *p, const char *buf, size_t size)
 {
 	size_t i = 0u;
+	size_t s = 0u;
+begin_parse:
 	/* 1. выделить ключ */
 	if (!p->p.tkey) {
-		for (; i < size; i++, p->p.pos++) {
+		for (i = 0u; i < size; i++, p->p.pos++) {
 			if (p->t.unparsed_size + i >= ALMSG_KEY_MAX) {
 				/* ключ слишком длинный */
 				p->p.err = ALMSG_E_KEYSIZE;
@@ -95,6 +209,7 @@ almsg_parse_buf(struct almsg_parser *p, const char *buf, size_t size)
 				if (p->t.unparsed_size)
 					memcpy(p->p.tkey, p->t.unparsed, p->t.unparsed_size);
 				memcpy(&p->p.tkey[p->t.unparsed_size], buf, i);
+				p->p.tkey_len = p->t.unparsed_size + i;
 				/* обновление позиции */
 				free(p->t.unparsed);
 				memset(&p->t, 0u, sizeof(p->t));
@@ -119,7 +234,7 @@ almsg_parse_buf(struct almsg_parser *p, const char *buf, size_t size)
 		 * '\\n' многострочность
 		 * '\n' завершение строки
 		 */
-		size_t s = i;
+		s = i;
 		/* пропускаем первые пробелы */
 		for (; buf[i] == ' ' && i < size; i++, s++, p->p.pos++);
 		/* ищем конец */
@@ -142,6 +257,12 @@ almsg_parse_buf(struct almsg_parser *p, const char *buf, size_t size)
 				/* включение мультилайна и обновление начальной позиции */
 				p->t.multiline = true;
 				s = i + 1;
+				/* и нужно отбросить весь unparsed */
+				if (p->t.unparsed_size) {
+					p->t.unparsed_size = 0u;
+					free(p->t.unparsed);
+					p->t.unparsed = NULL;
+				}
 			} else if (/* перевод строки по символу '\n' без экранирования */
 				(!p->t.multiline && (buf[i] == '\n' && p->t.lasts != '\\'))
 					/* конец мультистроки по '\n.\n' */
@@ -159,8 +280,11 @@ almsg_parse_buf(struct almsg_parser *p, const char *buf, size_t size)
 				memcpy(&p->p.tval[p->t.unparsed_size], &buf[s], i - s);
 				/* убираем лишние символы для мультилайна */
 				if (p->t.multiline) {
-					p->p.tval[p->t.unparsed_size + i - s - 2] = '\0';
+					p->p.tval_len = p->t.unparsed_size + i - s - 2;
+				} else {
+					p->p.tval_len = p->t.unparsed_size + i - s;
 				}
+				p->p.tval[p->p.tval_len] = '\0';
 				free(p->t.unparsed);
 				memset(&p->t, 0u, sizeof(p->t));
 				s = ++i;
@@ -175,39 +299,85 @@ almsg_parse_buf(struct almsg_parser *p, const char *buf, size_t size)
 				p->t.dirty = true;
 			}
 		}
-		/* если в хвосте ещё остались данные или не пропарсились */
-		if (!p->p.tval || i != size) {
-			/* выходим только в случае, когда хвост не скопировался
-			 * и не тзначения.
-			 * В остальном нам ещё требуется скопировать в список
-			 */
-			if (!_realloc_unparsed(p, &buf[s], size - s)) {
-				return false;
-			} else if (!p->p.tval) {
-				return true;
-			}
+		/* значение не собралось */
+		if (!p->p.tval) {
+			/* выходим, сообщая что готовы жрать следующую порцию */
+			return _realloc_unparsed(p, &buf[s], size - s);
 		}
 	}
 	/* 3. сбор ключей и значений */
 	{
+		size_t special = 0u;
 		struct almsg_node *tn = calloc(1, sizeof(struct almsg_node));
 		if (!tn) {
 			p->p.err = ALMSG_E_MEM;
 			return false;
 		}
+		tn->key_len = p->p.tkey_len;
+		tn->val_len = p->p.tval_len;
 		tn->key = p->p.tkey;
 		tn->val = p->p.tval;
-		/* TODO: чистка массивов от двойных бекслешей (и одинарных) */
+		tn->key_hash = hash_pjw(tn->key, tn->key_len);
+		_normalize_keyval(tn->val, &tn->val_len, &special);
+
+		p->data_size += tn->key_len + 2; /* + ': ' */
+		p->data_size += tn->val_len + special + 1; /* + magic symbols + '\n' */
+
 		if (p->last) {
 			p->last->next = tn;
+			p->last = tn;
 		} else {
 			p->last = p->first = tn;
 		}
 		p->p.tkey = NULL;
 		p->p.tval = NULL;
+	}
+	/* 4. дообработка хвоста */
+	if (i != size) {
+		/* обновляем позции в буфере и переходим в начало */
+		buf += s;
+		size -= s;
+		goto begin_parse;
+	}
+
+	return true;
+}
+
+bool
+almsg_format_buffer(struct almsg_parser *p, char **buf, size_t *size)
+{
+	char *out = NULL;
+	struct almsg_node *pn = NULL;
+	size_t filled = 0u;
+	if (!buf || !size) {
+		p->p.err = ALMSG_E_ARGS;
+		return false;
+	}
+
+	*buf = NULL;
+	*size = 0u;
+
+	if (!p->first) {
 		return true;
 	}
-	/* n. не должны были дойти в нормальной ситуации */
-	return false;
+
+	out = calloc(1, p->data_size + 1);
+	if (!out) {
+		p->p.err = ALMSG_E_MEM;
+		return false;
+	}
+
+	for (pn = p->first; pn; pn = pn->next) {
+		memcpy(&out[filled], pn->key, pn->key_len);
+		filled += pn->key_len;
+		out[filled++] = ':';
+		out[filled++] = ' ';
+		filled += _expand_keyval(&out[filled], pn->val, pn->val_len);
+	}
+
+	*buf = out;
+	*size = filled;
+
+	return true;
 }
 
