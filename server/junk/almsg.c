@@ -156,10 +156,10 @@ almsg_parse_buf(struct almsg_parser *p, const char *buf, size_t size)
 					return false;
 				}
 				memcpy(p->p.tval, p->t.unparsed, p->t.unparsed_size);
-				if (!p->t.multiline) {
-					memcpy(&p->p.tval[p->t.unparsed_size], &buf[s], i - s);
-				} else { /* копируем всё, за исключением точки */
-					memcpy(&p->p.tval[p->t.unparsed_size], &buf[s], i - s - 2);
+				memcpy(&p->p.tval[p->t.unparsed_size], &buf[s], i - s);
+				/* убираем лишние символы для мультилайна */
+				if (p->t.multiline) {
+					p->p.tval[p->t.unparsed_size + i - s - 2] = '\0';
 				}
 				free(p->t.unparsed);
 				memset(&p->t, 0u, sizeof(p->t));
