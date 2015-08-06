@@ -24,6 +24,7 @@ main(int argc, char *argv[])
 	almsg_init(&alp);
 	almsg_parse_buf(&alp, in, strlen(in));
 
+	almsg_add(&alp, "XXX", 3, "yyy\ny", 5);
 	almsg_format_buffer(&alp, &outs, &outsz);
 
 	printf("len: %"PRIuPTR", buf:\n%s", outsz, outs);

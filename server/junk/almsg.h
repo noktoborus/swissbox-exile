@@ -40,6 +40,8 @@ struct almsg_node {
 	size_t key_len;
 	char *val;
 	size_t val_len;
+
+	size_t data_size;
 	struct almsg_node *next;
 };
 
@@ -87,11 +89,13 @@ bool almsg_init(struct almsg_parser *p);
 bool almsg_reset(struct almsg_parser *p);
 bool almsg_destroy(struct almsg_parser *p);
 
+#if 0
 /*
  * false если достигнут конец файла или произошла ошибка во время разбора
  */
 bool almsg_parse_stream(struct almsg_parser *p, int stream);
 bool almsg_parse_file(struct almsg_parser *p, FILE *file);
+#endif
 
 /*
  * false если произошла ошибка во время разбора
@@ -105,6 +109,7 @@ bool almsg_parse_buf(struct almsg_parser *p, const char *buf, size_t size);
  */
 bool almsg_format_buffer(struct almsg_parser *p, char **buf, size_t *size);
 
+#define ALMSG_ALL ((size_t)-1)
 /*
  * получение значения по ключу
  * после выполнения almsg_reset и almsg_destroy все указатели становятся
@@ -116,12 +121,21 @@ bool almsg_format_buffer(struct almsg_parser *p, char **buf, size_t *size);
  */
 const char *almsg_get(struct almsg_parser *p,
 		const char *key, size_t key_len, size_t i);
-
-bool almsg_remove(struct almsg_parser *p, const char *key, size_t key_len);
 /*
- * получение количества вхождений элементов с ключём key
+ * при передачи ALMSG_ALL в i удаляет все вхождения указанного ключа
+ * возвращает true если узлы были удалены
+ * и false если ничего не было найдено
  */
-size_t almsg_count(struct almsg_parser *p, const char *key);
+bool almsg_remove(struct almsg_parser *p,
+		const char *key, size_t key_len, size_t i);
+
+/* получение количества вхождений элементов с ключём key */
+size_t almsg_count(struct almsg_parser *p, const char *key, size_t key_len);
+
+/* true если добавление прошло успешно */
+bool almsg_add(struct almsg_parser *p,
+		const char *key, size_t key_len,
+		const char *val, size_t val_len);
 
 const char *almsg_errstr(struct almsg_parser *p);
 

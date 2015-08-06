@@ -7,91 +7,6 @@
 
 #include "almsg.h"
 
-const char*
-almsg_errstr(struct almsg_parser *p)
-{
-	if (!p)
-		return strdup("Invalid parser pointer");
-	return NULL;
-}
-
-/* init */
-bool
-almsg_init(struct almsg_parser *p)
-{
-	memset(p, 0u, sizeof(struct almsg_parser));
-	return false;
-}
-
-bool
-almsg_reset(struct almsg_parser *p)
-{
-	almsg_destroy(p);
-	almsg_init(p);
-	return true;
-}
-
-bool
-almsg_remove(struct almsg_parser *p, const char *key, size_t key_len)
-{
-	/* uint32_t hash = hash_pjw((char*)key, key_len); */
-	/* TODO */
-	return false;
-}
-
-bool
-almsg_destroy(struct almsg_parser *p)
-{
-	struct almsg_node *np;
-
-	/* освобождение узлов и прочего */
-	for (np = p->first, p->last = NULL; np; np = p->first) {
-		p->first = np->next;
-		/* чистка всякой херни */
-		if (np->key)
-			free(np->key);
-		if (np->val)
-			free(np->val);
-		/* удаление текущей ноды */
-		memset(np, 0u, sizeof(struct almsg_node));
-		free(np);
-	}
-
-	if (p->t.unparsed)
-		free(p->t.unparsed);
-
-	if (p->p.tkey)
-		free(p->p.tkey);
-	if (p->p.tval)
-		free(p->p.tval);
-
-	/* зануление структуры */
-	memset(p, 0u, sizeof(struct almsg_parser));
-	return true;
-}
-
-/* get */
-const char*
-almsg_get(struct almsg_parser *p, const char *key, size_t key_len, size_t i)
-{
-	uint32_t hash = hash_pjw((char*)key, key_len);
-
-	return 0u;
-}
-
-/* feel */
-bool
-almsg_parse_stream(struct almsg_parser *p, int stream)
-{
-	return false;
-}
-
-bool
-almsg_parse_file(struct almsg_parser *p, FILE *file)
-{
-	return false;
-}
-
 static inline bool
 _realloc_unparsed(struct almsg_parser *p, const char *buf, size_t size)
 {
@@ -139,7 +54,7 @@ _expand_keyval(char *target, char *string, size_t len)
  * обрезание (*special)
  */
 static inline bool
-_normalize_keyval(char *string, size_t *len, size_t *special)
+_normalize_keyval(char *string, size_t *len, size_t *special, bool is_static)
 {
 	size_t _spec_out = 0u;
 	size_t _len_out = *len;
@@ -154,18 +69,22 @@ _normalize_keyval(char *string, size_t *len, size_t *special)
 			/* обрезание экранированного переноса */
 			|| (string[i] == '\n' && last == '\\')) {
 
-			/* сдвиг строки на один символ влево */
-			for (ir = i, ib = --i; ir < _len_out; ir++, ib++) {
-				string[ib] = string[ir];
+			/* выполнять перенос только по специальному запросу */
+			if (!is_static) {
+				/* сдвиг строки на один символ влево */
+				for (ir = i, ib = --i; ir < _len_out; ir++, ib++) {
+					string[ib] = string[ir];
+				}
+
+				/* махинации над счётчиками */
+				_len_out--;
+				last = '\0';
+
+				/* и нолик, на всякий случай */
+				string[_len_out] = '\0';
 			}
-
-			/* махинации над счётчиками */
+			/* счётчик спецсимволов */
 			_spec_out++;
-			_len_out--;
-			last = '\0';
-
-			/* и нолик, на всякий случай */
-			string[_len_out] = '\0';
 		} else if (
 				/* костыль для учёта одинарных бекслешей и
 				 * сиротливых переносов строк
@@ -173,7 +92,7 @@ _normalize_keyval(char *string, size_t *len, size_t *special)
 				string[i] == '\n' ||
 				(string[i] != '\\' && last == '\\')) {
 			/* тот же самый костыль, что и для одинарных бекслешей */
-			special++;
+			_spec_out++;
 		} else {
 			last = string[i];
 		}
@@ -184,6 +103,197 @@ _normalize_keyval(char *string, size_t *len, size_t *special)
 
 	return true;
 }
+
+const char*
+almsg_errstr(struct almsg_parser *p)
+{
+	if (!p)
+		return strdup("Invalid parser pointer");
+	return NULL;
+}
+
+/* init */
+bool
+almsg_init(struct almsg_parser *p)
+{
+	memset(p, 0u, sizeof(struct almsg_parser));
+	return false;
+}
+
+bool
+almsg_reset(struct almsg_parser *p)
+{
+	almsg_destroy(p);
+	almsg_init(p);
+	return true;
+}
+
+bool
+almsg_remove(struct almsg_parser *p, const char *key, size_t key_len, size_t i)
+{
+	struct almsg_node *np;
+	struct almsg_node *fp = NULL;
+	struct almsg_node *lp = NULL;
+	uint32_t hash = hash_pjw((char*)key, key_len);
+	size_t n;
+	bool r = false;
+
+	for (np = p->first, n = 0u; np; np = fp) {
+		fp = np->next;
+		if (np->key_hash == hash) {
+			if (n == i || i == ALMSG_ALL) {
+				if (np->key)
+					free(np->key);
+				if (np->val)
+					free(np->val);
+				memset(np, 0u, sizeof(struct almsg_node));
+				free(np);
+				r = true;
+
+				if (p->first == np) {
+					p->first = fp;
+				}
+				if (p->last == np) {
+					p->last = lp;
+				}
+			}
+			n++;
+		} else {
+			lp = np;
+		}
+	}
+
+	return r;
+}
+
+bool
+almsg_destroy(struct almsg_parser *p)
+{
+	struct almsg_node *np;
+
+	/* освобождение узлов и прочего */
+	for (np = p->first, p->last = NULL; np; np = p->first) {
+		p->first = np->next;
+		/* чистка всякой херни */
+		if (np->key)
+			free(np->key);
+		if (np->val)
+			free(np->val);
+		/* удаление текущей ноды */
+		memset(np, 0u, sizeof(struct almsg_node));
+		free(np);
+	}
+
+	if (p->t.unparsed)
+		free(p->t.unparsed);
+
+	if (p->p.tkey)
+		free(p->p.tkey);
+	if (p->p.tval)
+		free(p->p.tval);
+
+	/* зануление структуры */
+	memset(p, 0u, sizeof(struct almsg_parser));
+	return true;
+}
+
+/* get */
+const char*
+almsg_get(struct almsg_parser *p, const char *key, size_t key_len, size_t i)
+{
+	struct almsg_node *np;
+	size_t n;
+	uint32_t hash = hash_pjw((char*)key, key_len);
+
+	for (np = p->first, n = 0u; np; np = np->next) {
+		if (np->key_hash == hash) {
+			if (n == i || i == ALMSG_ALL) {
+				return np->val;
+			}
+			n++;
+		}
+	}
+	return NULL;
+}
+
+size_t
+almsg_count(struct almsg_parser *p, const char *key, size_t key_len)
+{
+	struct almsg_node *np;
+	size_t n = 0u;
+	uint32_t hash = hash_pjw((char*)key, key_len);
+
+	for (np = p->first, n = 0u; np; np = np->next) {
+		if (np->key_hash == hash) {
+			n++;
+		}
+	}
+	return n;
+}
+
+/* set */
+bool
+almsg_add(struct almsg_parser *p,
+		const char *key, size_t key_len,
+		const char *val, size_t val_len)
+{
+	struct almsg_node *np;
+	size_t special;
+
+	np = calloc(1, sizeof(struct almsg_node));
+	if (np) {
+		np->key = calloc(1, key_len);
+		np->val = calloc(1, val_len);
+	}
+
+	if (!np || (!np->key || !np->val)) {
+		if (np) {
+			if (np->key)
+				free(np->key);
+			if (np->val)
+				free(np->val);
+			free(np);
+		}
+		p->p.err = ALMSG_E_MEM;
+		return false;
+	}
+
+	np->key_len = key_len;
+	np->val_len = val_len;
+
+	memcpy(np->key, key, key_len);
+	memcpy(np->val, val, val_len);
+
+	_normalize_keyval(np->val, &np->val_len, &special, true);
+
+	/* key + ': ' + val + special + '\n' */
+	np->data_size = (np->key_len + 2) + (np->val_len + special + 1);
+	p->data_size += np->data_size;
+
+	if (p->last) {
+		p->last->next = np;
+		p->last = np;
+	} else {
+		p->last = p->first = np;
+	}
+
+	return false;
+}
+
+/* feel */
+#if 0
+bool
+almsg_parse_stream(struct almsg_parser *p, int stream)
+{
+	return false;
+}
+
+bool
+almsg_parse_file(struct almsg_parser *p, FILE *file)
+{
+	return false;
+}
+#endif
 
 /* parse */
 bool
@@ -318,10 +428,11 @@ begin_parse:
 		tn->key = p->p.tkey;
 		tn->val = p->p.tval;
 		tn->key_hash = hash_pjw(tn->key, tn->key_len);
-		_normalize_keyval(tn->val, &tn->val_len, &special);
+		_normalize_keyval(tn->val, &tn->val_len, &special, false);
 
-		p->data_size += tn->key_len + 2; /* + ': ' */
-		p->data_size += tn->val_len + special + 1; /* + magic symbols + '\n' */
+		/* key + ': ' + val + special + '\n' */
+		tn->data_size = (tn->key_len + 2) + (tn->val_len + special + 1);
+		p->data_size += tn->data_size;
 
 		if (p->last) {
 			p->last->next = tn;
