@@ -76,6 +76,7 @@ struct almsg_parser {
 		bool dirty;
 	} t;
 
+	size_t keys_count;
 	/* размер буфера, необходимого для серилизации */
 	size_t data_size;
 	/* разобранные узлы */
@@ -86,8 +87,13 @@ struct almsg_parser {
 /* инициализация, сброс состояния и деинициализация
  */
 bool almsg_init(struct almsg_parser *p);
-bool almsg_reset(struct almsg_parser *p);
 bool almsg_destroy(struct almsg_parser *p);
+/* при save_unparsed = true буфер unparsed структуры переносится
+ * в переинициализированную и разбирается заного
+ * возвращаемое значение, в таком случае, становится соотвествующим
+ * almsg_parse_buf()
+ */
+bool almsg_reset(struct almsg_parser *p, bool save_unparsed);
 
 #if 0
 /*
@@ -129,7 +135,9 @@ const char *almsg_get(struct almsg_parser *p,
 bool almsg_remove(struct almsg_parser *p,
 		const char *key, size_t key_len, size_t i);
 
-/* получение количества вхождений элементов с ключём key */
+/* получение количества вхождений элементов с ключём key
+ * если key == NULL, то возвращает общее количество элементов
+ */
 size_t almsg_count(struct almsg_parser *p, const char *key, size_t key_len);
 
 /* true если добавление прошло успешно */

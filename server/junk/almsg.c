@@ -121,10 +121,19 @@ almsg_init(struct almsg_parser *p)
 }
 
 bool
-almsg_reset(struct almsg_parser *p)
+almsg_reset(struct almsg_parser *p, bool save_unparsed)
 {
+	char *unparsed = NULL;
+	size_t unparsed_size = 0u;
+	if (save_unparsed) {
+		unparsed = p->t.unparsed;
+		unparsed_size = p->t.unparsed_size;
+	}
 	almsg_destroy(p);
 	almsg_init(p);
+	if (unparsed) {
+		return almsg_parse_buf(p, unparsed, unparsed_size);
+	}
 	return true;
 }
 
@@ -156,6 +165,7 @@ almsg_remove(struct almsg_parser *p, const char *key, size_t key_len, size_t i)
 				if (p->last == np) {
 					p->last = lp;
 				}
+				p->keys_count--;
 			}
 			n++;
 		} else {
@@ -182,6 +192,7 @@ almsg_destroy(struct almsg_parser *p)
 		/* удаление текущей ноды */
 		memset(np, 0u, sizeof(struct almsg_node));
 		free(np);
+		p->keys_count--;
 	}
 
 	if (p->t.unparsed)
@@ -221,14 +232,18 @@ almsg_count(struct almsg_parser *p, const char *key, size_t key_len)
 {
 	struct almsg_node *np;
 	size_t n = 0u;
-	uint32_t hash = hash_pjw((char*)key, key_len);
+	uint32_t hash;
+	if (key) {
+		hash = hash_pjw((char*)key, key_len);
 
-	for (np = p->first, n = 0u; np; np = np->next) {
-		if (np->key_hash == hash) {
-			n++;
+		for (np = p->first, n = 0u; np; np = np->next) {
+			if (np->key_hash == hash) {
+				n++;
+			}
 		}
+		return n;
 	}
-	return n;
+	return p->keys_count;
 }
 
 /* set */
@@ -276,6 +291,7 @@ almsg_add(struct almsg_parser *p,
 	} else {
 		p->last = p->first = np;
 	}
+	p->keys_count++;
 
 	return false;
 }
@@ -442,6 +458,7 @@ begin_parse:
 		}
 		p->p.tkey = NULL;
 		p->p.tval = NULL;
+		p->keys_count++;
 	}
 	/* 4. дообработка хвоста */
 	if (i != size) {
