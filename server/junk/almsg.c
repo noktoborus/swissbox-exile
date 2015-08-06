@@ -242,8 +242,8 @@ almsg_add(struct almsg_parser *p,
 
 	np = calloc(1, sizeof(struct almsg_node));
 	if (np) {
-		np->key = calloc(1, key_len);
-		np->val = calloc(1, val_len);
+		np->key = calloc(1, key_len + 1);
+		np->val = calloc(1, val_len + 1);
 	}
 
 	if (!np || (!np->key || !np->val)) {
