@@ -922,7 +922,7 @@ main(int argc, char *argv[])
 		}
 		/* подчистка подключений к редису */
 		for (size_t i = 0u; i < REDIS_C_MAX; i++) {
-			if (pain.rs[i].ac) {
+			if (pain.rs[i].ac && pain.rs[i].connected) {
 				redisAsyncFree(pain.rs[i].ac);
 				pain.rs[i].ac = NULL;
 			}
