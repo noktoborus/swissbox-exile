@@ -8,7 +8,7 @@
 
 
 uint32_t
-hash_pjw(char *str, size_t size)
+hash_pjw(const char *str, size_t size)
 {
 	register uint32_t hash = 0u;
 	register uint32_t test = 0u;

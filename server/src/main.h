@@ -97,6 +97,10 @@ struct redis_c {
 	uint32_t msghash;
 	redisAsyncContext *ac;
 	bool connected;
+
+	pthread_mutex_t x;
+
+	struct main *pain;
 };
 
 #define	REDIS_C_MAX 2
@@ -111,11 +115,15 @@ struct main
 	 * нулевое подключение используется для подписок (SUBSCRIBE)
 	 */
 	struct redis_c rs[REDIS_C_MAX];
+	pthread_cond_t rs_wait;
+	pthread_mutex_t rs_lock;
+	size_t rs_awaits;
 
 	/* server list */
 	struct sev_main *sev;
 
 	struct {
+		char *name;
 		char *redis_chan;
 	} options;
 
@@ -139,6 +147,8 @@ typedef enum direction
 int sev_send(void *ctx, const unsigned char *buf, size_t len);
 int sev_recv(void *ctx, unsigned char *buf, size_t len);
 
+/* */
+bool redis_t(struct main *pain, char *ch, char *data, size_t size);
 
 /* информации о версии */
 const char *const sev_version_string();

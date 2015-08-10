@@ -7,10 +7,11 @@ BIN=bin/server
 SRC=src/
 SIMPLEPQ=simplepq/simplepq.c
 SQUEUE=squeue/squeue.c
-JUNK=junk/guid.c junk/utils.c
+JUNK=junk/guid.c junk/utils.c junk/almsg.c
 AS3=${SRC}/as3/as3.c
 
 SOURCES=${SRC}/main.c ${SRC}/client_iterate.c proto/fep.pb-c.c\
+	${SRC}/redis_process.c\
 	${SRC}/list.c ${SRC}/client/cum.c ${SRC}/client_cb.c\
 	${AS3}\
 	${SQUEUE}\

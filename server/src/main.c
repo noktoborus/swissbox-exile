@@ -6,6 +6,7 @@
 #include "simplepq/simplepq.h"
 #include "client_iterate.h"
 
+#include <sys/utsname.h>
 #include <curl/curl.h>
 #include <arpa/inet.h>
 #include <errno.h>
@@ -26,6 +27,8 @@
 static unsigned int sev_ctx_seq = 0u;
 
 bool client_iterate(struct sev_ctx *, bool, void **);
+bool redis_process(struct redis_c *rds, const char *data, size_t size);
+
 void alarm_cb(struct ev_loop *loop, ev_async *w, int revents);
 void client_cb(struct ev_loop *loop, ev_io *w, int revents);
 
@@ -702,8 +705,23 @@ rds_incoming_cb(redisAsyncContext *ac, redisReply *r, void *priv)
 	 }
 
 	if(r->element[2]->len) {
+#if DEEPDEBUG
 		xsyslog(LOG_DEBUG, "redis[%02"PRIuPTR"] message in \"%s\": \"%s\"",
 				rds->self, r->element[1]->str, r->element[2]->str);
+#endif
+		/* если сообщение пришло во входяший канал */
+		if (!strcmp(r->element[1]->str, rds->pain->options.redis_chan)) {
+			/* проталкиваем его дальше */
+			redis_process(rds, r->element[2]->str, (size_t)r->element[2]->len);
+		} else {
+			/* сообщаем что кто-то шумит
+			 * TODO: вставить шумоподавитель
+			 */
+			xsyslog(LOG_INFO, "redis[%02"PRIuPTR"] noise in channel '%s', "
+					"size: %d",
+					rds->self,
+					r->element[2]->str, r->element[3]->len);
+		}
 	} else {
 		xsyslog(LOG_DEBUG, "redis[%02"PRIuPTR"] channel \"%s\": subscribed",
 				rds->self, r->element[1]->str);
@@ -732,6 +750,48 @@ rds_connect_cb(const redisAsyncContext *ac, int status)
 	rds->msghash = 0u;
 }
 
+bool
+redis_t(struct main *pain, char *ch, char *data, size_t size)
+{
+	bool awaited = false;
+	/* с еденицы, потому что первый нужен для
+	 * подписок
+	 *
+	 */
+	if (ch == NULL) {
+		ch = pain->options.redis_chan;
+	}
+	while (!awaited) {
+		/* отправка сообщения */
+		for (size_t i = 1u; i < REDIS_C_MAX; i++) {
+			if (!pthread_mutex_trylock(&pain->rs[i].x)) {
+				redisAsyncCommand(pain->rs[i].ac, NULL, NULL, "PUBLISH %s %b",
+						ch, data, size);
+				pthread_mutex_unlock(&pain->rs[i].x);
+				/* не броадкастить нужно для того, что бы не срывались
+				 * все сразу и не гнались за ресурсом
+				 */
+				pthread_cond_signal(&pain->rs_wait);
+				return true;
+			}
+		}
+		/* что бы не ждать больше одного цикла */
+		awaited = true;
+		/* сообщение не отправилось, нужно дождаться сигнала
+		 * и попытаться снова
+		 */
+		pthread_mutex_lock(&pain->rs_lock);
+		pain->rs_awaits++;
+		if (!pthread_cond_wait(&pain->rs_wait, &pain->rs_lock)) {
+			pain->rs_awaits--;
+			pthread_mutex_unlock(&pain->rs_lock);
+			continue;
+		}
+		break;
+	}
+	return false;
+}
+
 void
 timeout_cb(struct ev_loop *loop, ev_timer *w, int revents)
 {
@@ -746,8 +806,6 @@ timeout_cb(struct ev_loop *loop, ev_timer *w, int revents)
 			if (pain->rs[i].ac) {
 				pain->rs[i].ac = NULL;
 			}
-			/* для отладки */
-			pain->rs[i].self = i;
 			/* аллокация структур */
 			pain->rs[i].ac = redisAsyncConnect("127.0.0.1", 6379);
 			if (pain->rs[i].ac) {
@@ -859,7 +917,16 @@ main(int argc, char *argv[])
 	char *pg_connstr = strdup("dbname = fepserver");
 
 	memset(&pain, 0, sizeof(struct main));
-	pain.options.redis_chan = strdup("fep_broadcast");
+	{
+		struct utsname buf;
+		memset(&buf, 0, sizeof(struct utsname));
+		if (uname(&buf) != -1 && *buf.nodename) {
+			pain.options.name = strdup(buf.nodename);
+		} else {
+			pain.options.name = strdup("fepizer");
+		}
+		pain.options.redis_chan = strdup("fep_broadcast");
+	}
 	/* получение конфигурации */
 	{
 		char cfgpath[PATH_MAX + 1];
@@ -867,6 +934,7 @@ main(int argc, char *argv[])
 			CFG_SIMPLE_STR("bind", &bindline),
 			CFG_SIMPLE_STR("pg_connstr", &pg_connstr),
 			CFG_SIMPLE_STR("redis_chan", &pain.options.redis_chan),
+			CFG_SIMPLE_STR("server_name", &pain.options.name),
 			CFG_END()
 		};
 
@@ -896,6 +964,14 @@ main(int argc, char *argv[])
 		/* таймер на чистку всяких устаревших структур и прочего */
 		ev_timer_init(&pain.watcher, timeout_cb, 1., 10.);
 		ev_timer_start(loop, &pain.watcher);
+		/* инициализация структур редиса */
+		pthread_mutex_init(&pain.rs_lock, NULL);
+		pthread_cond_init(&pain.rs_wait, NULL);
+		for (size_t i = 0u; i < REDIS_C_MAX; i++) {
+			pthread_mutex_init(&pain.rs[i].x, NULL);
+			pain.rs[i].self = i;
+			pain.rs[i].pain = &pain;
+		}
 		/* мультисокет */
 		{
 			char *_x = strdup(bindline);
@@ -925,8 +1001,11 @@ main(int argc, char *argv[])
 			if (pain.rs[i].ac && pain.rs[i].connected) {
 				redisAsyncFree(pain.rs[i].ac);
 				pain.rs[i].ac = NULL;
+				pthread_mutex_destroy(&pain.rs[i].x);
 			}
 		}
+		pthread_mutex_destroy(&pain.rs_lock);
+		pthread_cond_destroy(&pain.rs_wait);
 		/* чистка клиентских сокетов */
 		ev_signal_stop(loop, &pain.sigint);
 		ev_timer_stop(loop, &pain.watcher);
