@@ -78,6 +78,24 @@ struct getLogFile {
 	void *res;
 };
 
+/* получение списка локальных файлов */
+
+struct getLocalFiles {
+	void *p;
+	void *res;
+
+	uint64_t file_id;
+	char *path;
+	char *owner;
+
+	unsigned row;
+	unsigned max;
+};
+
+bool spq_getLocalFiles_it(struct getLocalFiles *state);
+void spq_getLocalFiles_free(struct getLocalFiles *state);
+bool spq_getLocalFiles(struct getLocalFiles *state, struct spq_hint *hint);
+
 /* получение списка ревизий */
 
 struct getRevisions {

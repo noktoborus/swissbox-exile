@@ -17,7 +17,7 @@ DECLARE
 	_exc_str text;
 BEGIN
 	/* версия структуры */
-	SELECT INTO _struct_version_value '5';
+	SELECT INTO _struct_version_value '6';
 
 	/* проверка pgcrypto, на всякий случай
 	// уже не нужно, для примера
@@ -317,6 +317,8 @@ CREATE TABLE IF NOT EXISTS file_chunk
 	hash character varying(256) NOT NULL,
 	-- путь к файлу
 	address text NOT NULL,
+
+	driver text DEFAULT NULL,
 
 	UNIQUE(file_id, chunk)
 );

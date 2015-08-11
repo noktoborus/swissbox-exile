@@ -1261,4 +1261,4 @@ spq_add_user(char *username, char *secret, struct spq_hint *hint)
 #include "complex/getRevisions.c"
 #include "complex/getChunks.c"
 #include "complex/logDirFile.c"
-
+#include "complex/getLocalFiles.c"

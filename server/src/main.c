@@ -751,7 +751,7 @@ rds_connect_cb(const redisAsyncContext *ac, int status)
 }
 
 bool
-redis_t(struct main *pain, char *ch, char *data, size_t size)
+redis_t(struct main *pain, const char *ch, const char *data, size_t size)
 {
 	bool awaited = false;
 	/* с еденицы, потому что первый нужен для
