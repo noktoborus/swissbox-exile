@@ -18,7 +18,7 @@ action_files(struct main *pain, struct almsg_parser *alm, char *action)
 	/* сбрасываем состояние */
 	almsg_reset(alm, false);
 	/* формируем ответ */
-	almsg_add(alm, PSLEN("from"), PSLEN(pain->options.name));
+	almsg_append(alm, PSLEN("from"), PSLEN(pain->options.name));
 	return true;
 }
 

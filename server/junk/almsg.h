@@ -140,8 +140,23 @@ bool almsg_remove(struct almsg_parser *p,
  */
 size_t almsg_count(struct almsg_parser *p, const char *key, size_t key_len);
 
+/*
+ * лучше использовать соотвествующие almsg_append() и almsg_insert()
+ */
+bool
+almsg_add(struct almsg_parser *p,
+		const char *key, size_t key_len,
+		const char *val, size_t val_len, bool first);
+
 /* true если добавление прошло успешно */
-bool almsg_add(struct almsg_parser *p,
+bool
+almsg_append(struct almsg_parser *p,
+		const char *key, size_t key_len,
+		const char *val, size_t val_len);
+
+/* то же самое что и almsg_append, но добавляет запись на первую позицию */
+bool
+almsg_insert(struct almsg_parser *p,
 		const char *key, size_t key_len,
 		const char *val, size_t val_len);
 

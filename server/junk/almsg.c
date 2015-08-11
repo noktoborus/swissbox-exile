@@ -248,9 +248,25 @@ almsg_count(struct almsg_parser *p, const char *key, size_t key_len)
 
 /* set */
 bool
-almsg_add(struct almsg_parser *p,
+almsg_insert(struct almsg_parser *p,
 		const char *key, size_t key_len,
 		const char *val, size_t val_len)
+{
+	return almsg_add(p, key, key_len, val, val_len, true);
+}
+
+	bool
+almsg_append(struct almsg_parser *p,
+		const char *key, size_t key_len,
+		const char *val, size_t val_len)
+{
+	return almsg_add(p, key, key_len, val, val_len, false);
+}
+
+bool
+almsg_add(struct almsg_parser *p,
+		const char *key, size_t key_len,
+		const char *val, size_t val_len, bool first)
 {
 	struct almsg_node *np;
 	size_t special;
@@ -285,11 +301,19 @@ almsg_add(struct almsg_parser *p,
 	np->data_size = (np->key_len + 2) + (np->val_len + special + 1);
 	p->data_size += np->data_size;
 
-	if (p->last) {
-		p->last->next = np;
-		p->last = np;
+	if (!first) {
+		if (p->last) {
+			p->last->next = np;
+			p->last = np;
+		} else {
+			p->last = p->first = np;
+		}
 	} else {
-		p->last = p->first = np;
+		np->next = p->first;
+		p->first = np->next;
+		if (!p->last) {
+			p->last = np->next;
+		}
 	}
 	p->keys_count++;
 
