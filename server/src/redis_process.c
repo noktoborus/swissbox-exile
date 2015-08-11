@@ -52,7 +52,7 @@ redis_process(struct redis_c *rds, const char *data, size_t size)
 				if (_actions[i].f(rds->pain, &alm, _actions[i].action_str)) {
 					char *_p = NULL;
 					size_t _s = 0u;
-					almsg_format_buffer(&alm, &_p, &_s);
+					almsg_format_buf(&alm, &_p, &_s);
 					if (_p && _s) {
 						redis_t(rds->pain, NULL, _p, _s);
 					} else {

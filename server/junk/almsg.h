@@ -113,7 +113,7 @@ bool almsg_parse_buf(struct almsg_parser *p, const char *buf, size_t size);
 /*
  * false если невозможно сформировать буфер
  */
-bool almsg_format_buffer(struct almsg_parser *p, char **buf, size_t *size);
+bool almsg_format_buf(struct almsg_parser *p, char **buf, size_t *size);
 
 #define ALMSG_ALL ((size_t)-1)
 /*

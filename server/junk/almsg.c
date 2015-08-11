@@ -472,7 +472,7 @@ begin_parse:
 }
 
 bool
-almsg_format_buffer(struct almsg_parser *p, char **buf, size_t *size)
+almsg_format_buf(struct almsg_parser *p, char **buf, size_t *size)
 {
 	char *out = NULL;
 	struct almsg_node *pn = NULL;
