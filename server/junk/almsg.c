@@ -310,9 +310,10 @@ almsg_add(struct almsg_parser *p,
 		}
 	} else {
 		np->next = p->first;
-		p->first = np->next;
-		if (!p->last) {
-			p->last = np->next;
+		if (p->last) {
+			p->first = np;
+		} else {
+			p->last = p->first = np;
 		}
 	}
 	p->keys_count++;

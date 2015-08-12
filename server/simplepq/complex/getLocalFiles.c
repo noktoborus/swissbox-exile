@@ -50,7 +50,8 @@ _s_exec(PGconn *pgc, struct spq_hint *hint)
 			"file_chunk.driver IS NULL AND "
 			"file.id = file_chunk.file_id AND "
 			"rootdir.id = file.rootdir_id AND "
-			"\"user\".id = rootdir.user_id;";
+			"\"user\".id = rootdir.user_id "
+			"ORDER BY file.id;";
 
 	res = PQexec(pgc, tb);
 	pqs = PQresultStatus(res);

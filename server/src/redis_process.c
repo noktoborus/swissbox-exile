@@ -18,8 +18,10 @@ almsg2redis(struct main *pain, const char *chan, struct almsg_parser *alm)
 	size_t l = 0u;
 
 	almsg_format_buf(alm, &p, &l);
-	if (l) {
-		redis_t(pain, chan, p, l);
+	if (p) {
+		if (l)
+			redis_t(pain, chan, p, l);
+		free(p);
 	} else {
 		xsyslog(LOG_WARNING, "almsg2redis: empty buffer (elem: %"PRIuPTR")",
 				almsg_count(alm, NULL, 0u));
@@ -74,11 +76,12 @@ action_files(struct main *pain, struct almsg_parser *alm, char *action)
 
 		for (i = 0u; spq_getLocalFiles_it(&lf); i++) {
 			snprintf(_cc, sizeof(_cc), "%"PRIu64, lf.file_id);
+			almsg_append(&ap, PSLEN("from"), PSLEN(pain->options.name));
 			almsg_append(&ap, PSLEN("id"), PSLEN(_cc));
 			almsg_append(&ap, PSLEN("file"), PSLEN(lf.path));
 			almsg_append(&ap, PSLEN("owner"), PSLEN(lf.owner));
 			/* разделение сообщений */
-			if (i == split) {
+			if (split && i == split) {
 				almsg2redis(pain, chan, &ap);
 				almsg_reset(&ap, false);
 				/* обнуление счётчика для простоты счёта */
@@ -125,8 +128,6 @@ redis_process(struct redis_c *rds, const char *data, size_t size)
 			}
 			if (_actions[i].action == hash) {
 				if (_actions[i].f(rds->pain, &alm, _actions[i].action_str)) {
-					char *_p = NULL;
-					size_t _s = 0u;
 					/* добавление специальных полей */
 					almsg_insert(&alm,
 							PSLEN("response"), PSLEN(_actions[i].action_str));
@@ -134,14 +135,7 @@ redis_process(struct redis_c *rds, const char *data, size_t size)
 							PSLEN("from"), PSLEN(rds->pain->options.name));
 
 					/* формирование буфера и отправка ответа */
-					almsg_format_buf(&alm, &_p, &_s);
-					if (_p && _s) {
-						redis_t(rds->pain, NULL, _p, _s);
-					} else {
-						xsyslog(LOG_DEBUG,
-								"redis: zero result buffer: %p, %"PRIuPTR,
-								_p, _s);
-					}
+					almsg2redis(rds->pain, NULL, &alm);
 				}
 			}
 		}

@@ -1019,6 +1019,7 @@ main(int argc, char *argv[])
 	free(bindline);
 	free(pg_connstr);
 	free(pain.options.redis_chan);
+	free(pain.options.name);
 
 	curl_global_cleanup();
 	xsyslog(LOG_INFO, "--- EXIT ---");
