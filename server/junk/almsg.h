@@ -127,6 +127,20 @@ bool almsg_format_buf(struct almsg_parser *p, char **buf, size_t *size);
  */
 const char *almsg_get(struct almsg_parser *p,
 		const char *key, size_t key_len, size_t i);
+
+/*
+ * калбек для almsg_each, i указывает на номер ключа в массиве
+ */
+typedef bool (*almsg_each_cb)
+	(struct almsg_parser *p,
+	 const char *val, size_t val_len, size_t i, void *raw);
+
+/* обработка каждого элемента (при i == ALMSG_ALL) или указанного
+ * (при i != ALMSG_ALL) и передачи данных в cb
+ * raw передаётся cb при каждом вызове
+ */
+bool almsg_each(struct almsg_parser *p,
+		const char *key, size_t key_len, size_t i, almsg_each_cb cb, void *raw);
 /*
  * при передачи ALMSG_ALL в i удаляет все вхождения указанного ключа
  * возвращает true если узлы были удалены

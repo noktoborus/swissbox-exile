@@ -209,6 +209,30 @@ almsg_destroy(struct almsg_parser *p)
 }
 
 /* get */
+bool
+almsg_each(struct almsg_parser *p,
+		const char *key, size_t key_len, size_t i, almsg_each_cb cb, void *raw)
+{
+	bool r = false;
+	struct almsg_node *np;
+	size_t n = 0u;
+	uint32_t hash = (key) ? hash_pjw((char*)key, key_len) : 0u;
+
+	for (np = p->first; np; np = np->next) {
+		if (np->key_hash == hash) {
+			if (n == i || i == ALMSG_ALL) {
+				/* если хоть раз cb вернул true, то его и нужно вернуть
+				 */
+				if (cb(p, key, key_len, n, raw))
+					r = true;
+			}
+			n++;
+		}
+	}
+
+	return r;
+}
+
 const char*
 almsg_get(struct almsg_parser *p, const char *key, size_t key_len, size_t i)
 {
