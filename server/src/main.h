@@ -148,7 +148,8 @@ int sev_send(void *ctx, const unsigned char *buf, size_t len);
 int sev_recv(void *ctx, unsigned char *buf, size_t len);
 
 /* */
-bool redis_t(struct main *pain, const char *ch, const char *data, size_t size);
+bool redis_t(struct main *pain, const char *cmd, const char *ch,
+		const char *data, size_t size);
 
 /* информации о версии */
 const char *const sev_version_string();

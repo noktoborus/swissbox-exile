@@ -12,7 +12,8 @@
 #include "junk/almsg.h"
 
 void
-almsg2redis(struct main *pain, const char *chan, struct almsg_parser *alm)
+almsg2redis(struct main *pain, const char *cmd, const char *chan,
+		struct almsg_parser *alm)
 {
 	char *p = NULL;
 	size_t l = 0u;
@@ -20,14 +21,13 @@ almsg2redis(struct main *pain, const char *chan, struct almsg_parser *alm)
 	almsg_format_buf(alm, &p, &l);
 	if (p) {
 		if (l)
-			redis_t(pain, chan, p, l);
+			redis_t(pain, cmd, chan, p, l);
 		free(p);
 	} else {
 		xsyslog(LOG_WARNING, "almsg2redis: empty buffer (elem: %"PRIuPTR")",
 				almsg_count(alm, NULL, 0u));
 	}
 }
-
 
 /*
  * получение списка файлов
@@ -81,15 +81,15 @@ action_files(struct main *pain, struct almsg_parser *alm, char *action)
 			almsg_append(&ap, PSLEN("file"), PSLEN(lf.path));
 			almsg_append(&ap, PSLEN("owner"), PSLEN(lf.owner));
 			/* разделение сообщений */
-			if (split && i == split) {
-				almsg2redis(pain, chan, &ap);
+			if (i == split || !split) {
+				almsg2redis(pain, "LPUSH", chan, &ap);
 				almsg_reset(&ap, false);
 				/* обнуление счётчика для простоты счёта */
 				i = 0u;
 			}
 		}
 		if (almsg_count(&ap, NULL, 0u)) {
-			almsg2redis(pain, chan, &ap);
+			almsg2redis(pain, "LPUSH", chan, &ap);
 		}
 
 		/* отчистка */
@@ -135,7 +135,7 @@ redis_process(struct redis_c *rds, const char *data, size_t size)
 							PSLEN("from"), PSLEN(rds->pain->options.name));
 
 					/* формирование буфера и отправка ответа */
-					almsg2redis(rds->pain, NULL, &alm);
+					almsg2redis(rds->pain, "PUBLISH", NULL, &alm);
 				}
 			}
 		}

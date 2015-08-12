@@ -750,8 +750,13 @@ rds_connect_cb(const redisAsyncContext *ac, int status)
 	rds->msghash = 0u;
 }
 
+/* cmd:
+ *  PUBLISH
+ *  LPUSH
+ *  RPUSH
+ */
 bool
-redis_t(struct main *pain, const char *ch, const char *data, size_t size)
+redis_t(struct main *pain, const char *cmd, const char *ch, const char *data, size_t size)
 {
 	bool awaited = false;
 	/* с еденицы, потому что первый нужен для
@@ -765,8 +770,8 @@ redis_t(struct main *pain, const char *ch, const char *data, size_t size)
 		/* отправка сообщения */
 		for (size_t i = 1u; i < REDIS_C_MAX; i++) {
 			if (!pthread_mutex_trylock(&pain->rs[i].x)) {
-				redisAsyncCommand(pain->rs[i].ac, NULL, NULL, "PUBLISH %s %b",
-						ch, data, size);
+				redisAsyncCommand(pain->rs[i].ac, NULL, NULL, "%s %s %b",
+						cmd, ch, data, size);
 				pthread_mutex_unlock(&pain->rs[i].x);
 				/* не броадкастить нужно для того, что бы не срывались
 				 * все сразу и не гнались за ресурсом
