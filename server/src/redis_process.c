@@ -29,6 +29,54 @@ almsg2redis(struct main *pain, const char *cmd, const char *chan,
 	}
 }
 
+static bool
+_action_accept(struct almsg_parser *p, const char *val, size_t val_len,
+	size_t i, struct main *pain)
+{
+	const char *driver = NULL;
+	const char *address = NULL;
+
+	driver = almsg_get(p, PSLEN("driver"), i);
+	address = almsg_get(p, PSLEN("address"), i);
+	if (!driver || !address) {
+		xsyslog(LOG_WARNING, "empty driver ('%s') or address ('%s') "
+				"for file id#%s", driver, address, val);
+		return false;
+	}
+
+	/* TODO: завершение переноса */
+	xsyslog(LOG_INFO, "file id#%s moved to %s:%s", val, driver, address);
+	return true;
+}
+
+/*
+ * сообщениие серверу, что файл перенесён
+ * Запрос (может содержать несколько файлов):
+ *  from: <unique nodename>
+ *  action: accept
+ *  id: <file id>
+ *  driver: <driver name>
+ *  address: <new path to file>
+ *  [id: <file id>]
+ *  [driver: <driver name>]
+ *  [address: <new path to file]
+ *
+ * Ответ:
+ *  from: <unique nodename>
+ *  response: accept
+ *  id: <file id>
+ */
+static bool
+action_accept(struct main *pain, struct almsg_parser *alm, char *action)
+{
+	/* 1. обработать сообщение */
+	almsg_each(alm, PSLEN("id"), ALMSG_ALL,
+			(almsg_each_cb)_action_accept, pain);
+	/* 2. обновить значения в бд */
+	/* 3. сформировать ответ */
+	return true;
+}
+
 /*
  * получение списка файлов
  * запрос:
@@ -106,6 +154,7 @@ static struct redis_actions {
 	char action_str[32];
 } _actions[] = {
 	{ 0u, action_files, "files"},
+	{ 0u, action_accept, "accept"},
 	{ 0u, NULL, "" }
 };
 
