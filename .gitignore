@@ -5,4 +5,5 @@ server/.*
 server/dist
 *.py[cod]
 additional_flags
+.buildflags
 core
