@@ -11,6 +11,8 @@
 #include <curl/curl.h>
 #include <confuse.h>
 
+#include <ev.h>
+
 #include "../server/junk/xsyslog.h"
 #include "keystone-client/keystone-client.h"
 
@@ -19,6 +21,12 @@
  * 2. интерфейс к swift
  *
  */
+
+struct main {
+	struct {
+		char *redis_chan;
+	} options;
+};
 
 struct w {
 	struct {
@@ -86,16 +94,81 @@ swift_token(w_t *w)
 	return true;
 }
 
+void
+signal_cb(struct ev_loop *loop, ev_signal *w, int revents)
+{
+	xsyslog(LOG_INFO, "SIG#%d, exit", w->signum);
+	ev_break(loop, EVBREAK_ALL);
+}
+
+void
+signal_ignore_cb(struct ev_loop *loop, ev_signal *w, int revents)
+{
+	xsyslog(LOG_INFO, "SIG#%d, ignore", w->signum);
+}
+
+void
+timeout_cb(struct ev_loop *loop, ev_timer *w, int revents)
+{
+
+}
+
+void
+rloop(struct main *pain)
+{
+	struct ev_loop *loop = EV_DEFAULT;
+	ev_signal sigint;
+	ev_signal sigpipe;
+	ev_timer timeout;
+	/* инициализация */
+	ev_signal_init(&sigint, signal_cb, SIGINT);
+	ev_signal_init(&sigpipe, signal_ignore_cb, SIGPIPE);
+	ev_timer_init(&timeout, timeout_cb, 1., 5.);
+
+	ev_signal_start(loop, &sigint);
+	ev_signal_start(loop, &sigpipe);
+	ev_timer_start(loop, &timeout);
+
+	ev_run(loop, 0);
+
+	/* деинициализация */
+	ev_signal_stop(loop, &sigint);
+	ev_signal_stop(loop, &sigpipe);
+	ev_timer_stop(loop, &timeout);
+	ev_loop_destroy(loop);
+}
+
 int
 main(int argc, char *argv[])
 {
+	struct main pain;
+	cfg_t *cfg;
 	w_t w;
 	memset(&w, 0u, sizeof(w_t));
+	memset(&pain, 0u, sizeof(struct main));
+
+	if (argc < 2) {
+		fprintf(stderr, "usage: %s server.conf\n", argv[0]);
+		return EXIT_FAILURE;
+	}
+
+	/* базовые значения */
+	pain.options.redis_chan = strdup("fep_broadcast");
 
 	w.t.url = strdup("https://swissbox-swift.it-grad.ru/v2.0/tokens");
 	w.t.tenant = strdup("project01");
 	w.t.user = strdup("user01");
 	w.t.secret = strdup("4edcMKI*");
+
+	/* получение конфигурации */
+	{
+		cfg_opt_t opt[] = {
+			CFG_SIMPLE_STR("redis_chan", &pain.options.redis_chan),
+			CFG_END()
+		};
+		cfg = cfg_init(opt, 0);
+		cfg_parse(cfg, argv[1]);
+	}
 
 	openlog(NULL, LOG_PERROR | LOG_PID, LOG_LOCAL0);
 	xsyslog(LOG_INFO, "--- START ---");
@@ -106,10 +179,14 @@ main(int argc, char *argv[])
 	}
 	/* begin */
 	swift_token(&w);
+	rloop(&pain);
 	/* cleanup */
 	xsyslog(LOG_INFO, "--- END ---");
 	curl_global_cleanup();
 	swh_clear(&w);
+
+	free(pain.options.redis_chan);
+
 	return EXIT_SUCCESS;
 }
 
