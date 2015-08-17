@@ -3,6 +3,7 @@
  */
 #ifndef _RDC_1439466539_H_
 #define _RDC_1439466539_H_
+#include <ev.h>
 #include <stdlib.h>
 #include <stdbool.h>
 #include <pthread.h>
@@ -12,6 +13,11 @@
 #include "junk/xsyslog.h"
 
 struct rdc_node {
+	bool assigned;
+	unsigned num;
+
+	pthread_mutex_t lock;
+
 	redisAsyncContext *ac;
 	char *command;
 	struct rdc_node *next;
@@ -19,18 +25,21 @@ struct rdc_node {
 
 #define RDC_LIMIT 10
 struct rdc {
-
+	struct ev_loop *loop;
+	pthread_mutex_t lock;
+	const char *addr;
+	unsigned serial;
 	/* общество количество подключений,
 	 * количество активных подключейний,
 	 * ограничение количества подключений
 	 */
-	size_t c_count;
-	size_t c_active;
-	size_t c_limit;
+	unsigned c_count;
+	unsigned c_active;
+	unsigned c_limit;
 	struct rdc_node *c;
 };
 
-void rdc_init(struct rdc *r, size_t limit);
+void rdc_init(struct rdc *r, struct ev_loop *loop, const char *addr, size_t limit);
 void rdc_destroy(struct rdc *r);
 
 /* создание/захват подключения
