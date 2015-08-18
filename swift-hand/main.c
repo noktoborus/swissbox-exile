@@ -173,6 +173,8 @@ main(int argc, char *argv[])
 	/* получение конфигурации */
 	{
 		cfg_opt_t opt[] = {
+			CFG_SIMPLE_STR("bind", CFGF_NONE),
+			CFG_SIMPLE_STR("pg_connstr", CFGF_NONE),
 			CFG_SIMPLE_STR("redis_chan", &pain.options.redis_chan),
 			CFG_END()
 		};
