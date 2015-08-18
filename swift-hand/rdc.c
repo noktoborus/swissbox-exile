@@ -4,6 +4,7 @@
 #include <hiredis/adapters/libev.h>
 #include <errno.h>
 #include <string.h>
+#include <stdarg.h>
 #include "junk/xsyslog.h"
 
 #include "rdc.h"
@@ -196,5 +197,24 @@ rdc_refresh(struct rdc *r)
 		pthread_mutex_unlock(&nn->lock);
 	}
 	pthread_mutex_unlock(&r->lock);
+}
+
+/* выполнение */
+bool
+rdc_execute(struct rdc *r, const char *command, ...)
+{
+	redisAsyncContext *ac;
+	va_list va;
+
+	if (!(ac = rdc_acquire(r, NULL))) {
+		return false;
+	}
+
+	va_start(va, command);
+	redisvAsyncCommand(ac, NULL, NULL, command, va);
+	va_end(va);
+
+	rdc_release(ac);
+	return true;
 }
 

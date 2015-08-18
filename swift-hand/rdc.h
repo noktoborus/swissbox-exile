@@ -47,6 +47,9 @@ void rdc_destroy(struct rdc *r);
  *
  * Если command != NULL, то автоматически выполняется
  * комманда при каждом переподключении (удобно для подписок)
+ *
+ * использовать va_list для комманды здесь не получится, ибо геморройно
+ * сохранять значения для переподключения
  */
 redisAsyncContext *rdc_acquire(struct rdc *r, char *command);
 
@@ -56,7 +59,7 @@ redisAsyncContext *rdc_acquire(struct rdc *r, char *command);
 void rdc_release(struct redisAsyncContext *ac);
 
 /* выполнение */
-void rdc_execute(struct rdc *r, char *command, ...);
+bool rdc_execute(struct rdc *r, const char *command, ...);
 
 /*
  * проверить все подключения и переподключиться в случае необходимости
