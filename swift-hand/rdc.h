@@ -13,14 +13,15 @@
 #include "junk/xsyslog.h"
 
 struct rdc_node {
-	bool assigned;
 	unsigned num;
 
 	pthread_mutex_t lock;
 
 	redisAsyncContext *ac;
 	char *command;
+
 	struct rdc_node *next;
+	struct rdc *rdc;
 };
 
 #define RDC_LIMIT 10
@@ -34,7 +35,7 @@ struct rdc {
 	 * ограничение количества подключений
 	 */
 	unsigned c_count;
-	unsigned c_active;
+	unsigned c_inuse;
 	unsigned c_limit;
 	struct rdc_node *c;
 };
@@ -53,6 +54,9 @@ redisAsyncContext *rdc_acquire(struct rdc *r, char *command);
  * освобождение подключения
  */
 void rdc_release(struct redisAsyncContext *ac);
+
+/* выполнение */
+void rdc_execute(struct rdc *r, char *command, ...);
 
 /*
  * проверить все подключения и переподключиться в случае необходимости
