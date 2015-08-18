@@ -13,6 +13,7 @@
 
 #include <ev.h>
 
+#include "rdc.h"
 #include "../server/junk/xsyslog.h"
 #include "keystone-client/keystone-client.h"
 
@@ -26,6 +27,7 @@ struct main {
 	struct {
 		char *redis_chan;
 	} options;
+	struct rdc rdc;
 };
 
 struct w {
@@ -110,7 +112,8 @@ signal_ignore_cb(struct ev_loop *loop, ev_signal *w, int revents)
 void
 timeout_cb(struct ev_loop *loop, ev_timer *w, int revents)
 {
-
+	struct main *pain = (struct main*)ev_userdata(loop);
+	rdc_refresh(&pain->rdc);
 }
 
 void
@@ -129,9 +132,16 @@ rloop(struct main *pain)
 	ev_signal_start(loop, &sigpipe);
 	ev_timer_start(loop, &timeout);
 
+	ev_set_userdata(loop, (void*)pain);
+
+	rdc_init(&pain->rdc, loop, "localhost", 10);
+
 	ev_run(loop, 0);
 
+	rdc_destroy(&pain->rdc);
+
 	/* деинициализация */
+
 	ev_signal_stop(loop, &sigint);
 	ev_signal_stop(loop, &sigpipe);
 	ev_timer_stop(loop, &timeout);
@@ -172,17 +182,20 @@ main(int argc, char *argv[])
 
 	openlog(NULL, LOG_PERROR | LOG_PID, LOG_LOCAL0);
 	xsyslog(LOG_INFO, "--- START ---");
-
+#if 0
 	if (curl_global_init(CURL_GLOBAL_ALL))  {
 		xsyslog(LOG_ERR, "Curl initialization failed");
 		return EXIT_FAILURE;
 	}
+#endif
 	/* begin */
-	swift_token(&w);
+	/*swift_token(&w);*/
 	rloop(&pain);
 	/* cleanup */
 	xsyslog(LOG_INFO, "--- END ---");
+#if 0
 	curl_global_cleanup();
+#endif
 	swh_clear(&w);
 
 	free(pain.options.redis_chan);

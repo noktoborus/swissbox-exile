@@ -173,15 +173,28 @@ void
 rdc_refresh(struct rdc *r)
 {
 	struct rdc_node *nn;
+	/* если не выходит залочить структуру,
+	 * то можно проигнорировать проход
+	 * FIXME: постоянно игнорировать нельзя, нужен счётчик
+	 */
+	if (pthread_mutex_trylock(&r->lock)) {
+		return;
+	}
+	/* xsyslog(LOG_DEBUG, "rdc: refresh"); */
 	/* обновление состояния подключений, если отвалились, то переподключить */
-	pthread_mutex_lock(&r->lock);
 	for (nn = r->c; nn; nn = nn->next) {
-		if (pthread_mutex_trylock(&nn->lock) || nn->ac) {
+		/* нужно залочиться */
+		if (pthread_mutex_trylock(&nn->lock)) {
+			continue;
+		}
+		/* если подключение присутсвует, то пропускаем */
+		if (nn->ac) {
+			pthread_mutex_unlock(&nn->lock);
 			continue;
 		}
 		nn->ac = redisAsyncConnect(r->addr, 6379);
 		if (!nn->ac) {
-			xsyslog(LOG_WARNING, "rdc: redis reconnect failed");
+			xsyslog(LOG_WARNING, "rdc#%03u: redis reconnect failed", nn->num);
 			continue;
 		}
 		/* подключение к libev */
