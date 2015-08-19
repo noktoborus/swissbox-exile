@@ -64,6 +64,11 @@ rdc_connect_cb(const redisAsyncContext *ac, int status)
 static void
 rdc_disconnect_cb(const redisAsyncContext *ac, int status)
 {
+	/* в худшем случае подобный код может привести к дедлоку
+	 * (в ситуации когда один из тредов захватил управление,
+	 * а libev среагировал на отключение сокета)
+	 * в лучшем -- такой ситуации никогда не возникнет
+	 */
 	struct rdc_node *nn = (struct rdc_node*)ac->data;
 	pthread_mutex_lock(&nn->lock);
 	nn->ac = NULL;
@@ -163,9 +168,12 @@ rdc_acquire(struct rdc *r, char *command, redisCallbackFn *cb)
 		redisAsyncSetConnectCallback(nn->ac, rdc_connect_cb);
 		redisAsyncSetDisconnectCallback(nn->ac, rdc_disconnect_cb);
 		if (command) {
+			/* если есть комманда, то лочить структуру нет смысла */
 			redisAsyncCommand(nn->ac,
 					(cb ? cb : (redisCallbackFn*)rdc_command_cb),
 					NULL, command);
+		} else {
+			pthread_mutex_lock(&nn->lock);
 		}
 		nn->rdc = r;
 		nn->num = ++r->serial;
@@ -189,12 +197,23 @@ rdc_release(struct redisAsyncContext *ac)
 {
 	struct rdc_node *nn = (struct rdc_node*)ac->data;
 	if (pthread_mutex_trylock(&nn->lock)) {
+		if (nn->command) {
+			/* если структура была с автопереподключением, то
+			 * самый простой способ сбросить состояние -
+			 * переподключиться
+			 */
+			redisAsyncFree(ac);
+			free(nn->command);
+			nn->command = NULL;
+			nn->ac = NULL;
+			nn->cb = NULL;
+		}
 		/* если структура была заблокирована, то нужно почистить счётчики */
 		pthread_mutex_lock(&nn->rdc->lock);
 		nn->rdc->c_inuse--;
 		pthread_mutex_unlock(&nn->rdc->lock);
+		pthread_mutex_unlock(&nn->lock);
 	}
-	pthread_mutex_unlock(&nn->lock);
 }
 
 void
