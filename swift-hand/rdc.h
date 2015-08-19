@@ -19,7 +19,9 @@ struct rdc_node {
 
 	uint32_t msghash;
 	redisAsyncContext *ac;
+
 	char *command;
+	redisCallbackFn *cb;
 
 	struct rdc_node *next;
 	struct rdc *rdc;
@@ -52,7 +54,7 @@ void rdc_destroy(struct rdc *r);
  * использовать va_list для комманды здесь не получится, ибо геморройно
  * сохранять значения для переподключения
  */
-redisAsyncContext *rdc_acquire(struct rdc *r, char *command);
+redisAsyncContext *rdc_acquire(struct rdc *r, char *command, redisCallbackFn *cb);
 
 /*
  * освобождение подключения

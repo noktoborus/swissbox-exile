@@ -78,11 +78,13 @@ rdc_command_cb(redisAsyncContext *ac, redisReply *r, void *priv)
 	struct rdc_node *nn = (struct rdc_node*)ac->data;
 	if (!r)
 		return;
-	xsyslogs(LOG_INFO, &nn->msghash, "rdc#%03u command executed: ", nn->num);
+	xsyslogs(LOG_INFO, &nn->msghash, "rdc#%03u incoming data for '%s'",
+			nn->num,
+			nn->command);
 }
 
 redisAsyncContext *
-rdc_acquire(struct rdc *r, char *command)
+rdc_acquire(struct rdc *r, char *command, redisCallbackFn *cb)
 {
 	pthread_mutex_lock(&r->lock);
 	/* 1. найти свободное подключение
@@ -146,9 +148,11 @@ rdc_acquire(struct rdc *r, char *command)
 		redisLibevAttach(r->loop, nn->ac);
 		redisAsyncSetConnectCallback(nn->ac, rdc_connect_cb);
 		redisAsyncSetDisconnectCallback(nn->ac, rdc_disconnect_cb);
-		if (command)
-			redisAsyncCommand(nn->ac, (redisCallbackFn*)rdc_command_cb,
+		if (command) {
+			redisAsyncCommand(nn->ac,
+					(cb ? cb : (redisCallbackFn*)rdc_command_cb),
 					NULL, command);
+		}
 		nn->rdc = r;
 		nn->num = ++r->serial;
 		nn->next = r->c;
@@ -230,7 +234,7 @@ rdc_execute(struct rdc *r, const char *command, ...)
 	redisAsyncContext *ac;
 	va_list va;
 
-	if (!(ac = rdc_acquire(r, NULL))) {
+	if (!(ac = rdc_acquire(r, NULL, NULL))) {
 		return false;
 	}
 

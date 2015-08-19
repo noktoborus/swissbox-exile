@@ -135,6 +135,11 @@ rloop(struct main *pain)
 	ev_set_userdata(loop, (void*)pain);
 
 	rdc_init(&pain->rdc, loop, "localhost", 10);
+	{
+		char _buf[1024];
+		snprintf(_buf, sizeof(_buf), "SUBSCRIBE %s", pain->options.redis_chan);
+		rdc_acquire(&pain->rdc, _buf, NULL);
+	}
 
 	ev_run(loop, 0);
 
