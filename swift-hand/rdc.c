@@ -14,6 +14,7 @@ void rdc_init(struct rdc *r, struct ev_loop *loop,
 {
 	memset(r, 0u, sizeof(struct rdc));
 	r->c_limit = limit;
+	r->loop = loop;
 	if (addr) {
 		r->addr = strdup(addr);
 	} else {
@@ -34,6 +35,8 @@ void rdc_destroy(struct rdc *r)
 		if (nn->ac) {
 			redisAsyncFree(nn->ac);
 		}
+		if (nn->command)
+			free(nn->command);
 		memset(nn, 0, sizeof(struct rdc_node));
 		free(nn);
 	}
@@ -50,6 +53,10 @@ rdc_connect_cb(const redisAsyncContext *ac, int status)
 	pthread_mutex_lock(&nn->lock);
 	if (status != REDIS_OK) {
 		nn->ac = NULL;
+		xsyslogs(LOG_INFO, &nn->msghash, "rdc#%03u: connect: %s", nn->num,
+				ac->errstr);
+	} else {
+		xsyslogs(LOG_INFO, &nn->msghash, "rdc#%03u: connected", nn->num);
 	}
 	pthread_mutex_unlock(&nn->lock);
 }
@@ -61,15 +68,17 @@ rdc_disconnect_cb(const redisAsyncContext *ac, int status)
 	pthread_mutex_lock(&nn->lock);
 	nn->ac = NULL;
 	pthread_mutex_unlock(&nn->lock);
+	xsyslogs(LOG_INFO, &nn->msghash, "rdc#%03u: disconnected: %s", nn->num,
+			ac->errstr);
 }
 
 static void
 rdc_command_cb(redisAsyncContext *ac, redisReply *r, void *priv)
 {
-	/*
 	struct rdc_node *nn = (struct rdc_node*)ac->data;
-	xsyslog(LOG_INFO, "rdc#%03u command executed: %s", nn->num);
-	*/
+	if (!r)
+		return;
+	xsyslogs(LOG_INFO, &nn->msghash, "rdc#%03u command executed: ", nn->num);
 }
 
 redisAsyncContext *
@@ -143,10 +152,11 @@ rdc_acquire(struct rdc *r, char *command)
 		nn->rdc = r;
 		nn->num = ++r->serial;
 		nn->next = r->c;
-		r->c = nn->next;
+		r->c = nn;
 		r->c_count++;
 		r->c_inuse++;
 		pthread_mutex_unlock(&r->lock);
+		xsyslogs(LOG_INFO, &nn->msghash, "rdc#%03u created", nn->num);
 		return nn->ac;
 	} else {
 		xsyslog(LOG_WARNING, "rdc: connections limit exceeded: %d/%d",
@@ -180,7 +190,7 @@ rdc_refresh(struct rdc *r)
 	if (pthread_mutex_trylock(&r->lock)) {
 		return;
 	}
-	/* xsyslog(LOG_DEBUG, "rdc: refresh"); */
+	xsyslog(LOG_DEBUG, "rdc: refresh");
 	/* обновление состояния подключений, если отвалились, то переподключить */
 	for (nn = r->c; nn; nn = nn->next) {
 		/* нужно залочиться */
@@ -194,7 +204,8 @@ rdc_refresh(struct rdc *r)
 		}
 		nn->ac = redisAsyncConnect(r->addr, 6379);
 		if (!nn->ac) {
-			xsyslog(LOG_WARNING, "rdc#%03u: redis reconnect failed", nn->num);
+			xsyslogs(LOG_WARNING,
+					&nn->msghash, "rdc#%03u: redis reconnect failed", nn->num);
 			continue;
 		}
 		/* подключение к libev */
@@ -206,7 +217,7 @@ rdc_refresh(struct rdc *r)
 		if (nn->command)
 			redisAsyncCommand(nn->ac, (redisCallbackFn*)rdc_command_cb,
 					NULL, nn->command);
-		xsyslog(LOG_INFO, "rdc#%03u: reconnect", nn->num);
+		/*xsyslogs(LOG_INFO, &nn->msghash, "rdc#%03u: reconnect", nn->num);*/
 		pthread_mutex_unlock(&nn->lock);
 	}
 	pthread_mutex_unlock(&r->lock);

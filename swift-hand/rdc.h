@@ -17,6 +17,7 @@ struct rdc_node {
 
 	pthread_mutex_t lock;
 
+	uint32_t msghash;
 	redisAsyncContext *ac;
 	char *command;
 
