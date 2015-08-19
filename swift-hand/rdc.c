@@ -103,8 +103,22 @@ rdc_acquire(struct rdc *r, char *command, redisCallbackFn *cb)
 			/*
 			 * инкремент счётчиков и выход
 			 */
-			if (nn->ac) {
+			if (nn->ac && !nn->command) {
 				r->c_inuse++;
+				if (command) {
+					if ((nn->command = strdup(command)) != NULL) {
+						xsyslog(LOG_WARNING,
+								"rdc: dup connect string failed: %s",
+								strerror(errno));
+						pthread_mutex_unlock(&r->lock);
+						return NULL;
+					}
+					nn->cb = cb;
+					redisAsyncCommand(nn->ac,
+							(cb ? cb : (redisCallbackFn*)rdc_command_cb),
+						NULL, command);
+				}
+
 				return nn->ac;
 			}
 			pthread_mutex_unlock(&nn->lock);
