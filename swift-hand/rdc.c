@@ -219,7 +219,8 @@ rdc_refresh(struct rdc *r)
 		redisAsyncSetDisconnectCallback(nn->ac, rdc_disconnect_cb);
 		/* если была назначена комманда, то её требуется выполнить */
 		if (nn->command)
-			redisAsyncCommand(nn->ac, (redisCallbackFn*)rdc_command_cb,
+			redisAsyncCommand(nn->ac,
+					(nn->cb ? nn->cb : (redisCallbackFn*)rdc_command_cb),
 					NULL, nn->command);
 		/*xsyslogs(LOG_INFO, &nn->msghash, "rdc#%03u: reconnect", nn->num);*/
 		pthread_mutex_unlock(&nn->lock);
