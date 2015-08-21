@@ -12,8 +12,16 @@
 
 #include "junk/xsyslog.h"
 
+enum rdc_node_mode {
+	RDC_NORMAL = 0,
+	RDC_SUBSCRIBE = 1,
+	RDC_PERIODIC = 2
+};
+
 struct rdc_node {
 	unsigned num;
+
+	enum rdc_node_mode mode;
 
 	pthread_mutex_t lock;
 
@@ -22,6 +30,7 @@ struct rdc_node {
 
 	char *command;
 	redisCallbackFn *cb;
+	void *cb_data;
 
 	struct rdc_node *next;
 	struct rdc *rdc;
@@ -33,12 +42,13 @@ struct rdc {
 	pthread_mutex_t lock;
 	const char *addr;
 	unsigned serial;
-	/* общество количество подключений,
-	 * количество активных подключейний,
-	 * ограничение количества подключений
-	 */
+	/* общество количество подключений */
 	unsigned c_count;
+	/* количество активных подключейний */
 	unsigned c_inuse;
+	/* количество подписок */
+	unsigned c_back;
+	/* ограничение количества подключений */
 	unsigned c_limit;
 	struct rdc_node *c;
 };
@@ -54,7 +64,7 @@ void rdc_destroy(struct rdc *r);
  * использовать va_list для комманды здесь не получится, ибо геморройно
  * сохранять значения для переподключения
  */
-redisAsyncContext *rdc_acquire(struct rdc *r, char *command, redisCallbackFn *cb);
+redisAsyncContext *rdc_acquire(struct rdc *r);
 
 /*
  * освобождение подключения
@@ -62,7 +72,17 @@ redisAsyncContext *rdc_acquire(struct rdc *r, char *command, redisCallbackFn *cb
 void rdc_release(struct redisAsyncContext *ac);
 
 /* выполнение */
-bool rdc_execute(struct rdc *r, const char *command, ...);
+
+/* подписка на канал/каналы (SUBSCRIBE) */
+bool rdc_subscribe(struct rdc *r, redisCallbackFn *cb, void *priv,
+		const char *command);
+/* переодическая подписка на списки (BLPOP/BRPOP) */
+bool rdc_exec_period(struct rdc *r, redisCallbackFn *cb, void *priv,
+		const char *command);
+/* одиночные комманды (LPOP/LPUSH/PUBLISH/...)
+ */
+bool rdc_exec_once(struct rdc *r, redisCallbackFn *cb, void *priv,
+		const char *command, ...);
 
 /*
  * проверить все подключения и переподключиться в случае необходимости

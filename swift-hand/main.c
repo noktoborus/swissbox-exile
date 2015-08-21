@@ -116,6 +116,12 @@ timeout_cb(struct ev_loop *loop, ev_timer *w, int revents)
 	rdc_refresh(&pain->rdc);
 }
 
+static void
+rdc_blpop_cb(redisAsyncContext *ac, redisReply *r, void *priv)
+{
+	return;
+}
+
 void
 rloop(struct main *pain)
 {
@@ -138,7 +144,7 @@ rloop(struct main *pain)
 	{
 		char _buf[1024];
 		snprintf(_buf, sizeof(_buf), "SUBSCRIBE %s", pain->options.redis_chan);
-		rdc_acquire(&pain->rdc, _buf, NULL);
+		rdc_subscribe(&pain->rdc, NULL, NULL, _buf);
 	}
 
 	ev_run(loop, 0);

@@ -77,26 +77,15 @@ rdc_disconnect_cb(const redisAsyncContext *ac, int status)
 			ac->errstr);
 }
 
-static void
-rdc_command_cb(redisAsyncContext *ac, redisReply *r, void *priv)
-{
-	struct rdc_node *nn = (struct rdc_node*)ac->data;
-	if (!r)
-		return;
-	xsyslogs(LOG_INFO, &nn->msghash, "rdc#%03u incoming data for '%s'",
-			nn->num,
-			nn->command);
-}
-
 redisAsyncContext *
-rdc_acquire(struct rdc *r, char *command, redisCallbackFn *cb)
+rdc_acquire(struct rdc *r)
 {
+	struct rdc_node *nn = NULL;
 	pthread_mutex_lock(&r->lock);
 	/* 1. найти свободное подключение
 	 * если активных подключений меньше, чем созданных,
 	 * то определённо должно быть что-то свободное */
 	if (r->c_inuse < r->c_count) {
-		struct rdc_node *nn;
 		/* TODO */
 		for (nn = r->c; nn; nn = nn->next) {
 			/* пропускаем, если не удалось заблокировать,
@@ -110,44 +99,40 @@ rdc_acquire(struct rdc *r, char *command, redisCallbackFn *cb)
 			 */
 			if (nn->ac && !nn->command) {
 				r->c_inuse++;
-				if (command) {
-					if ((nn->command = strdup(command)) != NULL) {
-						xsyslog(LOG_WARNING,
-								"rdc: dup connect string failed: %s",
-								strerror(errno));
-						pthread_mutex_unlock(&r->lock);
-						return NULL;
-					}
-					nn->cb = cb;
-					redisAsyncCommand(nn->ac,
-							(cb ? cb : (redisCallbackFn*)rdc_command_cb),
-						NULL, command);
-				}
-
 				return nn->ac;
+			} else if (!nn->ac) {
+				/* получение отключившегося сокета для релокации */
+				break;
 			}
+			/* если это не подходящий узел, то нужно освободить его */
 			pthread_mutex_unlock(&nn->lock);
 		}
 	}
-	/* 2. если не найдено, то создать новое
-	 * создаётся только в случае, если не привышен лимит подключений
-	 */
-	if (r->c_count < r->c_limit) {
-		struct rdc_node *nn;
+
+	if (!nn && r->c_count >= r->c_limit) {
+		/* 2. если не найдено, то создать новое
+		 * создаётся только в случае, если не привышен лимит подключений
+		 */
+		xsyslog(LOG_WARNING, "rdc: connections limit exceeded: %d/%d",
+				r->c_count, r->c_limit);
+		pthread_mutex_unlock(&r->lock);
+		return NULL;
+	} else if (!nn) {
+		/*
+		 * выделение памяти под новую структуру
+		 */
 		nn = calloc(1, sizeof(struct rdc_node));
 		if (!nn) {
 			xsyslog(LOG_WARNING, "rdc: malloc failed: %s", strerror(errno));
 			pthread_mutex_unlock(&r->lock);
 			return NULL;
 		}
-		if (command) {
-			if (!(nn->command = strdup(command))) {
-				xsyslog(LOG_WARNING, "rdc: dup connect string failed: %s",
-						strerror(errno));
-				pthread_mutex_unlock(&r->lock);
-				return NULL;
-			}
-		}
+		pthread_mutex_init(&nn->lock, NULL);
+		pthread_mutex_lock(&nn->lock);
+	}
+	/* если создание прошло успешно */
+	if (nn) {
+		/* пытаемся выделить место под структуры hiredis */
 		nn->ac = redisAsyncConnect(r->addr, 6379);
 		if (!nn->ac || nn->ac->err) {
 			xsyslog(LOG_WARNING, "rdc: redis connect failed: %s",
@@ -163,30 +148,23 @@ rdc_acquire(struct rdc *r, char *command, redisCallbackFn *cb)
 			return NULL;
 		}
 		nn->ac->data = nn;
-		pthread_mutex_init(&nn->lock, NULL);
+		/* подключение к libev */
 		redisLibevAttach(r->loop, nn->ac);
 		redisAsyncSetConnectCallback(nn->ac, rdc_connect_cb);
 		redisAsyncSetDisconnectCallback(nn->ac, rdc_disconnect_cb);
-		if (command) {
-			/* если есть комманда, то лочить структуру нет смысла */
-			redisAsyncCommand(nn->ac,
-					(cb ? cb : (redisCallbackFn*)rdc_command_cb),
-					NULL, command);
-		} else {
-			pthread_mutex_lock(&nn->lock);
-		}
+
 		nn->rdc = r;
 		nn->num = ++r->serial;
 		nn->next = r->c;
 		r->c = nn;
 		r->c_count++;
 		r->c_inuse++;
+
 		pthread_mutex_unlock(&r->lock);
 		xsyslogs(LOG_INFO, &nn->msghash, "rdc#%03u created", nn->num);
 		return nn->ac;
 	} else {
-		xsyslog(LOG_WARNING, "rdc: connections limit exceeded: %d/%d",
-				r->c_count, r->c_limit);
+		xsyslog(LOG_WARNING, "rdc: wtf?");
 	}
 	pthread_mutex_unlock(&r->lock);
 	return NULL;
@@ -197,7 +175,14 @@ rdc_release(struct redisAsyncContext *ac)
 {
 	struct rdc_node *nn = (struct rdc_node*)ac->data;
 	if (pthread_mutex_trylock(&nn->lock)) {
-		if (nn->command) {
+		pthread_mutex_lock(&nn->rdc->lock);
+		nn->rdc->c_inuse--;
+		pthread_mutex_unlock(&nn->rdc->lock);
+		pthread_mutex_unlock(&nn->lock);
+	} else if (nn->mode != RDC_NORMAL) {
+		/* если "режим" структуры подписка, то она и не должна быть залочена */
+		pthread_mutex_lock(&nn->lock);
+		if (nn->ac) {
 			/* если структура была с автопереподключением, то
 			 * самый простой способ сбросить состояние -
 			 * переподключиться
@@ -208,21 +193,36 @@ rdc_release(struct redisAsyncContext *ac)
 			nn->ac = NULL;
 			nn->cb = NULL;
 		}
-		/* если структура была заблокирована, то нужно почистить счётчики */
 		pthread_mutex_lock(&nn->rdc->lock);
 		nn->rdc->c_inuse--;
+		nn->rdc->c_back--;
 		pthread_mutex_unlock(&nn->rdc->lock);
 		pthread_mutex_unlock(&nn->lock);
 	}
+}
+
+static void
+rdc_periodic_cb(redisAsyncContext *ac, redisReply *r, void *priv)
+{
+	struct rdc_node *nn = (struct rdc_node*)ac->data;
+
+	if (!nn || nn->mode != RDC_PERIODIC) {
+		return;
+	}
+
+	if (nn->cb) {
+		nn->cb(ac, r, priv);
+	}
+
+	redisAsyncCommand(ac, (redisCallbackFn*)rdc_periodic_cb, priv, nn->command);
+	return;
 }
 
 void
 rdc_refresh(struct rdc *r)
 {
 	struct rdc_node *nn;
-	/* если не выходит залочить структуру,
-	 * то можно проигнорировать проход
-	 * FIXME: постоянно игнорировать нельзя, нужен счётчик
+	/* если не выходит залочить структуру
 	 */
 	if (pthread_mutex_trylock(&r->lock)) {
 		return;
@@ -251,10 +251,13 @@ rdc_refresh(struct rdc *r)
 		redisAsyncSetConnectCallback(nn->ac, rdc_connect_cb);
 		redisAsyncSetDisconnectCallback(nn->ac, rdc_disconnect_cb);
 		/* если была назначена комманда, то её требуется выполнить */
-		if (nn->command)
-			redisAsyncCommand(nn->ac,
-					(nn->cb ? nn->cb : (redisCallbackFn*)rdc_command_cb),
+		if (nn->mode == RDC_PERIODIC) {
+			redisAsyncCommand(nn->ac, (redisCallbackFn*)rdc_periodic_cb,
 					NULL, nn->command);
+		} else if (nn->mode == RDC_SUBSCRIBE) {
+			redisAsyncCommand(nn->ac, (redisCallbackFn*)nn->cb,
+					NULL, nn->command);
+		}
 		/*xsyslogs(LOG_INFO, &nn->msghash, "rdc#%03u: reconnect", nn->num);*/
 		pthread_mutex_unlock(&nn->lock);
 	}
@@ -263,20 +266,77 @@ rdc_refresh(struct rdc *r)
 
 /* выполнение */
 bool
-rdc_execute(struct rdc *r, const char *command, ...)
+rdc_subscribe(struct rdc *r, redisCallbackFn *cb, void *priv,
+		const char *command)
 {
-	redisAsyncContext *ac;
-	va_list va;
-
-	if (!(ac = rdc_acquire(r, NULL, NULL))) {
+	redisAsyncContext *ac = NULL;
+	struct rdc_node *nn = NULL;
+	/* 1. захват */
+	ac = rdc_acquire(r);
+	if (!ac) {
+		xsyslog(LOG_WARNING, "rdc: subscribe command failed ('%s')", command);
 		return false;
 	}
-
-	va_start(va, command);
-	redisvAsyncCommand(ac, NULL, NULL, command, va);
-	va_end(va);
-
-	rdc_release(ac);
+	nn = (struct rdc_node*)ac->data;
+	/* 2. выполнение комманды */
+	redisAsyncCommand(ac, cb, priv, command);
+	/* 3. фиксация значений для постоянного использования */
+	nn->mode = RDC_SUBSCRIBE;
+	nn->cb = cb;
+	nn->command = strdup(command);
+	pthread_mutex_lock(&nn->rdc->lock);
+	nn->rdc->c_back++;
+	pthread_mutex_unlock(&nn->rdc->lock);
+	/* 4. релиз структуры делать не нужно, но снять лок обязательно */
+	pthread_mutex_unlock(&nn->lock);
 	return true;
+}
+
+bool
+rdc_exec_period(struct rdc *r, redisCallbackFn *cb, void *priv,
+		const char *command)
+{
+	struct rdc_node *nn = NULL;
+	redisAsyncContext *ac = NULL;
+
+	ac = rdc_acquire(r);
+	if (!ac) {
+		xsyslog(LOG_WARNING, "rdc: periodic exec failed ('%s')", command);
+		return false;
+	}
+	nn = (struct rdc_node*)ac->data;
+	/* 2. выполнение комманды со своим калбеком */
+	redisAsyncCommand(ac, (redisCallbackFn*)rdc_periodic_cb, priv, command);
+	/* 3. фиксация значений */
+	nn->mode = RDC_PERIODIC;
+	nn->cb = cb;
+	nn->command = strdup(command);
+	pthread_mutex_lock(&nn->rdc->lock);
+	nn->rdc->c_back++;
+	pthread_mutex_unlock(&nn->rdc->lock);
+
+	pthread_mutex_unlock(&nn->lock);
+	return true;
+}
+
+bool
+rdc_exec_once(struct rdc *r, redisCallbackFn *cb, void *priv,
+		const char *command, ...)
+{
+	struct rdc_node *nn = NULL;
+	redisAsyncContext *ac = NULL;
+	va_list va;
+
+	ac = rdc_acquire(r);
+	if (!ac) {
+		xsyslog(LOG_WARNING, "rdc: exec failed ('%s')", command);
+		return false;
+	}
+	nn->mode = RDC_NORMAL;
+	va_start(va, command);
+	redisvAsyncCommand(ac, (redisCallbackFn*)rdc_periodic_cb, priv, command, va);
+	va_end(va);
+	rdc_release(ac);
+	return false;
 }
 
