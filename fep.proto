@@ -560,7 +560,7 @@ message State {
 	/* с какого адреса подключались */
 	optional string last_auth_addr = 16;
 	/* с какого устройства подключались */
-	optional string last_auth_device = 17;
+	optional uint64 last_auth_device = 17;
 
 }
 
