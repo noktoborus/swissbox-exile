@@ -30,6 +30,7 @@ option optimize_for = SPEED;
  S: ReqAuth
  C: Auth
  S: [Ok|Error|Pending]
+ S: State
 
  Последовательность инициализации:
  до момента отправки WantSync клинтом сообщения об обновлении не отсылаются
@@ -115,6 +116,7 @@ enum Type {
 	tRootdirUpdate = 23;
 	tOkRead = 24;
 	tChat = 25;
+	tState = 26;
 }
 
 /*
@@ -541,6 +543,25 @@ message Chat {
 	optional string user_to = 30;
 
 	required bytes message = 50;
+}
+
+/*
+	сообщение отправляется сервером клиенту после авторизации
+	или изменении каких-то значений
+ */
+message State {
+	required uint64 id = 1 [default = 0];
+
+	/* поле содержит количество зарегистрированных устройств */
+	optional uint32 devices = 10;
+
+	/* время последнего подключения */
+	optional string last_auth_time = 15;
+	/* с какого адреса подключались */
+	optional string last_auth_addr = 16;
+	/* с какого устройства подключались */
+	optional string last_auth_device = 17;
+
 }
 
 /* TODO:
