@@ -1146,27 +1146,34 @@ spq_begin_life(PGconn *pgc, char *username, uint64_t device_id)
 }
 
 static inline bool
-_spq_check_user(PGconn *pgc, char *username, char *secret,
+_spq_check_user(PGconn *pgc, char *username, char *secret, uint64_t device_id,
 		struct spq_UserInfo *user, struct spq_hint *hint)
 {
 	PGresult *res;
 	const char tb[] =
 		"SELECT trunc(extract(epoch from r_registered)), * "
-		"FROM check_user($1::character varying, $2::character varying);";
-	const int fmt[2] = {0, 0};
-	char *val[2];
-	int len[2];
+		"FROM check_user("
+		"	$1::character varying,"
+		"	$2::character varying,"
+		"	$3::bigint);";
+	const int fmt[3] = {0, 0};
+	char *val[3];
+	int len[3];
 
 	char *rval;
 	int rlen;
 
+	char _device_id[16];
+
 	len[0] = strlen(username);
 	len[1] = strlen(secret);
+	len[2] = snprintf(_device_id, sizeof(_device_id), "%"PRIu64, device_id);
 
 	val[0] = username;
 	val[1] = secret;
+	val[2] = _device_id;
 
-	res = PQexecParams(pgc, tb, 2, NULL, (const char *const*)val, len, fmt, 0);
+	res = PQexecParams(pgc, tb, 3, NULL, (const char *const*)val, len, fmt, 0);
 	if (PQresultStatus(res) != PGRES_TUPLES_OK) {
 		spq_feed_hint(NULL, 0u, hint);
 		xsyslog(LOG_INFO, "exec check_user error: %s",
@@ -1198,18 +1205,20 @@ _spq_check_user(PGconn *pgc, char *username, char *secret,
 		user->registered = strtoull(rval, NULL, 0);
 	}
 
+	/* TODO: разбор полей */
+
 	PQclear(res);
 	return true;
 }
 
 bool
-spq_check_user(char *username, char *secret,
+spq_check_user(char *username, char *secret, uint64_t device_id,
 		struct spq_UserInfo *user, struct spq_hint *hint)
 {
 	bool r = false;
 	struct spq *c;
 	if ((c = acquire_conn(&_spq)) != NULL) {
-		r = _spq_check_user(c->conn, username, secret, user, hint);
+		r = _spq_check_user(c->conn, username, secret, device_id, user, hint);
 		release_conn(&_spq, c);
 	}
 	return r;

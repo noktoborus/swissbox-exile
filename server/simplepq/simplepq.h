@@ -237,7 +237,7 @@ struct spq_UserInfo {
 	char next_server[PATH_MAX + 1];
 };
 
-bool spq_check_user(char *username, char *secret,
+bool spq_check_user(char *username, char *secret, uint64_t device_id,
 		struct spq_UserInfo *user, struct spq_hint *hint);
 
 

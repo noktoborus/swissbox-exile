@@ -63,7 +63,8 @@ c_auth_cb(struct client *c, uint64_t id, unsigned int msgtype, void *msg, void *
 	memset(&user, 0u, sizeof(struct spq_UserInfo));
 	memset(&hint, 0u, sizeof(struct spq_hint));
 
-	if (!spq_check_user(amsg->username, amsg->authtoken, &user, &hint)) {
+	if (!spq_check_user(amsg->username, amsg->authtoken, amsg->device_id,
+				&user, &hint)) {
 		if (*hint.message)
 			errmsg = hint.message;
 		else
@@ -71,7 +72,7 @@ c_auth_cb(struct client *c, uint64_t id, unsigned int msgtype, void *msg, void *
 	} else if (!user.authorized && *user.next_server) {
 		/* TODO: выбор драйвера для авторизации */
 		if (!as3_auth(user.next_server, amsg->username, amsg->authtoken,
-				c->device_id)) {
+				amsg->device_id)) {
 			errmsg = "Incorrect external auth data";
 		} else {
 			xsyslog(LOG_INFO,
@@ -96,6 +97,7 @@ c_auth_cb(struct client *c, uint64_t id, unsigned int msgtype, void *msg, void *
 		return lval;
 	}
 
+	/* TODO: отправка State */
 	c->state++;
 	c->status.auth_ok = true;
 	c->device_id = amsg->device_id;

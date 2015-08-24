@@ -54,6 +54,7 @@ DROP TABLE IF EXISTS directory_log CASCADE;
 DROP TABLE IF EXISTS event CASCADE;
 DROP TABLE IF EXISTS rootdir CASCADE;
 DROP TABLE IF EXISTS rootdir_log CASCADE;
+DROP TABLE IF EXISTS "device" CASCADE;
 DROP TABLE IF EXISTS "user" CASCADE;
 
 
@@ -66,6 +67,7 @@ DROP SEQUENCE IF EXISTS user_seq CASCADE;
 DROP SEQUENCE IF EXISTS event_seq CASCADE;
 DROP SEQUENCE IF EXISTS rootdir_log_seq CASCADE;
 DROP SEQUENCE IF EXISTS rootdir_seq CASCADE;
+DROP SEQUENCE IF EXISTS device_seq CASCADE;
 DROP SEQUENCE IF EXISTS file_meta_seq CASCADE;
 DROP SEQUENCE IF EXISTS event_checkpoint_seq CASCADE;
 
@@ -83,6 +85,16 @@ CREATE TABLE IF NOT EXISTS "user"
 	username varchar(1024) NOT NULL CHECK(char_length(username) > 0),
 	secret varchar(96) NOT NULL,
 	UNIQUE(username)
+);
+
+
+CREATE SEQUENCE device_seq;
+CREATE TABLE IF NOT EXISTS "device"
+(
+	id bigint NOT NULL DEFAULT nextval('device_seq') PRIMARY KEY,
+	reg_time timestamp with time zone NOT NULL DEFAULT now(),
+	last_time timestamp with time zone NOT NULL DEFAULT now(),
+	device bigint NOT NULL
 );
 
 CREATE SEQUENCE rootdir_log_seq;
@@ -1774,18 +1786,25 @@ END $$ LANGUAGE plpgsql;
 
 -- проверка имени пользователя
 CREATE OR REPLACE FUNCTION check_user(_username "user".username%TYPE,
-	_secret "user".username%TYPE, _drop_ _drop_ default 'drop')
+	_secret "user".username%TYPE,
+	_device_id device.device%TYPE,
+	_drop_ _drop_ default 'drop')
 	RETURNS TABLE
 	(
 		r_error text,
 		r_authorized boolean,
 		r_registered timestamp with time zone,
+		r_devices integer,
+		r_last_device bigint,
+		r_last_login text,
+		r_last_addr text, /* не используется */
 		r_next_server text
 	) AS $$
 BEGIN
 	IF (SELECT COUNT(*) FROM "user" WHERE username = _username
 		AND secret = _secret) = 1 THEN
 		r_authorized := TRUE;
+		/* INSERT OR UPDATE "device" */
 		return next;
 		return;
 	END IF;
