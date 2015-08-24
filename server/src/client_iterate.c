@@ -366,6 +366,7 @@ static struct handle handle[] =
 			rootdir_update), /* 23 */
 	INVALID_P_HANDLE_S(FEP__TYPE__tOkWrite, "OkRead", ok_read), /* 24 */
 	TYPICAL_HANDLE_S(FEP__TYPE__tChat, "chat", chat), /* 25 */
+	INVALID_P_HANDLE_S(FEP__TYPE__tState, "State", state), /* 26 */
 };
 
 const char*
