@@ -940,7 +940,10 @@ _client_iterate_broadcast(struct client *c)
 		/* заполняем все поля, что бы клиент не запаниковал */
 		msg.device_id_from = rs->device_id_from;
 		msg.user_from = rs->name_from;
-		msg.device_id_to = c->device_id;
+		if (rs->unicast) {
+			msg.has_device_id_to = true;
+			msg.device_id_to = c->device_id;
+		}
 		msg.user_to = c->name;
 		msg.message.data = rs->buffer;
 		msg.message.len = rs->len;
