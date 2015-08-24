@@ -100,11 +100,21 @@ static bool
 action_files(struct main *pain, struct almsg_parser *alm, char *action)
 {
 	const char *tmp;
-	const char *chan = almsg_get(alm, PSLEN("channel"), ALMSG_ALL);
+	const char *chan;
 	unsigned long split = 0u;
 	if ((tmp = almsg_get(alm, PSLEN("split"), ALMSG_ALL)) != NULL) {
 		split = strtoul(tmp, NULL, 10);
 	}
+
+	if ((tmp = almsg_get(alm, PSLEN("channel"), ALMSG_ALL)) != NULL) {
+		chan = strdup((char*)tmp);
+	}
+
+	if (!chan) {
+		xsyslog(LOG_INFO, "channel for results has empty name");
+		return false;
+	}
+
 	/* сбрасываем состояние */
 	almsg_reset(alm, false);
 	/* получение списка */
@@ -144,6 +154,9 @@ action_files(struct main *pain, struct almsg_parser *alm, char *action)
 		spq_getLocalFiles_free(&lf);
 		almsg_destroy(&ap);
 	}
+	/* чистка памяти */
+	if (chan)
+		free((char*)chan);
 	/* формируем ответ */
 	return true;
 }
