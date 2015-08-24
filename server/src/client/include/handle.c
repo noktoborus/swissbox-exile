@@ -731,7 +731,7 @@ _handle_chat(struct client *c, unsigned type, Fep__Chat *msg)
 
 	if (msg->has_device_id_to) {
 		rs->unicast = true;
-		rs->device_id_to = msg->has_device_id_to;
+		rs->device_id_to = msg->device_id_to;
 	}
 
 	if (!squeue_put(&c->broadcast_c, (void*)rs, free)) {
