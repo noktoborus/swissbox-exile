@@ -13,6 +13,7 @@
 
 #include <ev.h>
 
+#include "junk/almsg.h"
 #include "rdc.h"
 #include "../server/junk/xsyslog.h"
 #include "keystone-client/keystone-client.h"
@@ -26,6 +27,7 @@
 struct main {
 	struct {
 		char *redis_chan;
+		char *name;
 	} options;
 	struct rdc rdc;
 };
@@ -117,8 +119,21 @@ timeout_cb(struct ev_loop *loop, ev_timer *w, int revents)
 }
 
 static void
+rdc_broadcast_cb(redisAsyncContext *ac, redisReply *r, void *priv)
+{
+	if (!r || r->elements != 3)
+		return;
+	xsyslog(LOG_INFO, "data");
+
+	return;
+}
+
+void
 rdc_blpop_cb(redisAsyncContext *ac, redisReply *r, void *priv)
 {
+	if (!r)
+		return;
+	xsyslog(LOG_INFO, "blpop");
 	return;
 }
 
@@ -141,19 +156,34 @@ rloop(struct main *pain)
 	ev_set_userdata(loop, (void*)pain);
 
 	rdc_init(&pain->rdc, loop, "localhost", 10);
+	/* регистрация на редисе */
 	{
+		struct almsg_parser ap;
 		char _buf[1024];
+		char *_a = NULL;
+		size_t _l = 0u;
 		snprintf(_buf, sizeof(_buf), "SUBSCRIBE %s", pain->options.redis_chan);
-		rdc_subscribe(&pain->rdc, NULL, NULL, _buf);
+		rdc_subscribe(&pain->rdc,
+				(redisCallbackFn*)rdc_broadcast_cb, NULL, _buf);
+		snprintf(_buf, sizeof(_buf), "BLPOP %s 0", pain->options.redis_chan);
+		rdc_exec_period(&pain->rdc,
+				(redisCallbackFn*)rdc_blpop_cb, NULL, _buf);
+		almsg_init(&ap);
+		almsg_append(&ap, PSLEN("from"), PSLEN(pain->options.name));
+		almsg_append(&ap, PSLEN("action"), PSLEN("files"));
+		almsg_append(&ap, PSLEN("channel"), PSLEN(pain->options.redis_chan));
+
+		almsg_format_buf(&ap, &_a, &_l);
+		rdc_exec_once(&pain->rdc, NULL, NULL, "PUBLISH %s %b",
+				pain->options.redis_chan, _a, _l);
+		almsg_destroy(&ap);
 	}
 
 	ev_run(loop, 0);
 
 	rdc_destroy(&pain->rdc);
 
-	/* деинициализация */
 
-	ev_signal_stop(loop, &sigint);
 	ev_signal_stop(loop, &sigpipe);
 	ev_timer_stop(loop, &timeout);
 	ev_loop_destroy(loop);
@@ -164,6 +194,7 @@ main(int argc, char *argv[])
 {
 	struct main pain;
 	cfg_t *cfg;
+	cfg_t *pcfg;
 	w_t w;
 	memset(&w, 0u, sizeof(w_t));
 	memset(&pain, 0u, sizeof(struct main));
@@ -175,6 +206,7 @@ main(int argc, char *argv[])
 
 	/* базовые значения */
 	pain.options.redis_chan = strdup("fep_broadcast");
+	pain.options.name = strdup("swift-hand");
 
 	w.t.url = strdup("https://swissbox-swift.it-grad.ru/v2.0/tokens");
 	w.t.tenant = strdup("project01");
@@ -189,8 +221,16 @@ main(int argc, char *argv[])
 			CFG_SIMPLE_STR("redis_chan", &pain.options.redis_chan),
 			CFG_END()
 		};
+		cfg_opt_t opt_priv[] = {
+			CFG_SIMPLE_STR("name", &pain.options.name),
+			CFG_END()
+		};
 		cfg = cfg_init(opt, 0);
+		pcfg = cfg_init(opt_priv, 0);
 		cfg_parse(cfg, argv[1]);
+		cfg_parse(pcfg, "swift-hand.conf");
+		cfg_free(cfg);
+		cfg_free(pcfg);
 	}
 
 	openlog(NULL, LOG_PERROR | LOG_PID, LOG_LOCAL0);
@@ -212,6 +252,7 @@ main(int argc, char *argv[])
 	swh_clear(&w);
 
 	free(pain.options.redis_chan);
+	free(pain.options.name);
 
 	return EXIT_SUCCESS;
 }

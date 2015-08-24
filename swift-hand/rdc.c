@@ -227,7 +227,7 @@ rdc_refresh(struct rdc *r)
 	if (pthread_mutex_trylock(&r->lock)) {
 		return;
 	}
-	xsyslog(LOG_DEBUG, "rdc: refresh");
+	/*xsyslog(LOG_DEBUG, "rdc: refresh");*/
 	/* обновление состояния подключений, если отвалились, то переподключить */
 	for (nn = r->c; nn; nn = nn->next) {
 		/* нужно залочиться */
@@ -332,6 +332,7 @@ rdc_exec_once(struct rdc *r, redisCallbackFn *cb, void *priv,
 		xsyslog(LOG_WARNING, "rdc: exec failed ('%s')", command);
 		return false;
 	}
+	nn = (struct rdc_node*)ac->data;
 	nn->mode = RDC_NORMAL;
 	va_start(va, command);
 	redisvAsyncCommand(ac, (redisCallbackFn*)rdc_periodic_cb, priv, command, va);

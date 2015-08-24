@@ -3,7 +3,7 @@
 LIBS=`pkg-config --libs --cflags json-c` -lhiredis -lpthread
 CFLAGS=-ggdb2 -D_GNU_SOURCE -D_POSIX_C_SOURCE -D_BSD_SOURCE -D_DEFAULT_SOURCE -Wall -pedantic -std=c99 -I. -I../server
 BIN=swift-hand
-SRC=main.c keystone-client/keystone-client.c rdc.c ../server/junk/utils.c
+SRC=main.c keystone-client/keystone-client.c rdc.c ../server/junk/utils.c ../server/junk/almsg.c
 
 all: ${BIN}
 
