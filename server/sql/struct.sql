@@ -1814,7 +1814,7 @@ BEGIN
 
 	IF _user_id IS NOT NULL THEN
 		/* получение последнего входа */
-		SELECT INTO _row
+		SELECT * INTO _row
 		FROM device
 		WHERE device.user_id = _user_id
 		ORDER BY id DESC
