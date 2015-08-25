@@ -54,9 +54,8 @@ DROP TABLE IF EXISTS directory_log CASCADE;
 DROP TABLE IF EXISTS event CASCADE;
 DROP TABLE IF EXISTS rootdir CASCADE;
 DROP TABLE IF EXISTS rootdir_log CASCADE;
-DROP TABLE IF EXISTS "device" CASCADE;
+DROP TABLE IF EXISTS device CASCADE;
 DROP TABLE IF EXISTS "user" CASCADE;
-
 
 DROP SEQUENCE IF EXISTS directory_seq CASCADE;
 DROP SEQUENCE IF EXISTS directory_log_seq CASCADE;
@@ -89,12 +88,14 @@ CREATE TABLE IF NOT EXISTS "user"
 
 
 CREATE SEQUENCE device_seq;
-CREATE TABLE IF NOT EXISTS "device"
+CREATE TABLE IF NOT EXISTS device
 (
 	id bigint NOT NULL DEFAULT nextval('device_seq') PRIMARY KEY,
+	user_id bigint NOT NULL REFERENCES "user"(id),
 	reg_time timestamp with time zone NOT NULL DEFAULT now(),
 	last_time timestamp with time zone NOT NULL DEFAULT now(),
-	device bigint NOT NULL
+	device bigint NOT NULL,
+	UNIQUE(device, user_id)
 );
 
 CREATE SEQUENCE rootdir_log_seq;
@@ -1784,7 +1785,7 @@ BEGIN
 	END LOOP;
 END $$ LANGUAGE plpgsql;
 
--- проверка имени пользователя
+-- проверка имени пользователя и возврат всякой секурной информации
 CREATE OR REPLACE FUNCTION check_user(_username "user".username%TYPE,
 	_secret "user".username%TYPE,
 	_device_id device.device%TYPE,
@@ -1800,11 +1801,49 @@ CREATE OR REPLACE FUNCTION check_user(_username "user".username%TYPE,
 		r_last_addr text, /* не используется */
 		r_next_server text
 	) AS $$
+DECLARE
+	_user_id bigint;
+	_row record;
 BEGIN
-	IF (SELECT COUNT(*) FROM "user" WHERE username = _username
-		AND secret = _secret) = 1 THEN
+	SELECT id
+	INTO _user_id
+	FROM "user"
+	WHERE username = _username
+		AND secret = _secret
+	LIMIT 1;
+
+	IF _user_id IS NOT NULL THEN
+		/* получение последнего входа */
+		SELECT INTO _row
+		FROM device
+		WHERE device.user_id = _user_id
+		ORDER BY id DESC
+		LIMIT 1;
+
+		/* вносим себя */
+		WITH _xrow AS (
+			UPDATE device
+			SET last_time = now()
+			WHERE user_id = _user_id AND device = _device_id
+			RETURNING *
+		) SELECT * INTO _row FROM _xrow;
+		
+		IF _row IS NULL THEN
+			INSERT 
+			INTO device (user_id, device)
+				SELECT _user_id, _device_id;
+		END IF;
+
+		/* выход */
 		r_authorized := TRUE;
-		/* INSERT OR UPDATE "device" */
+		r_devices := (SELECT COUNT(*) FROM device WHERE user_id = _user_id AND
+				device = _device_id);
+		IF _row IS NOT NULL THEN
+			r_registered := _row.reg_time;
+			r_last_device := _row.device;
+			r_last_login := _row.last_time;
+			r_last_addr := '???';
+		END IF;
 		return next;
 		return;
 	END IF;
