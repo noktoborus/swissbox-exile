@@ -1192,9 +1192,19 @@ _spq_check_user(PGconn *pgc, char *username, char *secret, uint64_t device_id,
 	if ((rlen = PQgetlength(res, 0, 2)) != 0)
 		user->authorized = (PQgetvalue(res, 0, 2)[0] == 't');
 
+	/* r_devices, integer */
+	if ((rlen = PQgetlength(res, 0, 5)) != 0) {
+		user->devices = strtoul(PQgetvalue(res, 0, 5), NULL, 10);
+	}
+
+	/* r_last_device, bigint */
+	if ((rlen = PQgetlength(res, 0, 6)) != 0) {
+		user->last_device = strtoull(PQgetvalue(res, 0, 6), NULL, 10);
+	}
+
 	/* r_next_server, text */
-	if ((rlen = PQgetlength(res, 0, 4)) != 0) {
-		rval = PQgetvalue(res, 0, 4);
+	if ((rlen = PQgetlength(res, 0, 8)) != 0) {
+		rval = PQgetvalue(res, 0, 8);
 		strncpy(user->next_server, rval, PATH_MAX);
 		user->next_server[PATH_MAX] = '\0';
 	}

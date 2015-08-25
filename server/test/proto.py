@@ -543,7 +543,7 @@ def examine(msg):
                     maybe(msg, "enc_filename")))
         return True
     
-    if _type == "Roar":
+    if _type == "Chat":
         write_std("%% %s: (id: %s, sid: %s, user_from: %s, device_id_from: %s, user_to: %s, device_id_to: %s): %s\n"
             %(_type, maybe(msg, "id"), maybe(msg, "session_id"),
                 maybe(msg, "user_from"), msg.device_id_from,
@@ -566,7 +566,10 @@ def examine(msg):
                 %(_type, maybe(msg, "id"), maybe(msg, "session_id"), msg.offset, msg.size))
         return True
 
-
+    if _type == "State":
+        write_std("%% %s: (id: %s, devices: %s, last_auth_device: %s, last_auth_time: %s last_auth_addr: %s)\n"
+                %(_type, maybe(msg, "id"), maybe(msg, "devices"), maybe(msg, "last_auth_device"), maybe(msg, "last_auth_time"), maybe(msg, "last_auth_addr")))
+        return True
 
     write_std("%% %s: (id: %s, sid: %s)\n"
             %(_type, maybe(msg, "id"), maybe(msg, "session_id")))
@@ -599,7 +602,7 @@ def proto(s, user, secret, devid, cmd = None):
             write_std("ping, wait sync write mkdir remove roar\n")
             continue
         if c == "roar":
-            msg = FEP.Roar()
+            msg = FEP.Chat()
             msg.id = random.randint(1, 10000)
             msg.device_id_from = int(hashlib.md5(socket.gethostname() + str(devid)).hexdigest()[:16], 16)
             msg.message = "XXXF!"
@@ -607,6 +610,15 @@ def proto(s, user, secret, devid, cmd = None):
             rmsg = recv_message(s, ["Ok", "Error"])
             examine(rmsg);
             continue
+        if c == "roaruni":
+            msg = FEP.Chat()
+            msg.id = random.randint(1, 10000)
+            msg.device_id_from = int(hashlib.md5(socket.gethostname() + str(devid)).hexdigest()[:16], 16)
+            msg.device_id_to = int('8DB7521C8E86DB89', 16)
+            msg.message = "XXEDQ"
+            send_message(s, msg)
+            rmsg = recv_message(s, ["Ok", "Error"])
+            examine(rmsg)
         if c == "remove":
             if not X_directory:
                 write_std("# try to cmd `sync` or `mkdir` (rootdir: %s, directory: %s)\n" %(X_rootdir, X_directory))

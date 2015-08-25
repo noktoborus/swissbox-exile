@@ -113,6 +113,18 @@ c_auth_cb(struct client *c, uint64_t id, unsigned int msgtype, void *msg, void *
 		send_error(c, id, "Can't load user info", 0);
 		return false;
 	}
-	return send_ok(c, id, C_OK_SIMPLE, NULL);
+	if (!send_ok(c, id, C_OK_SIMPLE, NULL))
+		return false;
+	/* отправка сообщения State */
+	{
+		Fep__State smsg = FEP__STATE__INIT;
+
+		smsg.id = generate_id(c);
+		smsg.has_devices = true;
+		smsg.has_last_auth_device = true;
+		smsg.devices = user.devices;
+		smsg.last_auth_device = user.last_device;
+		return send_message(c->cev, FEP__TYPE__tState, &smsg);
+	}
 }
 
