@@ -1193,13 +1193,15 @@ _spq_check_user(PGconn *pgc, char *username, char *secret, uint64_t device_id,
 		user->authorized = (PQgetvalue(res, 0, 2)[0] == 't');
 
 	/* r_devices, integer */
-	if ((rlen = PQgetlength(res, 0, 5)) != 0) {
-		user->devices = strtoul(PQgetvalue(res, 0, 5), NULL, 10);
+	if ((rlen = PQgetlength(res, 0, 4)) != 0) {
+		rval = PQgetvalue(res, 0, 4);
+		user->devices = strtoul(rval, NULL, 10);
 	}
 
 	/* r_last_device, bigint */
-	if ((rlen = PQgetlength(res, 0, 6)) != 0) {
-		user->last_device = strtoull(PQgetvalue(res, 0, 6), NULL, 10);
+	if ((rlen = PQgetlength(res, 0, 5)) != 0) {
+		rval = PQgetvalue(res, 0, 5);
+		user->last_device = strtoull(rval, NULL, 10);
 	}
 
 	/* r_next_server, text */
