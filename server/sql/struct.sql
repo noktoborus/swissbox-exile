@@ -1836,8 +1836,7 @@ BEGIN
 
 		/* выход */
 		r_authorized := TRUE;
-		r_devices := (SELECT COUNT(*) FROM device WHERE user_id = _user_id AND
-				device = _device_id);
+		r_devices := (SELECT COUNT(*) FROM device WHERE user_id = _user_id);
 		IF _row IS NOT NULL THEN
 			r_registered := _row.reg_time;
 			r_last_device := _row.device;
