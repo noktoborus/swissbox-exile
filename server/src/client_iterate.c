@@ -367,6 +367,8 @@ static struct handle handle[] =
 	INVALID_P_HANDLE_S(FEP__TYPE__tOkWrite, "OkRead", ok_read), /* 24 */
 	TYPICAL_HANDLE_S(FEP__TYPE__tChat, "chat", chat), /* 25 */
 	INVALID_P_HANDLE_S(FEP__TYPE__tState, "State", state), /* 26 */
+	TYPICAL_HANDLE_S(FEP__TYPE__tQueryDevices, "QueryDevices", query_devices), /* 27 */
+	INVALID_P_HANDLE_S(FEP__TYPE__tResultDevice, "ResultDevice", result_device), /* 28 */
 };
 
 const char*
@@ -842,6 +844,29 @@ _client_iterate_result(struct client *c)
 		return send_message(c->cev, FEP__TYPE__tResultRevision, &msg);
 	} else if (c->rout->type == RESULT_LOGDIRFILE) {
 		return _client_iterate_result_logdf(c, &c->rout->v.df);
+	} else if (c->rout->type == RESULT_DEVICES) {
+		Fep__ResultDevice msg = FEP__RESULT_DEVICE__INIT;
+		if (!spq_getDevices_it(&c->rout->v.d)) {
+			return send_end(c, c->rout->id, c->rout->packets) &&
+				(rout_free(c) || true);
+		}
+
+		msg.id = generate_id(c);
+		msg.session_id = c->rout->id;
+		msg.dev_no = c->rout->v.d.row;
+		msg.dev_max = c->rout->v.d.max;
+
+		msg.device_id = c->rout->v.d.device_id;
+		msg.last_auth_time = (char*)c->rout->v.d.last_auth_time;
+		/* TODO: проверять статус подключения/отключения
+		 * по значениям в БД (добавить процедуру на отключения устройства)
+		 */
+		if (msg.device_id == c->device_id)
+			msg.is_online = true;
+		else
+			msg.is_online = false;
+		c->rout->packets++;
+		return send_message(c->cev, FEP__TYPE__tResultDevice, &msg);
 	} else {
 		xsyslog(LOG_WARNING, "client[%p] unknown rout type: %d\n",
 				(void*)c->cev, c->rout->type);

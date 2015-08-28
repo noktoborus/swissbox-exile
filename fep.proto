@@ -117,6 +117,8 @@ enum Type {
 	tOkRead = 24;
 	tChat = 25;
 	tState = 26;
+	tQueryDevices = 27;
+	tResultDevice = 28;
 }
 
 /*
@@ -564,9 +566,34 @@ message State {
 
 }
 
+/* запрос списка устройств
+	Ответы: Ok, Error
+   */
+message QueryDevices {
+	required uint64 id = 1 [default = 1];
+
+	required uint32 session_id = 2;
+}
+
+message ResultDevice {
+	required uint64 id = 1 [default = 1];
+	required uint32 session_id = 2;
+
+	required uint32 dev_no = 5;
+	required uint32 dev_max = 6;
+
+	required uint64 device_id = 10;
+	/* подключен ли клиент */
+	required bool is_online = 20;
+
+	/* дата последней авторизации */
+	required string last_auth_time = 25;
+}
+
 /* TODO:
    1. сообщение с настройками от сервера к клиенту
    с количеством подключённых устройств
    2. список подключённых клиентов (существующих, время их последнего подключения)
    3. метадата к файлам (время создания, изменения, доступа?)
  */
+

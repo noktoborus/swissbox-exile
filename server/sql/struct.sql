@@ -1468,6 +1468,29 @@ BEGIN
 	return next;
 END $$ LANGUAGE plpgsql;
 
+CREATE OR REPLACE FUNCTION device_list(_username "user".username%TYPE,
+	_device_id device.device%TYPE, _drop_ _drop_ DEFAULT 'drop')
+	RETURNS TABLE
+	(
+		r_error text,
+		r_last_auth_time device.last_time%TYPE,
+		r_device_id device.device%TYPE
+	) AS $$
+DECLARE
+	_row record;
+BEGIN
+	FOR _row IN SELECT *
+		FROM "user", device
+		WHERE "user".username = _username AND
+			device.user_id = "user".id
+	LOOP
+		r_last_auth_time := _row.last_time;
+		r_device_id := _row.device;
+		return next;
+	END LOOP;
+	return;
+END $$ LANGUAGE plpgsql;
+
 -- получение списка чанков
 CREATE OR REPLACE FUNCTION chunk_list(_rootdir UUID, _file UUID,
 	_revision UUID,
@@ -1804,6 +1827,7 @@ CREATE OR REPLACE FUNCTION check_user(_username "user".username%TYPE,
 DECLARE
 	_user_id bigint;
 	_row record;
+	_devices integer;
 BEGIN
 	SELECT id
 	INTO _user_id
@@ -1811,6 +1835,9 @@ BEGIN
 	WHERE username = _username
 		AND secret = _secret
 	LIMIT 1;
+	/* TODO: разнести check_user() и проверку устройства
+	 по разным процедурам
+	*/
 
 	IF _user_id IS NOT NULL THEN
 		/* получение последнего входа */
@@ -1827,7 +1854,10 @@ BEGIN
 			WHERE user_id = _user_id AND device = _device_id
 			RETURNING *
 		) SELECT * INTO _row FROM _xrow;
-		
+
+		r_devices := (SELECT COUNT(*) FROM device WHERE user_id = _user_id);
+		r_authorized := TRUE;
+
 		IF _row IS NULL THEN
 			INSERT 
 			INTO device (user_id, device)
@@ -1835,8 +1865,6 @@ BEGIN
 		END IF;
 
 		/* выход */
-		r_authorized := TRUE;
-		r_devices := (SELECT COUNT(*) FROM device WHERE user_id = _user_id);
 		IF _row IS NOT NULL THEN
 			r_registered := _row.reg_time;
 			r_last_device := _row.device;

@@ -1163,7 +1163,7 @@ _spq_check_user(PGconn *pgc, char *username, char *secret, uint64_t device_id,
 	char *rval;
 	int rlen;
 
-	char _device_id[16];
+	char _device_id[32];
 
 	len[0] = strlen(username);
 	len[1] = strlen(secret);
@@ -1180,7 +1180,7 @@ _spq_check_user(PGconn *pgc, char *username, char *secret, uint64_t device_id,
 				PQresultErrorMessage(res));
 		PQclear(res);
 		return false;
-	} else if ((rlen = PQgetlength(res, 0, 0)) != 0) {
+	} else if ((rlen = PQgetlength(res, 0, 1)) != 0) {
 		/* парсинг варнинга */
 		rval = PQgetvalue(res, 0, 1);
 		spq_feed_hint(rval, (size_t)rlen, hint);
@@ -1283,3 +1283,5 @@ spq_add_user(char *username, char *secret, struct spq_hint *hint)
 #include "complex/getChunks.c"
 #include "complex/logDirFile.c"
 #include "complex/getLocalFiles.c"
+#include "complex/getDevices.c"
+

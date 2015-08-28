@@ -29,6 +29,7 @@ typedef enum _result_send {
 	RESULT_CHUNKS = 1,
 	RESULT_REVISIONS = 2,
 	RESULT_LOGDIRFILE = 3,
+	RESULT_DEVICES = 4,
 } result_send_t;
 
 struct result_send {
@@ -46,6 +47,7 @@ struct result_send {
 		struct getChunks c;
 		struct getRevisions r;
 		struct logDirFile df;
+		struct getDevices d;
 	} v;
 
 	void (*free)(void*);

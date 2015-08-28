@@ -853,6 +853,39 @@ _handle_query_revisions(struct client *c, unsigned type,
 }
 
 bool
+_handle_query_devices(struct client *c, unsigned type, Fep__QueryDevices *msg)
+{
+	struct result_send *rs;
+	struct spq_hint hint;
+
+	rs = calloc(1, sizeof(*rs));
+	if (!rs) {
+		xsyslog(LOG_WARNING, "_handle_query_devices error: %s",
+				strerror(errno));
+		return send_error(c, msg->id, "Internal error 995", -1);
+	}
+
+	memset(&hint, 0u, sizeof(hint));
+	if (!spq_getDevices(c->name, c->device_id, &rs->v.d, &hint)) {
+		free(rs);
+		return send_error(c, msg->id, "Internal error 1010", -1);
+	}
+
+	rs->id = msg->session_id;
+	rs->type = RESULT_DEVICES;
+	rs->free = (void(*)(void*))spq_getDevices_free;
+	rs->next = c->rout;
+	c->rout = rs;
+
+#if DEEPDEBUG
+	xsyslog(LOG_DEBUG, "client[%p] -> QueryDevices id = %"PRIu64
+			" sid = %"PRIu32,
+			(void*)c->cev, msg->id, msg->session_id);
+#endif
+	return send_ok(c, msg->id, C_OK_SIMPLE, NULL);
+}
+
+bool
 _handle_query_chunks(struct client *c, unsigned type, Fep__QueryChunks *msg)
 {
 	Fep__FileMeta meta = FEP__FILE_META__INIT;

@@ -571,6 +571,12 @@ def examine(msg):
                 %(_type, maybe(msg, "id"), maybe(msg, "devices"), maybe(msg, "last_auth_device"), maybe(msg, "last_auth_time"), maybe(msg, "last_auth_addr")))
         return True
 
+    if _type == "ResultDevice":
+        write_std("%% %s: (id: %s, session_id: %s, no: %s, max: %s) device: %s, last_auth_time: %s, is_online: %s\n"
+                %(_type, msg.id, maybe(msg, "session_id"), maybe(msg, "no"),
+                    maybe(msg, "max"), msg.device_id, msg.last_auth_time, msg.is_online))
+        return True
+
     write_std("%% %s: (id: %s, sid: %s)\n"
             %(_type, maybe(msg, "id"), maybe(msg, "session_id")))
     return True
@@ -601,6 +607,19 @@ def proto(s, user, secret, devid, cmd = None):
         if c == "help":
             write_std("ping, wait sync write mkdir remove roar\n")
             continue
+        if c == "devices":
+            msg = FEP.QueryDevices()
+            msg.id = random.randint(1, 10000)
+            msg.session_id = random.randint(10000, 20000)
+            send_message(s, msg)
+            rmsg = recv_message(s, ["Ok", "Error"])
+            examine(rmsg)
+            if rmsg.__class__.__name__ == "Ok":
+                while True:
+                    rmsg = recv_message(s, ["End", "ResultDevice"])
+                    examine(rmsg)
+                    if rmsg.__class__.__name__ == "End":
+                        break
         if c == "roar":
             msg = FEP.Chat()
             msg.id = random.randint(1, 10000)

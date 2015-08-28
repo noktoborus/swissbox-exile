@@ -78,6 +78,23 @@ struct getLogFile {
 	void *res;
 };
 
+/* список устройств */
+struct getDevices {
+	void *p;
+	void *res;
+
+	const char *last_auth_time;
+	uint64_t device_id;
+
+	unsigned row;
+	unsigned max;
+};
+
+bool spq_getDevices_it(struct getDevices *state);
+void spq_getDevices_free(struct getDevices *state);
+bool spq_getDevices(const char *username, uint64_t device_id,
+		struct getDevices *state, struct spq_hint *hint);
+
 /* получение списка локальных файлов */
 
 struct getLocalFiles {
