@@ -266,9 +266,9 @@ sev_send(void *ctx, const unsigned char *buf, size_t size)
 		memcpy(&cev->send.buf[cev->send.len], buf, len);
 		cev->send.len += len;
 		if (!(((struct ev_io*)&cev->io)->events & EV_WRITE)) {
-			pthread_mutex_lock(&cev->utex);
+			/*pthread_mutex_lock(&cev->utex);*/
 			cev->action |= SEV_ACTION_WRITE;
-			pthread_mutex_unlock(&cev->utex);
+			/*pthread_mutex_unlock(&cev->utex);*/
 			ev_async_send(cev->evloop, (struct ev_async*)&cev->async);
 		}
 	}
@@ -317,9 +317,9 @@ sev_recv(void *ctx, unsigned char *buf, size_t size)
 	if (len == 0u) {
 		/* буфер пустой, нужно попросить ещё, если мы не в очереди */
 		if (!(cev->io.e.io.events & EV_READ)) {
-			pthread_mutex_lock(&cev->utex);
+			/*pthread_mutex_lock(&cev->utex);*/
 			cev->action |= SEV_ACTION_READ;
-			pthread_mutex_unlock(&cev->utex);
+			/*pthread_mutex_unlock(&cev->utex);*/
 			ev_async_send(cev->evloop, (struct ev_async*)&cev->async);
 		}
 	}
