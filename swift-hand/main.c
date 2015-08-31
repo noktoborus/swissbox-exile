@@ -28,6 +28,7 @@ struct main {
 	struct {
 		char *redis_chan;
 		char *name;
+		char *cache_dir;
 	} options;
 	struct rdc rdc;
 };
@@ -207,6 +208,7 @@ main(int argc, char *argv[])
 	/* базовые значения */
 	pain.options.redis_chan = strdup("fep_broadcast");
 	pain.options.name = strdup("swift-hand");
+	pain.options.cache_dir = strdup("../server/user");
 
 	w.t.url = strdup("https://swissbox-swift.it-grad.ru/v2.0/tokens");
 	w.t.tenant = strdup("project01");
@@ -219,10 +221,12 @@ main(int argc, char *argv[])
 			CFG_SIMPLE_STR("bind", CFGF_NONE),
 			CFG_SIMPLE_STR("pg_connstr", CFGF_NONE),
 			CFG_SIMPLE_STR("redis_chan", &pain.options.redis_chan),
+			CFG_SIMPLE_STR("cache_dir", &pain.options.cache_dir),
 			CFG_END()
 		};
 		cfg_opt_t opt_priv[] = {
 			CFG_SIMPLE_STR("name", &pain.options.name),
+			CFG_SIMPLE_STR("cache_dir", &pain.options.cache_dir),
 			CFG_END()
 		};
 		cfg = cfg_init(opt, 0);
@@ -253,6 +257,7 @@ main(int argc, char *argv[])
 
 	free(pain.options.redis_chan);
 	free(pain.options.name);
+	free(pain.options.cache_dir);
 
 	return EXIT_SUCCESS;
 }
