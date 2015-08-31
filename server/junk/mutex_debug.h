@@ -34,7 +34,11 @@ _pthread_mutex_unlock(pthread_mutex_t *m, const char *file, int line) {
 
 static inline int
 _pthread_cond_wait(pthread_cond_t *c, pthread_mutex_t *m, const char *file, int line) {
-	return pthread_cond_wait(c, m);
+	int r;
+	xsyslog(LOG_DEBUG, "[%s:%d] mutex cond_wait %p", file, line, (void*)m);
+	r = pthread_cond_wait(c, m);
+	xsyslog(LOG_DEBUG, "[%s:%d] mutex cond_wait %p -> %d", file, line, (void*)m, r);
+	return r;
 }
 
 static inline int
@@ -57,10 +61,10 @@ _pthread_mutex_destroy(pthread_mutex_t *m, const char *file, int line)
 
 # define pthread_mutex_init(x, y) _pthread_mutex_init(x, y, __FILE__, __LINE__)
 # define pthread_mutex_destroy(x) _pthread_mutex_destroy(x, __FILE__, __LINE__)
-# define pthread_mutex_lock(x)  _pthread_mutex_lock(x, __FILE__, __LINE__ x)
+# define pthread_mutex_lock(x)  _pthread_mutex_lock(x, __FILE__, __LINE__)
 # define pthread_mutex_trylock(x)  _pthread_mutex_trylock(x, __FILE__, __LINE__)
 # define pthread_mutex_unlock(x)  _pthread_mutex_unlock(x, __FILE__, __LINE__)
-# define pthread_cond_wait(x, y) {xsyslog(LOG_DEBUG, "cond unlock %p", (void*)y); _pthread_cond_wait(x, y); }
+# define pthread_cond_wait(x, y) _pthread_cond_wait(x, y, __FILE__, __LINE__)
 
 #endif /* _JUNK_MUTEX_DEBUG_1441016521_H_ */
 
