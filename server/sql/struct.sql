@@ -1130,6 +1130,9 @@ DECLARE
 	_user_id "user".id%TYPE;
 	_row record;
 BEGIN
+	-- FIXME: возникнут проблемы при переносе
+	-- чанков, расположенных не в кеше (с полем "driver")
+
 	-- получение базовой информации
 	BEGIN
 		SELECT INTO _user_id user_id FROM _life_, options
