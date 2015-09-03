@@ -292,7 +292,7 @@ _thread_mgm(struct spq_root *spq)
 				 * на самом деле не очень ок, потому что зафлуживает бд
 				 * TODO: добавить в конфигурашку
 				 */
-				PQclear(PQexec(sc->conn, "SELECT;"));
+				PQclear(PQexec(sc->conn, "SELECT 1;"));
 				memcpy(&sc->lc.tv_sec, &tvc.tv_sec, sizeof(struct timeval));
 			}
 		}
