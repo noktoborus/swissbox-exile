@@ -420,7 +420,7 @@ def proto_sync(s):
     while True:
         if not _sessions:
             break;
-        rmsg = recv_message(s, ("FileUpdate", "RootdirUpdate", "DirectoryUpdate", "Error", "Ok", "End"))
+        rmsg = recv_message(s, ("FileUpdate", "RootdirUpdate", "DirectoryUpdate", "Error", "Ok", "End", "State"))
         if not rmsg:
             write_std("# eof\n")
             r = False
@@ -434,6 +434,10 @@ def proto_sync(s):
                 write_std("# sync id=%s ok\n" %rmsg.id)
                 _oks.remove(rmsg.id)
                 continue
+        if rmsg.__class__.__name__ == "State":
+            examine(rmsg)
+            continue
+
         if rmsg.__class__.__name__ == "End":
             write_std("# sync sid=%s ended, messages: %s\n" %(rmsg.session_id, rmsg.packets))
             _sessions.remove(rmsg.session_id)
