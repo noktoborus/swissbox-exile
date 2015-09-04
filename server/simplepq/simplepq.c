@@ -1241,7 +1241,6 @@ _spq_add_user(PGconn *pgc, char *username, char *secret, struct spq_hint *hint)
 {
 	PGresult *res;
 	const char tb[] =
-		"DROP TABLE IF EXISTS _life_; "
 		"INSERT INTO \"user\"(username, secret)"
 		"VALUES ($1::character varying, $2::character varying)";
 
@@ -1255,6 +1254,7 @@ _spq_add_user(PGconn *pgc, char *username, char *secret, struct spq_hint *hint)
 	val[0] = username;
 	val[1] = secret;
 
+	PQclear(PQexec(pgc, "DROP TABLE IF EXISTS _life_;"));
 	res = PQexecParams(pgc, tb, 2, NULL, (const char *const*)val, len, fmt, 0);
 	if (PQresultStatus(res) != PGRES_COMMAND_OK) {
 		spq_feed_hint(NULL, 0u, hint);
