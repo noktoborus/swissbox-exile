@@ -42,7 +42,7 @@ _s_exec(PGconn *pgc, struct spq_hint *hint)
 	PGresult *res;
 	ExecStatusType pqs;
 	const char *tb = "SELECT "
-			"file_chunk.id, "
+			"file_chunk.location_group, "
 			"file_chunk.address, "
 			"\"user\".username "
 		"FROM file_chunk, file, rootdir, \"user\" "

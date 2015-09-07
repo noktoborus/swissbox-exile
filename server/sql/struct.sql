@@ -69,6 +69,7 @@ DROP SEQUENCE IF EXISTS rootdir_seq CASCADE;
 DROP SEQUENCE IF EXISTS device_seq CASCADE;
 DROP SEQUENCE IF EXISTS file_meta_seq CASCADE;
 DROP SEQUENCE IF EXISTS event_checkpoint_seq CASCADE;
+DROP SEQUENCE IF EXISTS file_chunk_group_seq CASCADE;
 
 DROP TYPE IF EXISTS _drop_ CASCADE;
 DROP TYPE IF EXISTS event_type CASCADE;
@@ -314,12 +315,13 @@ CREATE TABLE IF NOT EXISTS file_meta
 	UNIQUE(checkpoint)
 );
 
+CREATE SEQUENCE file_chunk_group_seq;
 CREATE SEQUENCE file_chunk_seq;
 CREATE TABLE IF NOT EXISTS file_chunk
 (
 	id bigint DEFAULT nextval('file_chunk_seq') PRIMARY KEY,
 	revision_id bigint NOT NULL REFERENCES file_revision(id),
-	-- глобальный id чанка собирается из (rootdir_guid, file_guid, chunk_guid)
+
 	file_id bigint NOT NULL REFERENCES file(id) ON DELETE CASCADE,
 
 	chunk UUID NOT NULL,
@@ -332,6 +334,17 @@ CREATE TABLE IF NOT EXISTS file_chunk
 	address text NOT NULL,
 
 	driver text DEFAULT NULL,
+
+	-- костыль, нужен для группирования одинаковых чанков
+	-- location_group -- идентификатор адреса
+	-- по которому расположен чанк
+	-- теоретически, может произойти коллизия хэша
+	-- у двух файлов с разным содержимым
+	-- потому пологаться только на хэш чанка нельзя
+	-- нужно учитывать его принадлежность к пользователю
+	-- и в какой из рутдир он расположен
+	rootdir_id bigint NOT NULL REFERENCES rootdir(id),
+	location_group bigint NOT NULL,
 
 	UNIQUE(file_id, chunk)
 );
@@ -1056,6 +1069,7 @@ DECLARE
 	_dir_id bigint;
 	_file_id bigint;
 	_revision_id bigint;
+	_location_group bigint;
 BEGIN
 	-- получение базовой информации
 	BEGIN
@@ -1112,10 +1126,26 @@ BEGIN
 		) SELECT id INTO _revision_id FROM _row;
 	END IF;
 
-	-- 3. вставка нового чанка
-	INSERT INTO file_chunk (revision_id, file_id, chunk, size, "offset", hash, address)
+	-- 4. подбор location_group
+	SELECT location_group
+	INTO _location_group
+	FROM file_chunk
+	WHERE file_chunk.hash = _chunk_hash AND
+		file_chunk.size = _chunk_size AND
+		file_chunk.rootdir_id = _ur.r;
+
+	IF _location_group IS NULL THEN
+		SELECT nextval('file_chunk_group_seq') INTO _location_group;
+	END IF;
+
+	-- 5. вставка нового чанка
+	INSERT INTO file_chunk
+		(revision_id, file_id, chunk, size, "offset", hash, address,
+			rootdir_id, location_group)
 		VALUES (_revision_id, _file_id, _chunk_guid,
-			_chunk_size, _chunk_offset, _chunk_hash, _address);
+			_chunk_size, _chunk_offset, _chunk_hash, _address,
+			_ur.r,
+			_location_group);
 
 	return NULL;
 END $$ LANGUAGE plpgsql;
