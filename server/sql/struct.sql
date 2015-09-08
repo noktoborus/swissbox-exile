@@ -1946,6 +1946,22 @@ BEGIN
 	return next;
 END $$ LANGUAGE plpgsql;
 
+CREATE OR REPLACE FUNCTION initial_user(_drop_ _drop_ default 'drop')
+	RETURNS TABLE
+	(
+		r_error text,
+		r_mark text
+	) AS $$
+BEGIN
+	SELECT value_u INTO r_mark FROM options WHERE key = 'life_mark';
+	IF r_mark IS NULL THEN
+		SELECT gen_random_uuid() INTO r_mark;
+		INSERT INTO options ("key", value_u)
+			VALUES ('life_mark', r_mark);
+	END IF;
+	return next;
+END $$ LANGUAGE plpgsql;
+
 -- вешанье триггеров, инжекция базовых значений
 
 CREATE TRIGGER tr_user_action AFTER INSERT ON "user"

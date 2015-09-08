@@ -23,5 +23,8 @@ bool string2guid(const char *in, size_t inlen, guid_t *guid);
 /* возвращает количества байт, отображённых в строке out или 0 */
 size_t guid2string(guid_t *guid, char *out, size_t outlen);
 
+bool net2guid(uint8_t in[16], guid_t *guid);
+bool guid2net(guid_t *guid, uint8_t out[16]);
+
 #endif /* _SRC_GUID_1425159398_H_ */
 

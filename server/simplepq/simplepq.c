@@ -1280,6 +1280,55 @@ spq_add_user(char *username, char *secret, struct spq_hint *hint)
 	return r;
 }
 
+bool
+_spq_initial_user(PGconn *pgc, struct spq_InitialUser *iu,
+		struct spq_hint *hint)
+{
+	PGresult *res;
+	const char tb[] = "SELECT * FROM initial_user();";
+
+	char *m;
+	int ml;
+
+	res = PQexec(pgc, tb);
+	if (PQresultStatus(res) != PGRES_TUPLES_OK) {
+		spq_feed_hint(NULL, 0u, hint);
+		xsyslog(LOG_INFO, "exec initial_user error: %s",
+				PQresultErrorMessage(res));
+		PQclear(res);
+		return false;
+	}
+
+	/* r_error */
+	if ((ml = PQgetlength(res, 0, 0)) != 0) {
+		m = PQgetvalue(res, 0, 0);
+		spq_feed_hint(m, ml, hint);
+		xsyslog(LOG_INFO, "exec initial_user warning: %s", m);
+	}
+
+	/* r_mark */
+	if ((ml = PQgetlength(res, 0, 1)) != 0) {
+		m = PQgetvalue(res, 0, 0);
+		string2guid(m, ml, &iu->mark);
+	} else {
+		string2guid(NULL, 0u, &iu->mark);
+	}
+
+	return true;
+}
+
+bool
+spq_initial_user(struct spq_InitialUser *iu, struct spq_hint *hint)
+{
+	bool r = false;
+	struct spq *c;
+	if ((c = acquire_conn(&_spq)) != NULL) {
+		r = _spq_initial_user(c->conn, iu, hint);
+		release_conn(&_spq, c);
+	}
+	return r;
+}
+
 #include "complex/getRevisions.c"
 #include "complex/getChunks.c"
 #include "complex/logDirFile.c"

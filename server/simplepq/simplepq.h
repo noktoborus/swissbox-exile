@@ -276,6 +276,15 @@ bool
 spq_get_quota(char *username, uint64_t device_id,
 		guid_t *rootdir, struct spq_QuotaInfo *qi, struct spq_hint *hint);
 
+struct spq_InitialUser {
+	guid_t mark;
+};
+
+/*
+ * получение начальных значений для пользователя
+ */
+bool spq_initial_user(struct spq_InitialUser *iu, struct spq_hint *hint);
+
 /* помогалки */
 bool spq_begin_life(PGconn *pgc, char *username, uint64_t device_id);
 
