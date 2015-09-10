@@ -51,7 +51,11 @@ _s_exec(PGconn *pgc, struct spq_hint *hint)
 			"file.id = file_chunk.file_id AND "
 			"rootdir.id = file.rootdir_id AND "
 			"\"user\".id = rootdir.user_id "
-			"ORDER BY file.id;";
+			"GROUP BY "
+				"file_chunk.location_group, "
+				"file_chunk.address, "
+				"\"user\".username "
+			"ORDER BY file_chunk.location_group;";
 
 	res = PQexec(pgc, tb);
 	pqs = PQresultStatus(res);
