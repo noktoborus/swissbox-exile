@@ -223,7 +223,7 @@ almsg_each(struct almsg_parser *p,
 			if (n == i || i == ALMSG_ALL) {
 				/* если хоть раз cb вернул true, то его и нужно вернуть
 				 */
-				if (cb(p, key, key_len, n, raw))
+				if (cb(p, np->val, np->val_len, n, raw))
 					r = true;
 			}
 			n++;
