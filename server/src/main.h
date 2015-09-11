@@ -42,6 +42,11 @@ struct sev_ctx
 	struct evptr io;
 	struct evptr async;
 
+	/* server options */
+	struct {
+		const char *cache_dir;
+	} options;
+
 	struct { /* буфер чтения */
 		pthread_mutex_t lock;
 		uint8_t *buf;
@@ -126,6 +131,7 @@ struct main
 	struct {
 		char *name;
 		char *redis_chan;
+		char *cache_dir;
 	} options;
 
 };

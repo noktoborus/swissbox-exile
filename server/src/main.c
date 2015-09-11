@@ -164,6 +164,7 @@ client_free(struct sev_ctx *cev)
 static inline struct sev_ctx *
 client_alloc(struct ev_loop *loop, int fd, struct sev_ctx *next)
 {
+	struct main *pain = (struct main*)ev_userdata(loop);
 	struct sev_ctx *cev;
 	cev = calloc(1, sizeof(struct sev_ctx));
 	if (!cev) {
@@ -193,6 +194,10 @@ client_alloc(struct ev_loop *loop, int fd, struct sev_ctx *next)
 	cev->send.buf = calloc(1, SEV_SEND_BUF);
 	cev->recv.size = SEV_RECV_BUF;
 	cev->send.size = SEV_SEND_BUF;
+
+	/* некоторые опции */
+	cev->options.cache_dir = (const char*)pain->options.cache_dir;
+
 	/* не получилось */
 	if (!cev->recv.buf || !cev->send.buf) {
 		xsyslog(LOG_WARNING, "client init(%p, fd#%d) "
@@ -956,6 +961,7 @@ main(int argc, char *argv[])
 			pain.options.name = strdup("fepizer");
 		}
 		pain.options.redis_chan = strdup("fep_broadcast");
+		pain.options.cache_dir = strdup("user/");
 	}
 	/* получение конфигурации */
 	{
@@ -965,6 +971,7 @@ main(int argc, char *argv[])
 			CFG_SIMPLE_STR("pg_connstr", &pg_connstr),
 			CFG_SIMPLE_STR("redis_chan", &pain.options.redis_chan),
 			CFG_SIMPLE_STR("server_name", &pain.options.name),
+			CFG_SIMPLE_STR("cache_dir", &pain.options.cache_dir),
 			CFG_END()
 		};
 
@@ -1050,6 +1057,7 @@ main(int argc, char *argv[])
 	free(pg_connstr);
 	free(pain.options.redis_chan);
 	free(pain.options.name);
+	free(pain.options.cache_dir);
 
 	curl_global_cleanup();
 	xsyslog(LOG_INFO, "--- EXIT ---");
