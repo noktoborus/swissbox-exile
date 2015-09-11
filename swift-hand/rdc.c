@@ -99,6 +99,7 @@ rdc_acquire(struct rdc *r)
 			 */
 			if (nn->ac && !nn->command) {
 				r->c_inuse++;
+				pthread_mutex_unlock(&r->lock);
 				return nn->ac;
 			} else if (!nn->ac) {
 				/* получение отключившегося сокета для релокации */
@@ -137,7 +138,6 @@ rdc_acquire(struct rdc *r)
 		if (!nn->ac || nn->ac->err) {
 			xsyslog(LOG_WARNING, "rdc: redis connect failed: %s",
 					(nn->ac ? nn->ac->errstr : NULL));
-			pthread_mutex_unlock(&r->lock);
 			if (nn->ac) {
 				redisAsyncFree(nn->ac);
 				nn->ac = NULL;
@@ -145,6 +145,7 @@ rdc_acquire(struct rdc *r)
 			if (nn->command)
 				free(nn->command);
 			free(nn);
+			pthread_mutex_unlock(&r->lock);
 			return NULL;
 		}
 		nn->ac->data = nn;
@@ -160,8 +161,8 @@ rdc_acquire(struct rdc *r)
 		r->c_count++;
 		r->c_inuse++;
 
-		pthread_mutex_unlock(&r->lock);
 		xsyslogs(LOG_INFO, &nn->msghash, "rdc#%03u created", nn->num);
+		pthread_mutex_unlock(&r->lock);
 		return nn->ac;
 	} else {
 		xsyslog(LOG_WARNING, "rdc: wtf?");

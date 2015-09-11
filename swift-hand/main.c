@@ -49,6 +49,26 @@ struct w {
 typedef struct w w_t;
 
 void
+initiate(struct main *pain)
+{
+	/* отправка сообщения от том, что хочется получится список файлов
+	 * для переноса
+	 */
+	char *_a = NULL;
+	size_t _l = 0u;
+	struct almsg_parser ap;
+	almsg_init(&ap);
+	almsg_append(&ap, PSLEN("from"), PSLEN(pain->options.name));
+	almsg_append(&ap, PSLEN("action"), PSLEN("files"));
+	almsg_append(&ap, PSLEN("channel"), PSLEN(pain->options.redis_chan));
+
+	almsg_format_buf(&ap, &_a, &_l);
+	rdc_exec_once(&pain->rdc, NULL, NULL, "PUBLISH %s %b",
+			pain->options.redis_chan, _a, _l);
+	almsg_destroy(&ap);
+}
+
+void
 swh_clear(w_t *w)
 {
 	if (w->c.auth) free(w->c.auth);
@@ -120,21 +140,102 @@ timeout_cb(struct ev_loop *loop, ev_timer *w, int revents)
 }
 
 static void
-rdc_broadcast_cb(redisAsyncContext *ac, redisReply *r, void *priv)
+rdc_broadcast_cb(redisAsyncContext *ac, redisReply *r, struct main *pain)
 {
+	struct almsg_parser ap;
 	if (!r || r->elements != 3)
 		return;
-	xsyslog(LOG_INFO, "data");
-
+	if (r->type != REDIS_REPLY_ARRAY || r->elements != 3) {
+		return;
+	}
+	xsyslog(LOG_INFO, "broadcast data in chan: '%s' (%d bytes)",
+			r->element[1]->str, r->element[1]->len);
+	/* разбор буфера */
+	almsg_init(&ap);
+	if (almsg_parse_buf(&ap, r->element[2]->str, r->element[2]->len)) {
+		uint32_t _hash;
+		const char *_action = NULL;
+		_action = almsg_get(&ap, PSLEN_S("action"), ALMSG_ALL);
+		if (!_action) {
+			almsg_destroy(&ap);
+			return;
+		}
+		_hash = hash_pjw(_action, strlen(_action));
+		/* TODO: заменить на таблицу */
+		if (_hash == hash_pjw(PSLEN_S("server-starts"))) {
+			/* сообщение от сервера что он запустился,
+			 * можно дёрнуть список файлов
+			 */
+			initiate(pain);
+		}
+	}
+	almsg_destroy(&ap);
 	return;
 }
 
-void
-rdc_blpop_cb(redisAsyncContext *ac, redisReply *r, void *priv)
+bool
+process_file(struct main *pain, const char *owner, const char *path)
 {
+	/* TODO: ... */
+	return true;
+}
+
+void
+rdc_blpop_cb(redisAsyncContext *ac, redisReply *r, struct main *pain)
+{
+	struct almsg_parser ap;
+	const char *id;
+	const char *owner;
+	const char *path;
 	if (!r)
 		return;
-	xsyslog(LOG_INFO, "blpop");
+
+	if (r->elements != 2 && r->type != REDIS_REPLY_ARRAY) {
+		xsyslog(LOG_WARNING,
+				"redis broadcast unknown data: type=%d, elements=%"PRIuPTR,
+				r->type, r->elements);
+		return;
+	}
+
+	if (r->element[1]->type != REDIS_REPLY_STRING) {
+		xsyslog(LOG_WARNING,
+				"redis broadcast shit: element[1].type != STRING (%d)",
+				r->element[1]->type);
+		return;
+	}
+	almsg_init(&ap);
+	almsg_parse_buf(&ap, r->element[1]->str, r->element[1]->len);
+
+	id = almsg_get(&ap, PSLEN_S("id"), ALMSG_ALL);
+	owner = almsg_get(&ap, PSLEN_S("owner"), ALMSG_ALL);
+	path = almsg_get(&ap, PSLEN_S("path"), ALMSG_ALL);
+
+	if (process_file(pain, owner, path)) {
+		struct almsg_parser rap;
+		char *rap_buf = NULL;
+		size_t rap_bsz;
+		almsg_init(&rap);
+		almsg_insert(&rap, PSLEN_S("from"), PSLEN(pain->options.name));
+		almsg_insert(&rap, PSLEN_S("action"), PSLEN_S("accept"));
+		almsg_insert(&rap, PSLEN_S("id"), PSLEN(id));
+		almsg_insert(&rap, PSLEN_S("driver"), PSLEN_S("dev"));
+		almsg_insert(&rap, PSLEN_S("address"), PSLEN_S("null"));
+
+		if (!almsg_format_buf(&rap, &rap_buf, &rap_bsz)) {
+			xsyslog(LOG_WARNING, "almsg format buffer error");
+		} else {
+			rdc_exec_once(&pain->rdc, NULL, NULL, "PUBLISH %s %b",
+					pain->options.redis_chan, rap_buf, rap_bsz);
+			free(rap_buf);
+			xsyslog(LOG_INFO, "file id#%s moved", id);
+			/* отправка сообщения об успешном переносе */
+		}
+		almsg_destroy(&rap);
+	} else {
+		xsyslog(LOG_INFO, "file id#%s not moved", id);
+	}
+
+	almsg_destroy(&ap);
 	return;
 }
 
@@ -159,25 +260,14 @@ rloop(struct main *pain)
 	rdc_init(&pain->rdc, loop, "localhost", 10);
 	/* регистрация на редисе */
 	{
-		struct almsg_parser ap;
 		char _buf[1024];
-		char *_a = NULL;
-		size_t _l = 0u;
 		snprintf(_buf, sizeof(_buf), "SUBSCRIBE %s", pain->options.redis_chan);
 		rdc_subscribe(&pain->rdc,
-				(redisCallbackFn*)rdc_broadcast_cb, NULL, _buf);
+				(redisCallbackFn*)rdc_broadcast_cb, pain, _buf);
 		snprintf(_buf, sizeof(_buf), "BLPOP %s 0", pain->options.redis_chan);
 		rdc_exec_period(&pain->rdc,
-				(redisCallbackFn*)rdc_blpop_cb, NULL, _buf);
-		almsg_init(&ap);
-		almsg_append(&ap, PSLEN("from"), PSLEN(pain->options.name));
-		almsg_append(&ap, PSLEN("action"), PSLEN("files"));
-		almsg_append(&ap, PSLEN("channel"), PSLEN(pain->options.redis_chan));
-
-		almsg_format_buf(&ap, &_a, &_l);
-		rdc_exec_once(&pain->rdc, NULL, NULL, "PUBLISH %s %b",
-				pain->options.redis_chan, _a, _l);
-		almsg_destroy(&ap);
+				(redisCallbackFn*)rdc_blpop_cb, pain, _buf);
+		initiate(pain);
 	}
 
 	ev_run(loop, 0);

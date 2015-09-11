@@ -706,8 +706,8 @@ rds_incoming_cb(redisAsyncContext *ac, redisReply *r, void *priv)
 
 	if(r->element[2]->len) {
 #if DEEPDEBUG
-		xsyslog(LOG_DEBUG, "redis[%02"PRIuPTR"] message in \"%s\": \"%s\"",
-				rds->self, r->element[1]->str, r->element[2]->str);
+		/*xsyslog(LOG_DEBUG, "redis[%02"PRIuPTR"] message in \"%s\": \"%s\"",
+				rds->self, r->element[1]->str, r->element[2]->str);*/
 #endif
 		/* если сообщение пришло во входяший канал */
 		if (!strcmp(r->element[1]->str, rds->pain->options.redis_chan)) {
@@ -723,8 +723,15 @@ rds_incoming_cb(redisAsyncContext *ac, redisReply *r, void *priv)
 					r->element[2]->str, r->element[3]->len);
 		}
 	} else {
+		struct almsg_parser _ap;
 		xsyslog(LOG_DEBUG, "redis[%02"PRIuPTR"] channel \"%s\": subscribed",
 				rds->self, r->element[1]->str);
+		almsg_init(&_ap);
+		almsg_insert(&_ap, PSLEN_S("action"), PSLEN_S("server-starts"));
+		almsg_insert(&_ap, PSLEN_S("from"), PSLEN(rds->pain->options.name));
+		almsg2redis(rds->pain, "PUBLISH", rds->pain->options.redis_chan, &_ap);
+		almsg_destroy(&_ap);
+
 	}
 }
 
@@ -795,6 +802,24 @@ redis_t(struct main *pain, const char *cmd, const char *ch, const char *data, si
 		break;
 	}
 	return false;
+}
+
+void
+almsg2redis(struct main *pain, const char *cmd, const char *chan,
+		struct almsg_parser *alm)
+{
+	char *p = NULL;
+	size_t l = 0u;
+
+	almsg_format_buf(alm, &p, &l);
+	if (p) {
+		if (l)
+			redis_t(pain, cmd, chan, p, l);
+		free(p);
+	} else {
+		xsyslog(LOG_WARNING, "almsg2redis: empty buffer (elem: %"PRIuPTR")",
+				almsg_count(alm, NULL, 0u));
+	}
 }
 
 void

@@ -47,8 +47,10 @@ size_t bin2hex(uint8_t *binary, size_t bin_len, char *string, size_t str_len);
 void
 saddr_char(char *str, size_t size, sa_family_t family, struct sockaddr *sa);
 
-#define PSIZE(x) x, sizeof(x)
-#define PSLEN(x) x, (x != NULL ? strlen(x) : 0u)
+#define PSIZE(x) (x), sizeof(x)
+#define PSLEN(x) (x), (x != NULL ? strlen(x) : 0u)
+#define PSLEN_S(x) (x), (sizeof(x) - sizeof(*x))
+
 #define _S(x) #x
 #define S(x) _S(x)
 #endif /* _UTILS_1422516244_H_ */

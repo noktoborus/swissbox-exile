@@ -11,30 +11,13 @@
 #include "junk/xsyslog.h"
 #include "junk/almsg.h"
 
-void
-almsg2redis(struct main *pain, const char *cmd, const char *chan,
-		struct almsg_parser *alm)
-{
-	char *p = NULL;
-	size_t l = 0u;
-
-	almsg_format_buf(alm, &p, &l);
-	if (p) {
-		if (l)
-			redis_t(pain, cmd, chan, p, l);
-		free(p);
-	} else {
-		xsyslog(LOG_WARNING, "almsg2redis: empty buffer (elem: %"PRIuPTR")",
-				almsg_count(alm, NULL, 0u));
-	}
-}
-
 static bool
 _action_accept(struct almsg_parser *p, const char *val, size_t val_len,
 	size_t i, struct main *pain)
 {
 	const char *driver = NULL;
 	const char *address = NULL;
+	struct almsg_parser rap;
 
 	driver = almsg_get(p, PSLEN("driver"), i);
 	address = almsg_get(p, PSLEN("address"), i);
@@ -42,6 +25,15 @@ _action_accept(struct almsg_parser *p, const char *val, size_t val_len,
 		xsyslog(LOG_WARNING, "empty driver ('%s') or address ('%s') "
 				"for file id#%s", driver, address, val);
 		return false;
+	}
+
+	{
+		almsg_init(&rap);
+		almsg_insert(&rap, PSLEN_S("from"), PSLEN(pain->options.name));
+		almsg_insert(&rap, PSLEN_S("response"), PSLEN_S("accept"));
+		almsg_insert(&rap, PSLEN_S("id"), val, val_len);
+		almsg2redis(pain, "PUBLISH", pain->options.redis_chan, &rap);
+		almsg_destroy(&rap);
 	}
 
 	/* TODO: завершение переноса */
@@ -70,10 +62,11 @@ static bool
 action_accept(struct main *pain, struct almsg_parser *alm, char *action)
 {
 	/* 1. обработать сообщение */
-	almsg_each(alm, PSLEN("id"), ALMSG_ALL,
+	almsg_each(alm, PSLEN_S("id"), ALMSG_ALL,
 			(almsg_each_cb)_action_accept, pain);
 	/* 2. обновить значения в бд */
 	/* 3. сформировать ответ */
+	almsg_reset(alm, false);
 	return true;
 }
 
@@ -190,14 +183,18 @@ redis_process(struct redis_c *rds, const char *data, size_t size)
 			}
 			if (_actions[i].action == hash) {
 				if (_actions[i].f(rds->pain, &alm, _actions[i].action_str)) {
-					/* добавление специальных полей */
-					almsg_insert(&alm,
-							PSLEN("response"), PSLEN(_actions[i].action_str));
-					almsg_insert(&alm,
-							PSLEN("from"), PSLEN(rds->pain->options.name));
+					if (almsg_count(&alm, NULL, 0u)) {
+						/* добавление специальных полей */
+						almsg_insert(&alm,
+								PSLEN("response"),
+								PSLEN(_actions[i].action_str));
+						almsg_insert(&alm,
+								PSLEN("from"),
+								PSLEN(rds->pain->options.name));
 
-					/* формирование буфера и отправка ответа */
-					almsg2redis(rds->pain, "PUBLISH", NULL, &alm);
+						/* формирование буфера и отправка ответа */
+						almsg2redis(rds->pain, "PUBLISH", NULL, &alm);
+					}
 				}
 			}
 		}

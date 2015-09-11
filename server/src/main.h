@@ -6,6 +6,7 @@
 
 #include "list.h"
 #include "junk/xsyslog.h"
+#include "junk/almsg.h"
 #include "proto/fep.pb-c.h"
 
 #include <hiredis/hiredis.h>
@@ -150,6 +151,8 @@ int sev_recv(void *ctx, unsigned char *buf, size_t len);
 /* */
 bool redis_t(struct main *pain, const char *cmd, const char *ch,
 		const char *data, size_t size);
+void almsg2redis(struct main *pain, const char *cmd, const char *chan,
+		struct almsg_parser *alm);
 
 /* информации о версии */
 const char *const sev_version_string();
