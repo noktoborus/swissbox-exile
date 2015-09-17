@@ -73,8 +73,11 @@ def _recv_message(s, expected = None):
         write_std("# unknown packet type " + str(ptypen) + "\n")
         return None
     ptype = FEP.Type.keys()[ptypen - 1]
-    write_std("# header: %s[%s]:%s\n" %(ptype, ptypen, plen))
     rawmsg = s.recv(plen)
+    if len(rawmsg) != plen:
+        write_std("# header message not readed: want %s bytes, received %s bytes, wait more\n" %(plen, len(rawmsg)))
+        rawmsg += s.recv(plen - len(rawmsg))
+    write_std("# header: %s[%s]:%s <- %s\n" %(ptype, ptypen, plen, len(rawmsg)))
     if rawmsg:
         try:
             msg = eval("FEP." + ptype[1:]).FromString(rawmsg)
