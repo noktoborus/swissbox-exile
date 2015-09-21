@@ -45,13 +45,14 @@ spq_ac() {
 	xsyslog(LOG_USER, "stats: (pool=%u, end=%s, active=%u)\n",
 			_spq.pool, _spq.end ? "yes" : "no", _spq.active);
 	for (sc = _spq.first; sc; sc = sc->next, c++) {
-		xsyslog(LOG_USER, "n#%02u: active: %s, acquired: %s (%u), status: %d @ %p\n",
-			   c,
-			   sc->mark_active ? "yes" : "no",
-			   sc->acquired_by,
-			   sc->acquires,
-			   PQstatus(sc->conn),
-			   (void*)sc);
+		xsyslog(LOG_USER,
+				"n#%02u: active: %s, acquired: %s (%u), status: %d @ %p\n",
+				c,
+				sc->mark_active ? "yes" : "no",
+				sc->acquired_by,
+				sc->acquires,
+				PQstatus(sc->conn),
+				(void*)sc);
 	}
 
 }
