@@ -688,6 +688,7 @@ keystone_authenticate(keystone_context_t *context, const char *url, const char *
 		json_tokener_reset(context->pvt.json_tokeniser);
 	}
 
+	curl_easy_setopt(context->pvt.curl, CURLOPT_SSL_VERIFYPEER, 0);
 	curl_err = curl_easy_setopt(context->pvt.curl, CURLOPT_URL, url);
 	if (CURLE_OK != curl_err) {
 		context->curl_error("curl_easy_setopt", curl_err);
