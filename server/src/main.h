@@ -132,6 +132,7 @@ struct main
 		char *name;
 		char *redis_chan;
 		char *cache_dir;
+		char *pidfile;
 	} options;
 
 };

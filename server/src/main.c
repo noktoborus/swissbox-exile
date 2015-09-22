@@ -9,6 +9,7 @@
 #include <sys/utsname.h>
 #include <curl/curl.h>
 #include <arpa/inet.h>
+#include <fcntl.h>
 #include <errno.h>
 #include <inttypes.h>
 #include <netdb.h>
@@ -940,6 +941,46 @@ check_args(int argc, char **argv)
 	return false;
 }
 
+static bool
+pidfile_accept(struct main *pain)
+{
+	pid_t pid = 0u;
+	pid_t spid = 0u;
+	int fd;
+	char bf[64];
+	/* ок, если pidfile не назначен */
+	if (!*pain->options.pidfile)
+		return true;
+
+	spid = getpid();
+	xsyslog(LOG_DEBUG, "use '%s' as pidfile, self pid: %u",
+			pain->options.pidfile, spid);
+	/* читаем содержимое */
+	if ((fd = open(pain->options.pidfile, O_RDONLY)) != -1) {
+		read(fd, bf, sizeof(bf));
+		pid = strtoul(bf, NULL, 10);
+		if (pid != 0u && kill(pid, 0) != -1) {
+			xsyslog(LOG_ERR, "already runned as pid %u", pid);
+			close(fd);
+			return false;
+		}
+		close(fd);
+	}
+
+	snprintf(bf, sizeof(bf), "%u", spid);
+	if ((fd = open(pain->options.pidfile,
+			O_WRONLY | O_CREAT | O_TRUNC,
+			S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH)) != -1) {
+		write(fd, bf, strlen(bf));
+		close(fd);
+	} else {
+		xsyslog(LOG_ERR, "can't create pidfile: %s", strerror(errno));
+		return false;
+	}
+
+	return true;
+}
+
 int
 main(int argc, char *argv[])
 {
@@ -962,6 +1003,7 @@ main(int argc, char *argv[])
 		}
 		pain.options.redis_chan = strdup("fep_broadcast");
 		pain.options.cache_dir = strdup("user/");
+		pain.options.pidfile = strdup("");
 	}
 	/* получение конфигурации */
 	{
@@ -972,6 +1014,7 @@ main(int argc, char *argv[])
 			CFG_SIMPLE_STR("redis_chan", &pain.options.redis_chan),
 			CFG_SIMPLE_STR("server_name", &pain.options.name),
 			CFG_SIMPLE_STR("cache_dir", &pain.options.cache_dir),
+			CFG_SIMPLE_STR("pidfile", &pain.options.pidfile),
 			CFG_END()
 		};
 
@@ -988,68 +1031,70 @@ main(int argc, char *argv[])
 		cfg = cfg_init(opt, 0);
 		cfg_parse(cfg, cfgpath);
 	}
-	xsyslog(LOG_DEBUG, "pg: \"%s\"", pg_connstr);
-	spq_open(10, pg_connstr);
-	/* всякая ерунда с бд */
-	if ((_r = spq_create_tables()) != false) {
-		loop = EV_DEFAULT;
-		client_threads_prealloc();
-		ev_signal_init(&pain.sigint, signal_cb, SIGINT);
-		ev_signal_start(loop, &pain.sigint);
-		ev_signal_init(&pain.sigpipe, signal_ignore_cb, SIGPIPE);
-		ev_signal_start(loop, &pain.sigpipe);
-		/* таймер на чистку всяких устаревших структур и прочего */
-		ev_timer_init(&pain.watcher, timeout_cb, 1., 10.);
-		ev_timer_start(loop, &pain.watcher);
-		/* инициализация структур редиса */
-		pthread_mutex_init(&pain.rs_lock, NULL);
-		pthread_cond_init(&pain.rs_wait, NULL);
-		for (size_t i = 0u; i < REDIS_C_MAX; i++) {
-			pthread_mutex_init(&pain.rs[i].x, NULL);
-			pain.rs[i].self = i;
-			pain.rs[i].pain = &pain;
-		}
-		/* мультисокет */
-		{
-			char *_x = strdup(bindline);
-			char *_b = _x;
-			char *_e = NULL;
-			for (; _b; _b = _e) {
-				if ((_e = strchr(_b, ',')) != NULL) {
-					*_e = '\0';
-					_e++;
+	if (pidfile_accept(&pain)) {
+		xsyslog(LOG_DEBUG, "pg: \"%s\"", pg_connstr);
+		spq_open(10, pg_connstr);
+		/* всякая ерунда с бд */
+		if ((_r = spq_create_tables()) != false) {
+			loop = EV_DEFAULT;
+			client_threads_prealloc();
+			ev_signal_init(&pain.sigint, signal_cb, SIGINT);
+			ev_signal_start(loop, &pain.sigint);
+			ev_signal_init(&pain.sigpipe, signal_ignore_cb, SIGPIPE);
+			ev_signal_start(loop, &pain.sigpipe);
+			/* таймер на чистку всяких устаревших структур и прочего */
+			ev_timer_init(&pain.watcher, timeout_cb, 1., 10.);
+			ev_timer_start(loop, &pain.watcher);
+			/* инициализация структур редиса */
+			pthread_mutex_init(&pain.rs_lock, NULL);
+			pthread_cond_init(&pain.rs_wait, NULL);
+			for (size_t i = 0u; i < REDIS_C_MAX; i++) {
+				pthread_mutex_init(&pain.rs[i].x, NULL);
+				pain.rs[i].self = i;
+				pain.rs[i].pain = &pain;
+			}
+			/* мультисокет */
+			{
+				char *_x = strdup(bindline);
+				char *_b = _x;
+				char *_e = NULL;
+				for (; _b; _b = _e) {
+					if ((_e = strchr(_b, ',')) != NULL) {
+						*_e = '\0';
+						_e++;
+					}
+					server_alloc(&pain, _b);
 				}
-				server_alloc(&pain, _b);
+				free(_x);
 			}
-			free(_x);
-		}
-		if (pain.sev) {
-			ev_set_userdata(loop, (void*)&pain);
-			/* выход происходит при остановке всех evio в лупе */
-			ev_run(loop, 0);
-			/* чистка серверных сокетов */
-			while (pain.sev)
-				pain.sev = server_free(loop, pain.sev);
-		} else {
-			_r = false;
-		}
-		/* подчистка подключений к редису */
-		for (size_t i = 0u; i < REDIS_C_MAX; i++) {
-			if (pain.rs[i].ac && pain.rs[i].connected) {
-				redisAsyncFree(pain.rs[i].ac);
-				pain.rs[i].ac = NULL;
-				pthread_mutex_destroy(&pain.rs[i].x);
+			if (pain.sev) {
+				ev_set_userdata(loop, (void*)&pain);
+				/* выход происходит при остановке всех evio в лупе */
+				ev_run(loop, 0);
+				/* чистка серверных сокетов */
+				while (pain.sev)
+					pain.sev = server_free(loop, pain.sev);
+			} else {
+				_r = false;
 			}
+			/* подчистка подключений к редису */
+			for (size_t i = 0u; i < REDIS_C_MAX; i++) {
+				if (pain.rs[i].ac && pain.rs[i].connected) {
+					redisAsyncFree(pain.rs[i].ac);
+					pain.rs[i].ac = NULL;
+					pthread_mutex_destroy(&pain.rs[i].x);
+				}
+			}
+			pthread_mutex_destroy(&pain.rs_lock);
+			pthread_cond_destroy(&pain.rs_wait);
+			/* чистка клиентских сокетов */
+			ev_signal_stop(loop, &pain.sigint);
+			ev_timer_stop(loop, &pain.watcher);
+			ev_loop_destroy(loop);
+			client_threads_bye();
 		}
-		pthread_mutex_destroy(&pain.rs_lock);
-		pthread_cond_destroy(&pain.rs_wait);
-		/* чистка клиентских сокетов */
-		ev_signal_stop(loop, &pain.sigint);
-		ev_timer_stop(loop, &pain.watcher);
-		ev_loop_destroy(loop);
-		client_threads_bye();
+		spq_close();
 	}
-	spq_close();
 	closelog();
 
 	cfg_free(cfg);
@@ -1058,6 +1103,7 @@ main(int argc, char *argv[])
 	free(pain.options.redis_chan);
 	free(pain.options.name);
 	free(pain.options.cache_dir);
+	free(pain.options.pidfile);
 
 	curl_global_cleanup();
 	xsyslog(LOG_INFO, "--- EXIT ---");
