@@ -15,7 +15,7 @@ hash_pjw(const char *str, size_t size)
 	register size_t i = 0u;
 
 	for (; i < size; i++) {
-		hash = (hash << 4) + (uint8_t)(*str);
+		hash = (hash << 4) + (uint8_t)(*(str + i));
 
 		if ((test = hash & 0xf0000000) != 0) {
 			hash = ((hash ^ (test >> 24)) & (0xfffffff));
