@@ -2,11 +2,15 @@
 
 e=/usr/bin/server
 cfg=/etc/server.conf
-pid=0
+pidf=$(sed -e "s@pidfile[[:space:]]*=[[:space:]]*\(.*\)\|.*@\1@" -e '/^$/d' $cfg)
+pid=$(cat pidf)
 
 case "$0" in
 	start)
 		$e &
+		pid=$!
+		sleep 3
+		kill 0 $pid || echo "start failed"
 		;;
 	stop)
 		kill -INT $pid
