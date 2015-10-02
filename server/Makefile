@@ -20,7 +20,19 @@ SOURCES=${SRC}/main.c ${SRC}/client_iterate.c proto/fep.pb-c.c\
 
 INC_SOURCES=${SRC}/client/include/send.c ${SRC}/client/include/handle.c
 
+INST_N=dodiboxd
+INST_B=/usr/bin/${INST_N}
+INST_C=/etc/${INST_N}.conf
+INST_I=/etc/init.d/${INST_N}
+
 all: ${BIN}
+
+install:
+	install -m 0555 -o root ${BIN} ${INST_B}
+	install -m 0444 -o root server.conf ${INST_C}
+	install -m 0555 -o root rc/server ${INST_I}
+	sed -e 's/^pidfile.*/pidfile=\/run\/${INST_N}.pid/' -i ${INST_C}
+	sed -e 's@^cfg=.*@cfg=${INST_C}@' -e 's@^e=.*@e=${INST_B}@' -i ${INST_I}
 
 clean:
 	rm -f ${BIN} .buildflags .sqlversion

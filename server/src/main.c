@@ -6,6 +6,7 @@
 #include "simplepq/simplepq.h"
 #include "client_iterate.h"
 
+#include <libgen.h>
 #include <sys/utsname.h>
 #include <curl/curl.h>
 #include <arpa/inet.h>
@@ -932,7 +933,7 @@ sev_version_string()
 static bool
 check_args(int argc, char **argv)
 {
-	if (argc > 1) {
+	if (argc > 1 || !argc) {
 		if (!strcmp(argv[1], "-V") || !strcmp(argv[1], "--version")) {
 			printf(sev_version_string());
 		}
@@ -1007,6 +1008,7 @@ main(int argc, char *argv[])
 	}
 	/* получение конфигурации */
 	{
+		char *_bname = NULL;
 		char cfgpath[PATH_MAX + 1];
 		cfg_opt_t opt[] = {
 			CFG_SIMPLE_STR("bind", &bindline),
@@ -1019,16 +1021,24 @@ main(int argc, char *argv[])
 		};
 
 		if (check_args(argc, argv))
-			return EXIT_SUCCESS;
+			return EXIT_FAILURE;
 
 		curl_global_init(CURL_GLOBAL_ALL);
 
 		openlog(NULL, LOG_PERROR | LOG_PID, LOG_LOCAL0);
 		xsyslog(LOG_INFO, "--- START ---");
 
-		snprintf(cfgpath, PATH_MAX, "%s.conf", argv[0]);
-		xsyslog(LOG_INFO, "read config: %s", cfgpath);
+		if (!(_bname = basename(argv[0])))  {
+			xsyslog(LOG_ERR, "no basename in '%s'", argv[0]);
+			return EXIT_FAILURE;
+		}
+
 		cfg = cfg_init(opt, 0);
+		snprintf(cfgpath, PATH_MAX, "%s.conf", _bname);
+		xsyslog(LOG_INFO, "read config: %s", cfgpath);
+		cfg_parse(cfg, cfgpath);
+		snprintf(cfgpath, PATH_MAX, "/etc/%s.conf", _bname);
+		xsyslog(LOG_INFO, "read config: %s", cfgpath);
 		cfg_parse(cfg, cfgpath);
 	}
 	if (pidfile_accept(&pain)) {

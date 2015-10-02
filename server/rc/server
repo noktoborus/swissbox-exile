@@ -1,0 +1,40 @@
+#!/bin/sh
+
+e=/usr/bin/server
+cfg=/etc/server.conf
+pid=0
+
+case "$0" in
+	start)
+		$e &
+		;;
+	stop)
+		kill -INT $pid
+		echo -n "wait"
+		_s=0
+		for n in `seq 1 5`;
+		do
+			echo -n "."
+			sleep 1
+			if kill 0 $pid 2>/dev/null;
+			then
+				_s=1
+				break
+			fi
+		done;
+		if [ "$_s" -eq 1 ];
+		then
+			echo " force kill"
+			kill -9 $pid
+		else
+			echo " ok"
+		fi
+		;;
+	status)
+		echo "unknown"
+		;;
+	*)
+		echo "$0 start|stop|status"
+		;;
+esac
+
