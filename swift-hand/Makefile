@@ -9,11 +9,13 @@ all: ${BIN}
 
 .buildflags: ../server/buildtools/findev.sh\
 		../server/buildtools/findconfuse.sh\
+		../server/buildtools/findpolarssl.sh\
 		../server/buildtools/findcurl.sh
 	echo > .buildflags
 	../server/buildtools/findev.sh >>.buildflags
 	../server/buildtools/findconfuse.sh >>.buildflags
 	../server/buildtools/findcurl.sh >>.buildflags
+	../server/buildtools/findpolarssl.sh >>.buildflags
 	echo -n " " >>.buildflags
 
 ${BIN}: ${SRC} .buildflags

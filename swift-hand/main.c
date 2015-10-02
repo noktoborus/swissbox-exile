@@ -10,6 +10,7 @@
 #include <unistd.h>
 #include <curl/curl.h>
 #include <confuse.h>
+#include <polarssl/sha256.h>
 
 #include <ev.h>
 
@@ -24,15 +25,6 @@
  *
  */
 
-struct main {
-	struct {
-		char *redis_chan;
-		char *name;
-		char *cache_dir;
-	} options;
-	struct rdc rdc;
-};
-
 struct w {
 	struct {
 		char *auth;
@@ -44,9 +36,23 @@ struct w {
 		char *user;
 		char *secret;
 	} t;
+	struct {
+		/* контейнер, куда будет падать всё,
+		 * что оказалось без явного контейнера
+		 */
+		char *garbage_catalog;
+	} e;
 };
 
-typedef struct w w_t;
+struct main {
+	struct {
+		char *redis_chan;
+		char *name;
+		char *cache_dir;
+	} options;
+	struct rdc rdc;
+	struct w w;
+};
 
 void
 initiate(struct main *pain)
@@ -69,7 +75,7 @@ initiate(struct main *pain)
 }
 
 void
-swh_clear(w_t *w)
+swh_clear(struct w *w)
 {
 	if (w->c.auth) free(w->c.auth);
 	if (w->c.service) free(w->c.service);
@@ -79,14 +85,15 @@ swh_clear(w_t *w)
 	if (w->t.user) free(w->t.user);
 	if (w->t.secret) free(w->t.secret);
 
-	memset(w, 0u, sizeof(w_t));
+	memset(w, 0u, sizeof(*w));
 }
 
 bool
-swift_token(w_t *w)
+swift_token(struct w *w)
 {
 	keystone_context_t kctx;
 	enum keystone_error kerr;
+
 	memset(&kctx, 0u, sizeof(keystone_context_t));
 
 	keystone_start(&kctx);
@@ -173,20 +180,314 @@ rdc_broadcast_cb(redisAsyncContext *ac, redisReply *r, struct main *pain)
 	return;
 }
 
-bool
-process_file(struct main *pain, const char *owner, const char *path)
+static CURL *
+_curl_init(struct w *w, char *resource, struct curl_slist **header)
 {
-	/* TODO: ... */
-	return true;
+	CURL *curl = NULL;
+	char buf[4096] = {0};
+
+	if (!header) {
+		xsyslog(LOG_ERR, "curl error: *header must be exists");
+		exit(1);
+	}
+
+	snprintf(buf, sizeof(buf), "X-Auth-Token: %s", w->c.auth);
+	*header = curl_slist_append(*header, buf);
+	*header = curl_slist_append(*header,
+			"Content-Type: application/octet-stream");
+	if (!*header) {
+		return NULL;
+	}
+
+	curl = curl_easy_init();
+	if (!curl) {
+		xsyslog(LOG_WARNING, "curl error: init failed");
+		curl_slist_free_all(*header);
+		return NULL;
+	}
+
+	if (resource) {
+		snprintf(buf, sizeof(buf),
+				(*resource == '/' ? "%s%s" : "%s/%s"),
+				w->c.service, resource);
+	} else {
+		snprintf(buf, sizeof(buf), "%s", w->c.service);
+	}
+
+	curl_easy_setopt(curl, CURLOPT_URL, buf);
+	curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0l);
+	curl_easy_setopt(curl, CURLOPT_HTTPHEADER, *header);
+	curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 5l);
+	curl_easy_setopt(curl, CURLOPT_TIMEOUT, 60l);
+
+	/*curl_easy_setopt(curl, CURLOPT_VERBOSE, 1l);*/
+
+	return curl;
+}
+
+#define _CURL_BUF_CHUNK 1024
+struct _curl_buf {
+	char *data;
+	size_t len;
+	size_t size;
+};
+
+static size_t
+_curl_read_to_buf_cb(void *ptr, size_t size, size_t n, struct _curl_buf *cbuf)
+{
+	size_t len = size * n;
+	if (!len) {
+		/*xsyslog(LOG_DEBUG, "");*/
+		return 0u;
+	}
+
+	if (cbuf->len + len > cbuf->size) {
+		size_t _ts = 0u;
+		char *_tb;
+		_ts = (1 + (cbuf->len + len) / _CURL_BUF_CHUNK) * _CURL_BUF_CHUNK + 1;
+		_tb = realloc(cbuf->data, _ts);
+		if (!_tb) {
+			xsyslog(LOG_WARNING, "relloc(%"PRIuPTR"):541 failed: %s",
+					_ts, strerror(errno));
+			return 0u;
+		}
+		cbuf->data = _tb;
+		cbuf->size = _ts;
+	}
+
+	memcpy(&cbuf->data[cbuf->len], ptr, len);
+	cbuf->len += len;
+	cbuf->data[cbuf->len] = '\0';
+
+	return len;
+}
+
+bool
+ossw_v1_create_container(struct w *w, char *container)
+{
+	/* создать или проверить существование контейнера
+	 * отправка PUT-запроса на адрес контейнера, ответы:
+	 *  HTTP 201 - контейнер создан
+	 *  HTTP 202 - контейнер существует
+	 */
+	CURL *curl;
+	CURLcode res;
+	long httpcode;
+	struct curl_slist *header = NULL;
+
+	if (!(curl = _curl_init(w, container, &header))) {
+		return false;
+	}
+
+	curl_easy_setopt(curl, CURLOPT_PUT, 1l);
+
+	res = curl_easy_perform(curl);
+	if (res != CURLE_OK) {
+		xsyslog(LOG_WARNING, "curl perform:606 error: %s",
+				curl_easy_strerror(res));
+	}
+
+	curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &httpcode);
+	curl_easy_cleanup(curl);
+	curl_slist_free_all(header);
+
+	if (httpcode == 201l || httpcode == 202l) {
+		return true;
+	}
+	xsyslog(LOG_WARNING, "creation container '%s' failed: %ld",
+			container, httpcode);
+	return false;
+}
+
+char *
+ossw_v1_first_container(struct w *w)
+{
+	CURL *curl;
+	CURLcode res;
+	struct _curl_buf cbuf;
+	char *container = NULL;
+	struct curl_slist *header = NULL;
+	/* http://docs.rackspace.com/files/api/v1/cf-devguide/content/containerServicesOperations_d1e000.html
+	 */
+
+	if (!(curl = _curl_init(w, NULL, &header))) {
+		return NULL;
+	}
+
+	/* TODO */
+	memset(&cbuf, 0u, sizeof(cbuf));
+	curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, _curl_read_to_buf_cb);
+	curl_easy_setopt(curl, CURLOPT_WRITEDATA, &cbuf);
+	res = curl_easy_perform(curl);
+	if (res != CURLE_OK) {
+		xsyslog(LOG_WARNING, "curl perform:551 error: %s",
+				curl_easy_strerror(res));
+	}
+
+	curl_easy_cleanup(curl);
+	curl_slist_free_all(header);
+
+	xsyslog(LOG_DEBUG, "containers: (%"PRIuPTR") %s", cbuf.len, cbuf.data);
+
+	if (cbuf.len) {
+		char *_p;
+		_p = strchr(cbuf.data, '\n');
+		if (_p)
+			*_p = '\0';
+		container = strdup(cbuf.data);
+	}
+
+	if (cbuf.data)
+		free(cbuf.data);
+
+	return container;
+}
+
+bool
+ossw_v1_upload(struct w *w, const char *path, char *container, char *uniq_name,
+		char target_resource[PATH_MAX])
+{
+	/*
+	http://docs.rackspace.com/files/api/v1/cf-devguide/content/objectServicesOperations_d1e000.html
+	*/
+	/* 4Кб для url должно хватить */
+	char buf[4096];
+	bool retval = true;
+	CURL *curl;
+	CURLcode res;
+	long httpcode = 0l;
+	struct curl_slist *header = NULL;
+	off_t file_sz = 0ul;
+	FILE *file_src = NULL;
+	struct stat st;
+
+	if (stat(path, &st) == -1) {
+		xsyslog(LOG_WARNING, "stat(%s) failed: %s",
+				path, strerror(errno));
+		return false;
+	}
+
+	if (st.st_size == 0ul) {
+		/* TODO: не нужно сообщать или использовать какую-то метку
+		 * в нормальных ситуациях файлов с _нулевым_ размером быть не должно
+		 */
+		xsyslog(LOG_INFO, "stat(%s) file size is zero",
+				path);
+		return false;
+	}
+
+	if (!(file_src = fopen(path, "r"))) {
+		/* TODO: предпологается что ошибка постоянная, потому нужно
+		 * ставить какой-то флаг, что этот файл не операбелен
+		 */
+		xsyslog(LOG_WARNING, "fopen(%s) error: %s", path, strerror(errno));
+		return false;
+	}
+
+
+	if (!container || !*container) {
+		container = w->e.garbage_catalog;
+	}
+
+	if (!*container) {
+		xsyslog(LOG_INFO, "container not setted for upload");
+		fclose(file_src);
+		return false;
+	}
+
+	if (!ossw_v1_create_container(w, container)) {
+		fclose(file_src);
+		return false;
+	}
+
+	snprintf(buf, sizeof(buf), "%s/%s", container, uniq_name);
+	if (!(curl = _curl_init(w, buf, &header))) {
+		fclose(file_src);
+		return false;
+	}
+
+	curl_easy_setopt(curl, CURLOPT_UPLOAD, 1L);
+	curl_easy_setopt(curl, CURLOPT_PUT, 1L);
+
+	curl_easy_setopt(curl, CURLOPT_READDATA, file_src);
+
+	curl_easy_setopt(curl, CURLOPT_INFILESIZE_LARGE,
+			(curl_off_t)file_sz);
+
+	{
+		char *_tr = NULL;
+		curl_easy_getinfo(curl, CURLINFO_EFFECTIVE_URL, &_tr);
+		if (_tr) {
+			/* отбрасывается базовая часть */
+			_tr += strlen(w->c.service);
+			memset(target_resource, 0u, PATH_MAX);
+			memcpy(target_resource, _tr, strlen(_tr));
+		} else {
+			xsyslog(LOG_WARNING, "curl error: no url for '%s'", path);
+			fclose(file_src);
+			curl_easy_cleanup(curl);
+			curl_slist_free_all(header);
+			return false;
+		}
+	}
+
+	res = curl_easy_perform(curl);
+	if (res != CURLE_OK) {
+		xsyslog(LOG_WARNING, "curl perform error: %s",
+				curl_easy_strerror(res));
+		retval = false;
+	}
+	curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &httpcode);
+
+	if (httpcode != 201l) {
+		xsyslog(LOG_WARNING, "upload(%s) not completed, response code: %ld",
+				path, httpcode);
+		retval = false;
+	}
+
+	curl_easy_cleanup(curl);
+	curl_slist_free_all(header);
+	fclose(file_src);
+
+	return retval;
+}
+
+bool
+process_file(struct main *pain, const char *owner, const char *path,
+		char target_resource[PATH_MAX])
+{
+	/* предпологается что путь к файлу представляет собой уникальный
+	 * идентификатор, потому уникальное имя файла
+	 * представляешь собой хеш от пути
+	 *
+	 * имя пользователя используется в качестве контейнера
+	 */
+	char h_sha256[32] = {0};
+	char h_sha256_hex[128] = {0};
+	memset(h_sha256, 0u, sizeof(h_sha256));
+	memset(h_sha256_hex, 0u, sizeof(h_sha256_hex));
+	sha256((const unsigned char*)path, strlen(path),
+			(unsigned char *)h_sha256, 0);
+	bin2hex((uint8_t*)h_sha256, sizeof(h_sha256) * sizeof(uint8_t),
+			h_sha256_hex, sizeof(h_sha256_hex));
+	/* попытки залить файл */
+	if (ossw_v1_upload(&pain->w, path, (char*)owner, h_sha256_hex,
+				target_resource)) {
+		return true;
+	}
+
+	return false;
 }
 
 void
 rdc_blpop_cb(redisAsyncContext *ac, redisReply *r, struct main *pain)
 {
 	struct almsg_parser ap;
-	const char *id;
-	const char *owner;
-	const char *path;
+	const char *id = NULL;
+	const char *owner = NULL;
+	const char *path = NULL;
+	char _path[PATH_MAX];
+	char target_resource[PATH_MAX];
 	if (!r)
 		return;
 
@@ -208,9 +509,18 @@ rdc_blpop_cb(redisAsyncContext *ac, redisReply *r, struct main *pain)
 
 	id = almsg_get(&ap, PSLEN_S("id"), ALMSG_ALL);
 	owner = almsg_get(&ap, PSLEN_S("owner"), ALMSG_ALL);
-	path = almsg_get(&ap, PSLEN_S("path"), ALMSG_ALL);
+	path = almsg_get(&ap, PSLEN_S("file"), ALMSG_ALL);
 
-	if (process_file(pain, owner, path)) {
+	if (!path || !owner || !id) {
+		xsyslog(LOG_WARNING, "no data for process: "
+				"(id='%s', owner='%s', path='%s')",
+				id, owner, path);
+		almsg_destroy(&ap);
+		return;
+	}
+
+	snprintf(_path, sizeof(_path), "%s/%s", pain->options.cache_dir, path);
+	if (process_file(pain, owner, path, target_resource)) {
 		struct almsg_parser rap;
 		char *rap_buf = NULL;
 		size_t rap_bsz;
@@ -218,8 +528,8 @@ rdc_blpop_cb(redisAsyncContext *ac, redisReply *r, struct main *pain)
 		almsg_insert(&rap, PSLEN_S("from"), PSLEN(pain->options.name));
 		almsg_insert(&rap, PSLEN_S("action"), PSLEN_S("accept"));
 		almsg_insert(&rap, PSLEN_S("id"), PSLEN(id));
-		almsg_insert(&rap, PSLEN_S("driver"), PSLEN_S("dev"));
-		almsg_insert(&rap, PSLEN_S("address"), PSLEN_S("null"));
+		almsg_insert(&rap, PSLEN_S("driver"), PSLEN_S("swift"));
+		almsg_insert(&rap, PSLEN_S("address"), PSLEN(target_resource));
 
 		if (!almsg_format_buf(&rap, &rap_buf, &rap_bsz)) {
 			xsyslog(LOG_WARNING, "almsg format buffer error");
@@ -286,8 +596,6 @@ main(int argc, char *argv[])
 	struct main pain;
 	cfg_t *cfg;
 	cfg_t *pcfg;
-	w_t w;
-	memset(&w, 0u, sizeof(w_t));
 	memset(&pain, 0u, sizeof(struct main));
 
 	if (argc < 2) {
@@ -300,15 +608,17 @@ main(int argc, char *argv[])
 	pain.options.name = strdup("swift-hand");
 	pain.options.cache_dir = strdup("../server/user");
 
-	w.t.url = strdup("https://swissbox-swift.it-grad.ru/v2.0/tokens");
-	w.t.tenant = strdup("project01");
-	w.t.user = strdup("user01");
-	w.t.secret = strdup("4edcMKI*");
+	pain.w.t.url = strdup("https://swissbox-swift.it-grad.ru/v2.0/tokens");
+	pain.w.t.tenant = strdup("project01");
+	pain.w.t.user = strdup("user01");
+	pain.w.t.secret = strdup("4edcMKI*");
+	pain.w.e.garbage_catalog = strdup("~unknown~");
 
 	/* получение конфигурации */
 	{
 		cfg_opt_t opt[] = {
 			CFG_SIMPLE_STR("bind", CFGF_NONE),
+			CFG_SIMPLE_STR("pidfile", CFGF_NONE),
 			CFG_SIMPLE_STR("pg_connstr", CFGF_NONE),
 			CFG_SIMPLE_STR("redis_chan", &pain.options.redis_chan),
 			CFG_SIMPLE_STR("cache_dir", &pain.options.cache_dir),
@@ -317,6 +627,11 @@ main(int argc, char *argv[])
 		cfg_opt_t opt_priv[] = {
 			CFG_SIMPLE_STR("name", &pain.options.name),
 			CFG_SIMPLE_STR("cache_dir", &pain.options.cache_dir),
+			CFG_SIMPLE_STR("swift_url", &pain.w.t.url),
+			CFG_SIMPLE_STR("swift_tenant", &pain.w.t.tenant),
+			CFG_SIMPLE_STR("swift_user", &pain.w.t.user),
+			CFG_SIMPLE_STR("swift_secret", &pain.w.t.secret),
+			CFG_SIMPLE_STR("garbage_catalog", &pain.w.e.garbage_catalog),
 			CFG_END()
 		};
 		cfg = cfg_init(opt, 0);
@@ -329,21 +644,21 @@ main(int argc, char *argv[])
 
 	openlog(NULL, LOG_PERROR | LOG_PID, LOG_LOCAL0);
 	xsyslog(LOG_INFO, "--- START ---");
-#if 0
+#if 1
 	if (curl_global_init(CURL_GLOBAL_ALL))  {
 		xsyslog(LOG_ERR, "Curl initialization failed");
 		return EXIT_FAILURE;
 	}
 #endif
 	/* begin */
-	/*swift_token(&w);*/
+	swift_token(&pain.w);
 	rloop(&pain);
 	/* cleanup */
 	xsyslog(LOG_INFO, "--- END ---");
-#if 0
+#if 1
 	curl_global_cleanup();
 #endif
-	swh_clear(&w);
+	swh_clear(&pain.w);
 
 	free(pain.options.redis_chan);
 	free(pain.options.name);
