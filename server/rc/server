@@ -5,7 +5,7 @@ cfg=/etc/server.conf
 pidf=$(sed -e "s@pidfile[[:space:]]*=[[:space:]]*\(.*\)\|.*@\1@" -e '/^$/d' $cfg)
 pid=$(cat pidf)
 
-case "$0" in
+case "$1" in
 	start)
 		$e &
 		pid=$!
