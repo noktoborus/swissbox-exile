@@ -3,7 +3,7 @@
 e=/usr/bin/server
 cfg=/etc/server.conf
 pidf=$(sed -e "s@pidfile[[:space:]]*=[[:space:]]*\(.*\)\|.*@\1@" -e '/^$/d' $cfg)
-pid=$(cat pidf)
+pid=$(cat pidf 2>/dev/null)
 
 case "$1" in
 	start)
@@ -13,7 +13,7 @@ case "$1" in
 		kill 0 $pid || echo "start failed"
 		;;
 	stop)
-		kill -INT $pid
+		kill -INT $pid 2>/dev/null
 		echo -n "wait"
 		_s=0
 		for n in `seq 1 5`;
