@@ -6,6 +6,9 @@
 #include "simplepq/simplepq.h"
 #include "client_iterate.h"
 
+#include <pwd.h>
+#include <grp.h>
+
 #include <libgen.h>
 #include <sys/utsname.h>
 #include <curl/curl.h>
@@ -943,6 +946,46 @@ check_args(int argc, char **argv)
 }
 
 static bool
+chuser(struct main *pain)
+{
+	if ((pain->options.group && *pain->options.group)) {
+		struct group *g = NULL;
+		if (!(g = getgrnam(pain->options.group))) {
+			xsyslog(LOG_ERR, "getgrnam(%s) error: %s",
+					pain->options.group, strerror(errno));
+			return false;
+		}
+		if (setgid(g->gr_gid) != -1) {
+			xsyslog(LOG_ERR, "gid changed to '%s' (%d)",
+					g->gr_name, g->gr_gid);
+		} else {
+			xsyslog(LOG_ERR, "setgid(%d) error: %s",
+					g->gr_gid, strerror(errno));
+			return false;
+		}
+	}
+
+	if ((pain->options.user && *pain->options.user)) {
+		struct passwd *p = NULL;
+		if (!(p = getpwnam(pain->options.user))) {
+			xsyslog(LOG_ERR, "getpwnam(%s) error: %s", pain->options.user,
+					strerror(errno));
+			return false;
+		}
+		if (setuid(p->pw_uid) != -1) {
+			xsyslog(LOG_ERR, "uid changed to '%s' (%d)",
+					p->pw_name, p->pw_uid);
+		} else {
+			xsyslog(LOG_ERR, "setuid(%d) error: %s",
+					p->pw_uid, strerror(errno));
+			return false;
+		}
+	}
+
+	return true;
+}
+
+static bool
 pidfile_accept(struct main *pain)
 {
 	pid_t pid = 0u;
@@ -1005,6 +1048,8 @@ main(int argc, char *argv[])
 		pain.options.redis_chan = strdup("fep_broadcast");
 		pain.options.cache_dir = strdup("user/");
 		pain.options.pidfile = strdup("");
+		pain.options.user = strdup("");
+		pain.options.group = strdup("");
 	}
 	/* получение конфигурации */
 	{
@@ -1016,7 +1061,12 @@ main(int argc, char *argv[])
 			CFG_SIMPLE_STR("redis_chan", &pain.options.redis_chan),
 			CFG_SIMPLE_STR("server_name", &pain.options.name),
 			CFG_SIMPLE_STR("cache_dir", &pain.options.cache_dir),
+			/* эти опции не очень нужны, т.к. дублируют
+			 * возможности start-stop-daemon
+			 */
 			CFG_SIMPLE_STR("pidfile", &pain.options.pidfile),
+			CFG_SIMPLE_STR("user", &pain.options.user),
+			CFG_SIMPLE_STR("group", &pain.options.group),
 			CFG_END()
 		};
 
@@ -1041,7 +1091,7 @@ main(int argc, char *argv[])
 		xsyslog(LOG_INFO, "read config: %s", cfgpath);
 		cfg_parse(cfg, cfgpath);
 	}
-	if (pidfile_accept(&pain)) {
+	if ((_r = pidfile_accept(&pain)) && (_r = chuser(&pain))) {
 		xsyslog(LOG_DEBUG, "pg: \"%s\"", pg_connstr);
 		spq_open(10, pg_connstr);
 		/* всякая ерунда с бд */
@@ -1114,6 +1164,8 @@ main(int argc, char *argv[])
 	free(pain.options.name);
 	free(pain.options.cache_dir);
 	free(pain.options.pidfile);
+	free(pain.options.user);
+	free(pain.options.group);
 
 	curl_global_cleanup();
 	xsyslog(LOG_INFO, "--- EXIT ---");

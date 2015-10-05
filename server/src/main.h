@@ -133,6 +133,8 @@ struct main
 		char *redis_chan;
 		char *cache_dir;
 		char *pidfile;
+		char *user;
+		char *group;
 	} options;
 
 };
