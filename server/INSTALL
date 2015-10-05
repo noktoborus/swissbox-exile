@@ -1,0 +1,18 @@
+нужно:
+postgresql, start-stop-daemon
+
+установка:
+make install
+
+конфигурация в:
+/etc/dodiboxd.conf
+
+запуск и остановка:
+/etc/init.d/dodiboxd start
+/etc/init.d/dodiboxd stop
+
+конфигурация лога:
+в /etc/rsyslog.d/ добавить правило для фильтрации:
+
+if $programname contains "dodiboxd" then /var/log/dodiboxd.log
+
