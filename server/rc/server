@@ -7,32 +7,10 @@ pid=$(cat pidf 2>/dev/null)
 
 case "$1" in
 	start)
-		$e &
-		pid=$!
-		sleep 3
-		kill 0 $pid || echo "start failed"
+		start-stop-daemon -SPbp $pidf -x $e
 		;;
 	stop)
-		kill -INT $pid 2>/dev/null
-		echo -n "wait"
-		_s=0
-		for n in `seq 1 5`;
-		do
-			echo -n "."
-			sleep 1
-			if kill 0 $pid 2>/dev/null;
-			then
-				_s=1
-				break
-			fi
-		done;
-		if [ "$_s" -eq 1 ];
-		then
-			echo " force kill"
-			kill -9 $pid
-		else
-			echo " ok"
-		fi
+		start-stop-daemon -KPs INT -R SIGTERM/10 -p $pidf -x $e
 		;;
 	status)
 		echo "unknown"
