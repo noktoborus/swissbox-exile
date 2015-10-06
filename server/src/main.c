@@ -1098,6 +1098,8 @@ main(int argc, char *argv[])
 		if ((_r = spq_create_tables()) != false) {
 			loop = EV_DEFAULT;
 			client_threads_prealloc();
+			ev_signal_init(&pain.sigterm, signal_cb, SIGTERM);
+			ev_signal_start(loop, &pain.sigterm);
 			ev_signal_init(&pain.sigint, signal_cb, SIGINT);
 			ev_signal_start(loop, &pain.sigint);
 			ev_signal_init(&pain.sigpipe, signal_ignore_cb, SIGPIPE);
@@ -1148,6 +1150,7 @@ main(int argc, char *argv[])
 			pthread_mutex_destroy(&pain.rs_lock);
 			pthread_cond_destroy(&pain.rs_wait);
 			/* чистка клиентских сокетов */
+			ev_signal_stop(loop, &pain.sigterm);
 			ev_signal_stop(loop, &pain.sigint);
 			ev_timer_stop(loop, &pain.watcher);
 			ev_loop_destroy(loop);

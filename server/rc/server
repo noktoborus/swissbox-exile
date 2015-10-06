@@ -10,7 +10,7 @@ case "$1" in
 		start-stop-daemon -SPbp $pidf -x $e
 		;;
 	stop)
-		start-stop-daemon -KPs INT -R SIGTERM/10 -p $pidf -x $e
+		start-stop-daemon -KPs TERM -R SIGKILL/10 -p $pidf -x $e
 		;;
 	status)
 		echo "unknown"

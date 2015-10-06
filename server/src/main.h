@@ -113,6 +113,7 @@ struct redis_c {
 struct main
 {
 	ev_signal sigint;
+	ev_signal sigterm;
 	ev_signal sigpipe;
 	ev_timer watcher;
 	ev_async alarm;
