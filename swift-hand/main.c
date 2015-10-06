@@ -1,6 +1,7 @@
 /* vim: ft=c ff=unix fenc=utf-8
  * file: main.c
  */
+#include <time.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
@@ -22,7 +23,6 @@
 /*
  * 1. интерфейс к redis
  * 2. интерфейс к swift
- *
  */
 
 struct w {
@@ -52,6 +52,8 @@ struct main {
 	} options;
 	struct rdc rdc;
 	struct w w;
+	/* время последней активности */
+	time_t laction;
 };
 
 void
@@ -142,8 +144,15 @@ signal_ignore_cb(struct ev_loop *loop, ev_signal *w, int revents)
 void
 timeout_cb(struct ev_loop *loop, ev_timer *w, int revents)
 {
+	time_t ctime;
 	struct main *pain = (struct main*)ev_userdata(loop);
 	rdc_refresh(&pain->rdc);
+	/* простой */
+	ctime = time(NULL);
+	if (pain->laction && difftime(ctime, pain->laction) > 15) {
+		xsyslog(LOG_DEBUG, "free state");
+		pain->laction = 0;
+	}
 }
 
 static void
@@ -155,6 +164,7 @@ rdc_broadcast_cb(redisAsyncContext *ac, redisReply *r, struct main *pain)
 	if (r->type != REDIS_REPLY_ARRAY || r->elements != 3) {
 		return;
 	}
+	pain->laction = time(NULL);
 	xsyslog(LOG_INFO, "broadcast data in chan: '%s' (%d bytes)",
 			r->element[1]->str, r->element[1]->len);
 	/* разбор буфера */
@@ -217,8 +227,9 @@ _curl_init(struct w *w, char *resource, struct curl_slist **header)
 	curl_easy_setopt(curl, CURLOPT_URL, buf);
 	curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0l);
 	curl_easy_setopt(curl, CURLOPT_HTTPHEADER, *header);
+	curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1);
 	curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 5l);
-	curl_easy_setopt(curl, CURLOPT_TIMEOUT, 60l);
+	curl_easy_setopt(curl, CURLOPT_TIMEOUT, 10l);
 
 	/*curl_easy_setopt(curl, CURLOPT_VERBOSE, 1l);*/
 
@@ -490,6 +501,8 @@ rdc_blpop_cb(redisAsyncContext *ac, redisReply *r, struct main *pain)
 	char target_resource[PATH_MAX];
 	if (!r)
 		return;
+
+	pain->laction = time(NULL);
 
 	if (r->elements != 2 && r->type != REDIS_REPLY_ARRAY) {
 		xsyslog(LOG_WARNING,
