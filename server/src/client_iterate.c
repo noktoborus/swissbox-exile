@@ -707,6 +707,14 @@ _client_iterate_result_logdf(struct client *c, struct logDirFile *ldf)
 		}
 
 		c->rout->packets++;
+#if DEEPDEBUG
+		xsyslog(LOG_DEBUG, "client[%p] log(%"PRIu64") "
+				"DirectoryUpdate id = %"PRIu64
+				" sid = %"PRIu32" #%"PRIu32"/%"PRIu32" -> root: %s, dir: %s",
+				(void*)c->cev, msg.checkpoint, msg.id, msg.session_id,
+				msg.no, msg.max,
+				rootdir, guid);
+#endif
 		return send_message(c->cev, FEP__TYPE__tDirectoryUpdate, &msg);
 	} else if (ldf->type == 'f') {
 		Fep__FileUpdate msg = FEP__FILE_UPDATE__INIT;
@@ -745,6 +753,14 @@ _client_iterate_result_logdf(struct client *c, struct logDirFile *ldf)
 		}
 
 		c->rout->packets++;
+#if DEEPDEBUG
+		xsyslog(LOG_DEBUG, "client[%p] log(%"PRIu64") FileUpdate id = %"PRIu64
+				" sid = %"PRIu32" #%"PRIu32"/%"PRIu32" -> "
+				"root: %s, dir: %s, file: %s, rev: %s",
+				(void*)c->cev, msg.checkpoint, msg.id, msg.session_id,
+				msg.no, msg.max,
+				rootdir, dir, file, rev);
+#endif
 		return send_message(c->cev, FEP__TYPE__tFileUpdate, &msg);
 	} else if (ldf->type == 'r') {
 		Fep__RootdirUpdate msg = FEP__ROOTDIR_UPDATE__INIT;
@@ -771,6 +787,14 @@ _client_iterate_result_logdf(struct client *c, struct logDirFile *ldf)
 		c->checkpoint = ldf->checkpoint;
 
 		c->rout->packets++;
+#if DEEPDEBUG
+		xsyslog(LOG_DEBUG, "client[%p] log(%"PRIu64") "
+				"RootdirUpdate id = %"PRIu64
+				" sid = %"PRIu32" #%"PRIu32"/%"PRIu32" -> "
+				"root: %s",
+				(void*)c->cev, msg.checkpoint, msg.id, msg.session_id,
+				msg.no, msg.max, rootdir);
+#endif
 		return send_message(c->cev, FEP__TYPE__tRootdirUpdate, &msg);
 	} else {
 		xsyslog(LOG_WARNING, "user '%s' with unknown log record '%c'",
