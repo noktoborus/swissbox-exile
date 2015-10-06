@@ -150,7 +150,7 @@ timeout_cb(struct ev_loop *loop, ev_timer *w, int revents)
 	/* простой */
 	ctime = time(NULL);
 	if (pain->laction && difftime(ctime, pain->laction) > 15) {
-		xsyslog(LOG_DEBUG, "free state");
+		xsyslog(LOG_DEBUG, "vacant state");
 		pain->laction = 0;
 	}
 }
@@ -188,6 +188,12 @@ rdc_broadcast_cb(redisAsyncContext *ac, redisReply *r, struct main *pain)
 	}
 	almsg_destroy(&ap);
 	return;
+}
+
+static size_t
+_curl_nostd_cb(void *b, size_t size, size_t nmemb, void *p)
+{
+	return size * nmemb;
 }
 
 static CURL *
@@ -230,6 +236,8 @@ _curl_init(struct w *w, char *resource, struct curl_slist **header)
 	curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1);
 	curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 5l);
 	curl_easy_setopt(curl, CURLOPT_TIMEOUT, 10l);
+	curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1l);
+	curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, _curl_nostd_cb);
 
 	/*curl_easy_setopt(curl, CURLOPT_VERBOSE, 1l);*/
 
