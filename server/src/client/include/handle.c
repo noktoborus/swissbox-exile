@@ -483,10 +483,12 @@ _handle_read_ask(struct client *c, unsigned type, Fep__ReadAsk *msg)
 		return send_error(c, msg->id, "Internal error 120", -1);
 	}
 
+	/* информация о файле (нужно узнать размер) */
 	if (stat(path, &st) == -1) {
 		return send_error(c, msg->id, "Internal error 123", -1);
 	}
 
+	/* открытие файла */
 	if ((fd = open(path, O_RDONLY)) == -1) {
 		return send_error(c, msg->id, "Internal error 122", -1);
 	}

@@ -30,7 +30,11 @@ list_alloc(struct listRoot *root, uint64_t id, void *data)
 	}
 
 	ln->id = id;
-	gettimeofday(&ln->born, NULL);
+	if (gettimeofday(&ln->born, NULL) != 0) {
+		xsyslog(LOG_WARNING, "list: gettimeofday() error: %s", strerror(errno));
+		return false;
+	}
+
 
 	if (root->next) {
 		ln->next = root->next;
@@ -95,5 +99,39 @@ list_free_root(struct listRoot *root, void(*data_free)(void*))
 	if (!root || !root->next)
 		return NULL;
 	return list_free_node(root->next, data_free);
+}
+
+struct listNode *
+list_find_old(struct listRoot *root, time_t sec)
+{
+	struct listNode *ln;
+	struct timeval tv;
+	if (gettimeofday(&tv, NULL) != 0) {
+		xsyslog(LOG_WARNING, "list: gettimeofday() error: %s", strerror(errno));
+		return false;
+	}
+
+	if (!root || !root->next)
+		return NULL;
+
+	for (ln = root->next; ln; ln = ln->next) {
+		if (ln->born.tv_sec - tv.tv_sec > sec) {
+			return ln;
+		}
+	}
+	return NULL;
+}
+
+bool
+list_reborn_node(struct listNode *node)
+{
+	if (!node)
+		return false;
+
+	if (gettimeofday(&node->born, NULL) != 0) {
+		xsyslog(LOG_WARNING, "list: gettimeofday() error: %s", strerror(errno));
+		return false;
+	}
+	return true;
 }
 

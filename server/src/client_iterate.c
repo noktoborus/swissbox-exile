@@ -1222,6 +1222,9 @@ client_iterate(struct sev_ctx *cev, bool last, void **p)
 		}
 		pthread_mutex_unlock(&c->cum->lock);
 	}
+	/* проверка таймаутов */
+	/* TODO */
+
 	/* переходим на следующую итерацию */
 	return true;
 }
