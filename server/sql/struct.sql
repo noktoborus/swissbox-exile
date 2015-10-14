@@ -70,6 +70,7 @@ DROP SEQUENCE IF EXISTS device_seq CASCADE;
 DROP SEQUENCE IF EXISTS file_meta_seq CASCADE;
 DROP SEQUENCE IF EXISTS event_checkpoint_seq CASCADE;
 DROP SEQUENCE IF EXISTS file_chunk_group_seq CASCADE;
+DROP SEQUENCE IF EXISTS options_seq CASCADE;
 
 DROP TYPE IF EXISTS _drop_ CASCADE;
 DROP TYPE IF EXISTS event_type CASCADE;
@@ -134,12 +135,15 @@ CREATE TABLE IF NOT EXISTS rootdir
 	UNIQUE (user_id, rootdir)
 );
 
+CREATE SEQUENCE options_seq;
 CREATE TABLE IF NOT EXISTS options
 (
+	id bigint NOT NULL DEFAULT nextval('options_seq') PRIMARY KEY,
 	"key" varchar(16) NOT NULL CHECK(char_length("key") > 0),
 	value_c varchar(64) DEFAULT NULL,
 	value_i integer DEFAULT NULL,
-	value_u UUID DEFAULT NULL
+	value_u UUID DEFAULT NULL,
+	UNIQUE ("key")
 );
 
 -- directory: переименование/удаление директории
@@ -171,6 +175,7 @@ CREATE TABLE IF NOT EXISTS event
 	hidden boolean NOT NULL DEFAULT FALSE,
 	UNIQUE(checkpoint)
 );
+
 CREATE SEQUENCE directory_log_seq;
 -- если path IS NULL, то это удаление, иначе создание/переменование
 -- INSERT INTO directory_log(rootdir_id, directory_id, path) ...
