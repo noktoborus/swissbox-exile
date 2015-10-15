@@ -65,7 +65,7 @@ list_find(struct listRoot *root, uint64_t id)
 }
 
 bool
-list_free_node(struct listNode *node, void(*data_free)(void*))
+list_free_node(struct listNode *node, list_free_cb data_free)
 {
 	if (!node)
 		return false;
@@ -94,7 +94,7 @@ list_free_node(struct listNode *node, void(*data_free)(void*))
 }
 
 bool
-list_free_root(struct listRoot *root, void(*data_free)(void*))
+list_free_root(struct listRoot *root, list_free_cb data_free)
 {
 	if (!root || !root->next)
 		return NULL;
@@ -119,6 +119,21 @@ list_find_old(struct listRoot *root, time_t sec)
 			return ln;
 		}
 	}
+	return NULL;
+}
+
+struct listNode *
+list_find_val(struct listRoot *root, list_cmp_cb cmp, void *cb_d)
+{
+	struct listNode *ln;
+	if (!root || !root->next)
+		return NULL;
+
+	for (ln = root->next; ln; ln = ln->next) {
+		if (cmp(ln->data, ln->id, cb_d))
+			return ln;
+	}
+
 	return NULL;
 }
 
