@@ -22,69 +22,6 @@ bool spq_feed_hint(const char *msg, size_t msglen, struct spq_hint *hint);
 
 #include "include/mgm.c"
 
-static inline bool
-_spq_getChunkPath(PGconn *pgc, guid_t *rootdir, guid_t *file, guid_t *chunk,
-		char *path, size_t path_len, size_t *offset,
-		struct spq_hint *hint)
-{
-	PGresult *res;
-	const char *tb = "SELECT * FROM chunk_get($1::UUID, $2::UUID, $3::UUID);";
-	const int fmt[3] = {0, 0, 0};
-
-	char _rootdir_guid[GUID_MAX + 1];
-	char _file_guid[GUID_MAX + 1];
-	char _chunk_guid[GUID_MAX + 1];
-
-	char *val[3];
-	int len[3];
-
-	char *value;
-	size_t value_len;
-
-	len[0] = guid2string(rootdir, _rootdir_guid, sizeof(_rootdir_guid));
-	len[1] = guid2string(file, _file_guid, sizeof(_file_guid));
-	len[2] = guid2string(chunk, _chunk_guid, sizeof(_chunk_guid));
-
-	val[0] = _rootdir_guid;
-	val[1] = _file_guid;
-	val[2] = _chunk_guid;
-
-	res = PQexecParams(pgc, tb, 3, NULL, (const char *const*)val, len, fmt, 0);
-
-	if (PQresultStatus(res) != PGRES_TUPLES_OK) {
-		xsyslog(LOG_INFO, "getChunkPath exec error: %s",
-			PQresultErrorMessage(res));
-		PQclear(res);
-		return false;
-	}
-
-	if ((value_len = PQgetlength(res, 0, 0)) != 0u) {
-		value = PQgetvalue(res, 0, 0);
-		xsyslog(LOG_INFO, "getChunkPath exec warning: %s", value);
-		if (hint) {
-			strncpy(hint->message, value, SPQ_ERROR_LEN);
-		}
-		PQclear(res);
-		return false;
-	}
-
-	/* получение адреса */
-	value_len = PQgetlength(res, 0, 1);
-	value = PQgetvalue(res, 0, 1);
-
-	/* декрементируем длину, что бы можно было втиснуть венчающий \0 */
-	path_len--;
-	strncpy(path, value, MIN(value_len, path_len));
-	path[MIN(value_len, path_len)] = '\0';
-
-	/* смещение в файле */
-	if (offset && PQgetlength(res, 0, 3))
-		*offset = strtoul(PQgetvalue(res, 0, 3), NULL, 10);
-
-	PQclear(res);
-	return true;
-}
-
 /*
  *
  * TABLE file_records # записи FileUpdate + WriteAsk
@@ -230,23 +167,6 @@ spq_getChunkInfo_free(struct getChunkInfo *o)
 		free(o->driver);
 	memset(o, 0, sizeof(*o));
 	return true;
-}
-
-bool
-spq_getChunkPath(char *username, uint64_t device_id,
-		guid_t *rootdir, guid_t *file, guid_t *chunk,
-		char *path, size_t path_len, size_t *offset,
-		struct spq_hint *hint)
-{
-	bool r = false;
-	struct spq *c;
-	if ((c = acquire_conn(&_spq)) != NULL) {
-		r = spq_begin_life(c->conn, username, device_id) &&
-			_spq_getChunkPath(c->conn, rootdir, file, chunk,
-				path, path_len, offset, hint);
-		release_conn(&_spq, c);
-	}
-	return r;
 }
 
 bool
