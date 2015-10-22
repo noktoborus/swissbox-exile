@@ -141,6 +141,98 @@ spq_create_tables()
 }
 
 bool
+_spq_getChunkInfo(PGconn *pgc,
+		guid_t *rootdir, guid_t *file, guid_t *chunk,
+		struct getChunkInfo *o, struct spq_hint *hint)
+{
+	PGresult *res;
+	ExecStatusType pqs;
+	const char *tb = "SELECT * FROM chunk_info($1::UUID, $2::UUID, $3::UUID)";
+
+	const int fmt[3] = {0, 0, 0};
+
+	char _rootdir[GUID_MAX + 1];
+	char _file[GUID_MAX + 1];
+	char _chunk[GUID_MAX + 1];
+
+	char *val[3];
+	int len[3];
+
+	char *_m = NULL;
+	int _l = 0;
+
+	len[0] = guid2string(rootdir, _rootdir, sizeof(_rootdir));
+	len[1] = guid2string(file, _file, sizeof(_file));
+	len[2] = guid2string(chunk, _chunk, sizeof(_chunk));
+
+	val[0] = _rootdir;
+	val[1] = _file;
+	val[2] = _chunk;
+
+	res = PQexecParams(pgc, tb, 3, NULL, (const char *const*)val, len, fmt, 0);
+	pqs = PQresultStatus(res);
+
+	if (pqs != PGRES_TUPLES_OK && pqs != PGRES_EMPTY_QUERY) {
+		_m = PQresultErrorMessage(res);
+		spq_feed_hint(NULL, 0u, hint);
+		xsyslog(LOG_INFO, "exec getChunkInfo error: %s", _m);
+		PQclear(res);
+		return false;
+	} else if ((_l = PQgetlength(res, 0, 0)) > 0u) {
+		_m = PQgetvalue(res, 0, 0);
+		spq_feed_hint(_m, _l, hint);
+		xsyslog(LOG_INFO, "exec getChunkInfo warning: %s", _m);
+	}
+
+	/* заполнение полей */
+	if ((_l = PQgetlength(res, 0, 1)) > 0) {
+		o->address = strdup(PQgetvalue(res, 0, 1));
+	}
+
+	if ((_l = PQgetlength(res, 0, 2)) > 0) {
+		o->driver = strdup(PQgetvalue(res, 0, 2));
+	}
+
+	if ((_l = PQgetlength(res, 0, 3)) > 0) {
+		o->size = strtoul(PQgetvalue(res, 0, 3), NULL, 10);
+	}
+
+	if ((_l = PQgetlength(res, 0, 4)) > 0) {
+		o->offset = strtoul(PQgetvalue(res, 0, 4), NULL, 10);
+	}
+
+	PQclear(res);
+	return true;
+}
+
+bool
+spq_getChunkInfo(char *username, uint64_t device_id,
+		guid_t *rootdir, guid_t *file, guid_t *chunk,
+		struct getChunkInfo *o, struct spq_hint *hint)
+{
+	bool r = false;
+	struct spq *c;
+	memset(o, 0, sizeof(*o));
+	if ((c = acquire_conn(&_spq)) != NULL) {
+		r = spq_begin_life(c->conn, username, device_id) &&
+			_spq_getChunkInfo(c->conn, rootdir, file, chunk, o, hint);
+		release_conn(&_spq, c);
+	}
+	return r;
+}
+
+bool
+spq_getChunkInfo_free(struct getChunkInfo *o)
+{
+	if (o->address)
+		free(o->address);
+	if (o->driver)
+		free(o->driver);
+	memset(o, 0, sizeof(*o));
+	return true;
+}
+
+bool
 spq_getChunkPath(char *username, uint64_t device_id,
 		guid_t *rootdir, guid_t *file, guid_t *chunk,
 		char *path, size_t path_len, size_t *offset,

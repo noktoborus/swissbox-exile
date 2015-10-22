@@ -73,6 +73,22 @@ bool spq_getChunkPath(char *username, uint64_t device_id,
 		char *path, size_t path_len, size_t *offset,
 		struct spq_hint *hint);
 
+/* информация о чанке: расположение, драйвер, принадлежность */
+struct getChunkInfo {
+	char *address;
+	char *driver;
+	size_t size;
+	size_t offset;
+};
+
+bool spq_getChunkInfo(char *username, uint64_t device_id,
+		guid_t *rootdir, guid_t *file, guid_t *chunk,
+		struct getChunkInfo *o, struct spq_hint *hint);
+
+bool spq_getChunkInfo_free(struct getChunkInfo *o);
+
+/* */
+
 struct getLogFile {
 	void *p;
 	void *res;

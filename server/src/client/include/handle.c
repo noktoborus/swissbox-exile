@@ -451,45 +451,45 @@ _handle_want_sync(struct client *c, unsigned type, Fep__WantSync *msg)
 	return send_ok(c, msg->id, C_OK_SIMPLE, NULL);
 }
 
-bool
-_handle_read_ask(struct client *c, unsigned type, Fep__ReadAsk *msg)
+static inline bool
+_read_ask__from_driver(struct client *c, Fep__ReadAsk *msg,
+		struct getChunkInfo *ci)
 {
-	/*
-	 * 1. поиск файла в бд
-	 * 2. формирование структуры для отправки файла или отсылка Error
+	/* TODO */
+	bool r = true;
+	struct almsg_parser alm;
+	almsg_init(&alm);
+
+	almsg_insert(&alm, PSLEN_S("action"), PSLEN_S("query-driver"));
+	/*almsg_insert(&alm, PSLEN_S("query"), PSLEN_S("read-data"));*/
+	almsg_append(&alm, PSLEN_S("owner"), PSLEN(c->name));
+	almsg_append(&alm, PSLEN_S("address"), PSLEN(ci->address));
+	almsg_append(&alm, PSLEN_S("driver"), PSLEN(ci->driver));
+
+	r = bus_query(c->cev, &alm);
+	almsg_destroy(&alm);
+	return r;
+	/*return send_error(c, msg->id, "Not implement", -1);
 	 */
-	guid_t rootdir;
-	guid_t file;
-	guid_t chunk;
-	int fd;
-	char path[PATH_MAX];
-	struct chunk_send *chs;
+	/*return true;
+	 */
+}
+
+static inline bool
+_read_ask__from_cache(struct client *c, Fep__ReadAsk *msg,
+		struct getChunkInfo *ci)
+{
 	struct stat st;
-	size_t offset;
-	struct spq_hint hint;
-
-	if (!c->status.auth_ok)
-		return send_error(c, msg->id, "Unauthorized", -1);
-
-	string2guid(msg->rootdir_guid, strlen(msg->rootdir_guid), &rootdir);
-	string2guid(msg->file_guid, strlen(msg->file_guid), &file);
-	string2guid(msg->chunk_guid, strlen(msg->chunk_guid), &chunk);
-	memset(&hint, 0, sizeof(struct spq_hint));
-
-	if (!spq_getChunkPath(c->name, c->device_id, &rootdir, &file, &chunk,
-				path, sizeof(path), &offset, &hint)) {
-		if (*hint.message)
-			return send_error(c, msg->id, hint.message, -1);
-		return send_error(c, msg->id, "Internal error 120", -1);
-	}
+	struct chunk_send *chs;
+	int fd;
 
 	/* информация о файле (нужно узнать размер) */
-	if (stat(path, &st) == -1) {
+	if (stat(ci->address, &st) == -1) {
 		return send_error(c, msg->id, "Internal error 123", -1);
 	}
 
 	/* открытие файла */
-	if ((fd = open(path, O_RDONLY)) == -1) {
+	if ((fd = open(ci->address, O_RDONLY)) == -1) {
 		return send_error(c, msg->id, "Internal error 122", -1);
 	}
 
@@ -503,7 +503,7 @@ _handle_read_ask(struct client *c, unsigned type, Fep__ReadAsk *msg)
 	chs->size = st.st_size;
 	chs->next = c->cout;
 	chs->chunk_size = chs->size;
-	chs->file_offset = offset;
+	chs->file_offset = ci->offset;
 	c->cout = chs;
 #if DEEPDEBUG
 	xsyslog(LOG_DEBUG, "client[%p] -> ReadAsk id = %"PRIu64,
@@ -514,9 +514,72 @@ _handle_read_ask(struct client *c, unsigned type, Fep__ReadAsk *msg)
 		rdok.id = msg->id;
 		rdok.session_id = chs->session_id;
 		rdok.size = st.st_size;
-		rdok.offset = offset;
+		rdok.offset = ci->offset;
 
 		return send_message(c->cev, FEP__TYPE__tOkRead, &rdok);
+	}
+	return true;
+}
+
+bool
+_handle_read_ask(struct client *c, unsigned type, Fep__ReadAsk *msg)
+{
+	/*
+	 * 1. поиск файла в бд
+	 * 2. формирование структуры для отправки файла или отсылка Error
+	 */
+	/*
+	 * 1. Отдача через драйвер
+	 * 1.1. получение информации из БД
+	 * 1.2. обращение к драйверу, если присутсвует
+	 * 1.3. ожидание ответа
+	 * 1.4. (при затянувшемся ожидании ответ Pendgin клиенту)
+	 * 1.5. ответ клиенту
+	 * 2. Отдача из кэша
+	 * 2.1. получение информации из БД
+	 * 2.2. обращение к файловой системе
+	 * 2.3. ответ клиенту
+	 */
+	guid_t rootdir;
+	guid_t file;
+	guid_t chunk;
+
+	struct spq_hint hint;
+	struct getChunkInfo cnfo;
+
+	if (!c->status.auth_ok)
+		return send_error(c, msg->id, "Unauthorized", -1);
+
+	string2guid(msg->rootdir_guid, strlen(msg->rootdir_guid), &rootdir);
+	string2guid(msg->file_guid, strlen(msg->file_guid), &file);
+	string2guid(msg->chunk_guid, strlen(msg->chunk_guid), &chunk);
+	memset(&hint, 0, sizeof(struct spq_hint));
+	memset(&cnfo, 0, sizeof(struct getChunkInfo));
+
+	if (!spq_getChunkInfo(c->name, c->device_id, &rootdir, &file, &chunk,
+				&cnfo, &hint)) {
+		if (*hint.message)
+			return send_error(c, msg->id, hint.message, -1);
+		return send_error(c, msg->id, "Internal error 120", -1);
+	}
+
+	if (!cnfo.address || !*cnfo.address) {
+		spq_getChunkInfo_free(&cnfo);
+		return send_error(c, msg->id, "chunk has null address", -1);
+	}
+
+	{
+		bool _r;
+		/* чтение из кэша */
+		if (!cnfo.driver) {
+			_r =  _read_ask__from_cache(c, msg, &cnfo);
+		}
+
+		/* запрос через драйвер */
+		_r = _read_ask__from_driver(c, msg, &cnfo);
+
+		spq_getChunkInfo_free(&cnfo);
+		return _r;
 	}
 }
 

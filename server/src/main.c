@@ -178,6 +178,7 @@ client_alloc(struct ev_loop *loop, int fd, struct sev_ctx *next)
 		return NULL;
 	}
 	cev->fd = -1;
+	cev->pain = pain;
 
 	xsyslog(LOG_INFO, "client init(%p, fd#%d) serial: %u",
 			(void*)cev, fd, ++sev_ctx_seq);
@@ -812,6 +813,49 @@ redis_t(struct main *pain, const char *cmd, const char *ch, const char *data, si
 		break;
 	}
 	return false;
+}
+
+/* запрос в очередь и ожидание ответ
+ * ответ приходит в sev_ctx.bus
+ * TODO: добавил lock() т.к. процедура вызывается из внешних тредов
+ * или лучше семафорить, т.к. изменение списка должно производиться
+ * тогда, когда не производится действий над подключениями
+ */
+bool
+bus_query(struct sev_ctx *cev, struct almsg_parser *a)
+{
+	char *p = NULL;
+	uint64_t hash = 0ul;
+	/* (* 2) количество блоков под long
+	 * (* 2) количество hex-символов в char
+	 * (+ 1) нолик
+	 */
+	char idbuf[sizeof(long) * 2 * 2 + 1] = {0};
+	size_t l = 0u;
+	char *chan = "unknown_channel";
+
+	snprintf(idbuf, sizeof(idbuf), "%lx:%lx", random(), random());
+	hash = hash_pjw(idbuf, strlen(idbuf));
+	/* ожидание ответа */
+	almsg_insert(a, PSLEN_S("from"), PSLEN(cev->pain->options.name));
+	almsg_append(a, PSLEN_S("id"), PSLEN(idbuf));
+	/*almsg_insert(a, PSLEN_S("action"), PSLEN_S("query"));*/
+
+	if (!list_alloc(cev->pain->bus_task, hash, (void*)cev)) {
+		xsyslog(LOG_WARNING, "bus_query: queue allocation failed");
+		return false;
+	}
+
+	/* отправка сообщения в redis */
+	almsg_format_buf(a, &p, &l);
+	if (p) {
+		if (l)
+			redis_t(cev->pain, "PUBLISH", chan, p, l);
+	} else {
+		xsyslog(LOG_WARNING, "bus_query: empty almsg buffer (elem: %"PRIuPTR")",
+				almsg_count(a, NULL, 0u));
+	}
+	return true;
 }
 
 void

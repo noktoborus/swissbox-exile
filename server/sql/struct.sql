@@ -1917,6 +1917,47 @@ BEGIN
 	return next;
 END $$ LANGUAGE plpgsql;
 
+CREATE OR REPLACE FUNCTION chunk_info(_rootdir UUID,
+	_file UUID, _chunk UUID,
+	_drop_ _drop_ default 'drop')
+	RETURNS TABLE
+	(
+		r_error text,
+		r_address text,
+		r_driver text,
+		r_size integer,
+		r_offset integer
+	) AS $$
+DECLARE
+	_r record;
+BEGIN
+	SELECT file_chunk.*
+	INTO _r
+	FROM
+		life_data(_rootdir),
+		file,
+		file_chunk
+	WHERE
+		file.rootdir_id = r_rootdir_id AND
+		file.file = _file AND
+		file_chunk.file_id = file.id AND
+		file_chunk.chunk = _chunk;
+
+	IF _r IS NULL THEN
+		r_error := concat('1:chunk "', _chunk,
+			'" not found in (file, rootdir): ',
+			'(', _rootdir, ', ', _file, ')');
+		return next;
+		return;
+	END IF;
+
+	r_address := _r.address;
+	r_driver := _r.driver;
+	r_size := _r.size;
+	r_offset := _r.offset;
+	return next;
+END $$ LANGUAGE plpgsql;
+
 CREATE OR REPLACE FUNCTION check_quota(_rootdir UUID,
 	_drop_ _drop_ default 'drop')
 	RETURNS TABLE

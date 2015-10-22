@@ -63,6 +63,8 @@ struct sev_ctx
 		bool eof;
 	} send;
 
+	struct main *pain;
+
 	uint8_t action;
 	pthread_mutex_t utex;
 	pthread_cond_t ond;
@@ -129,6 +131,12 @@ struct main
 	/* server list */
 	struct sev_main *sev;
 
+	/* автобусные задачи
+	 * структура: (id, client_ptr)
+	 */
+	struct listRoot *bus_task;
+
+	/* параметры */
 	struct {
 		char *name;
 		char *redis_chan;
@@ -159,6 +167,7 @@ int sev_send(void *ctx, const unsigned char *buf, size_t len);
 int sev_recv(void *ctx, unsigned char *buf, size_t len);
 
 /* */
+bool bus_query(struct sev_ctx *cev, struct almsg_parser *a);
 bool redis_t(struct main *pain, const char *cmd, const char *ch,
 		const char *data, size_t size);
 void almsg2redis(struct main *pain, const char *cmd, const char *chan,
