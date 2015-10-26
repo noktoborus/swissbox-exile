@@ -155,6 +155,41 @@ timeout_cb(struct ev_loop *loop, ev_timer *w, int revents)
 	}
 }
 
+bool
+query_address(struct main *pain, struct almsg_parser *ap)
+{
+	/* TODO */
+	char buf[4096] = {0};
+	struct almsg_parser rap;
+	const char *resource = NULL;
+	const char *id = NULL;
+
+	id = almsg_get(ap, PSLEN_S("id"), ALMSG_ALL);
+	resource = almsg_get(ap, PSLEN_S("address"), ALMSG_ALL);
+
+	if (!id || !resource) {
+		xsyslog(LOG_WARNING, "no id or resource in query");
+		return true;
+	}
+
+	almsg_init(&rap);
+	almsg_insert(&rap, PSLEN_S("id"), PSLEN(id));
+
+	snprintf(buf, sizeof(buf), "X-Auth-Token: %s", pain->w.c.auth);
+	almsg_insert(&rap, PSLEN_S("x-data"), PSLEN(buf));
+	almsg_insert(&rap, PSLEN_S("x-data"),
+			PSLEN_S("Content-Type: application/octet-stream"));
+	snprintf(buf, sizeof(buf), (*resource == '/' ? "%s%s" : "%s/%s"),
+			pain->w.c.service, resource);
+	almsg_insert(&rap, PSLEN_S("url"), PSLEN(buf));
+
+	almsg_insert(&rap, PSLEN_S("from"), PSLEN(pain->options.name));
+
+	/* TODO: send */
+	almsg_destroy(&rap);
+	return false;
+}
+
 static void
 rdc_broadcast_cb(redisAsyncContext *ac, redisReply *r, struct main *pain)
 {
@@ -184,6 +219,10 @@ rdc_broadcast_cb(redisAsyncContext *ac, redisReply *r, struct main *pain)
 			 * можно дёрнуть список файлов
 			 */
 			initiate(pain);
+		}
+		if (_hash == hash_pjw(PSLEN_S("query-driver"))) {
+			/* */
+			query_address(pain, &ap);
 		}
 	}
 	almsg_destroy(&ap);
@@ -592,9 +631,16 @@ rloop(struct main *pain)
 	/* регистрация на редисе */
 	{
 		char _buf[1024];
+		/* подписка на общий канал */
 		snprintf(_buf, sizeof(_buf), "SUBSCRIBE %s", pain->options.redis_chan);
 		rdc_subscribe(&pain->rdc,
 				(redisCallbackFn*)rdc_broadcast_cb, pain, _buf);
+		/* подписка на канал драйвера */
+		snprintf(_buf, sizeof(_buf),
+				"SUBSCRIBE %s%%swift", pain->options.redis_chan);
+		rdc_subscribe(&pain->rdc,
+				(redisCallbackFn*)rdc_broadcast_cb, pain, _buf);
+		/* подписка на общий канал очереди */
 		snprintf(_buf, sizeof(_buf), "BLPOP %s 0", pain->options.redis_chan);
 		rdc_exec_period(&pain->rdc,
 				(redisCallbackFn*)rdc_blpop_cb, pain, _buf);
@@ -604,7 +650,6 @@ rloop(struct main *pain)
 	ev_run(loop, 0);
 
 	rdc_destroy(&pain->rdc);
-
 
 	ev_signal_stop(loop, &sigpipe);
 	ev_timer_stop(loop, &timeout);
