@@ -1,0 +1,10 @@
+именование каналов:
+redis_chan - общий канал
+
+redis_chan%driver - канал драйвера (класса), пример:
+	redis_chan%swift
+	redis_chan%fep
+
+redis_chan@name - персональный канал, пример:
+	redis_chan@fepserv1
+	redis_chan@swiftdr-5
