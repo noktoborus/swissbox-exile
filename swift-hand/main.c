@@ -649,9 +649,12 @@ rloop(struct main *pain)
 		snprintf(_buf, sizeof(_buf), "SUBSCRIBE %s", pain->options.redis_chan);
 		rdc_subscribe(&pain->rdc,
 				(redisCallbackFn*)rdc_broadcast_cb, pain, _buf);
-		/* подписка на канал драйвера */
+		/* подписка на канал драйвера,
+		 * символ '%' нужно экранировать дважды, что бы не был
+		 * съеден в snprintf() и redisAsyncCommand()
+		 */
 		snprintf(_buf, sizeof(_buf),
-				"SUBSCRIBE %s%%swift", pain->options.redis_chan);
+				"SUBSCRIBE %s%%%%swift", pain->options.redis_chan);
 		rdc_subscribe(&pain->rdc,
 				(redisCallbackFn*)rdc_broadcast_cb, pain, _buf);
 		/* подписка на персональный канал */

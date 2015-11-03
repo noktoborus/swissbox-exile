@@ -831,7 +831,8 @@ redis_t(struct main *pain, const char *cmd, const char *ch, const char *data, si
 	}
 	while (!awaited) {
 		/* отправка сообщения */
-		for (size_t i = 1u; i < REDIS_C_MAX; i++) {
+		/* FIXME: магическая константа по количеству "базовых" каналов */
+		for (size_t i = 3u; i < REDIS_C_MAX; i++) {
 			if (!pthread_mutex_trylock(&pain->rs[i].x)) {
 				redisAsyncCommand(pain->rs[i].ac, NULL, NULL, "%s %s %b",
 						cmd, ch, data, size);
@@ -933,7 +934,6 @@ void
 timeout_cb(struct ev_loop *loop, ev_timer *w, int revents)
 {
 	struct main *pain = (struct main*)ev_userdata(loop);
-	char buf[4096] = {0};
 	if (!pain)
 		return;
 
@@ -974,24 +974,20 @@ timeout_cb(struct ev_loop *loop, ev_timer *w, int revents)
 							break;
 						case 1:
 							/* подписка на канал класса */
-							snprintf(buf, sizeof(buf), "SUBSCRIBE %s%%fep",
-									pain->options.redis_chan);
-
 							redisAsyncCommand(pain->rs[i].ac,
 									(redisCallbackFn*)rds_incoming_cb,
 									NULL,
-									buf);
+									"SUBSCRIBE %s%%fep",
+									pain->options.redis_chan);
 							break;
 						case 2:
 							/* подписка на персональный канал */
-							snprintf(buf, sizeof(buf), "SUBSCRIBE %s@%s",
-									pain->options.redis_chan,
-									pain->options.name);
-
 							redisAsyncCommand(pain->rs[i].ac,
 									(redisCallbackFn*)rds_incoming_cb,
 									NULL,
-									"SUBSCRIBE %s", pain->options.redis_chan);
+									"SUBSCRIBE %s@%s",
+									pain->options.redis_chan,
+									pain->options.name);
 							break;
 						default:
 							break;
