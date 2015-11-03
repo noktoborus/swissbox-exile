@@ -603,13 +603,13 @@ _handle_read_ask(struct client *c, unsigned type, Fep__ReadAsk *msg)
 
 	{
 		bool _r;
-		/* чтение из кэша */
 		if (!cnfo.driver) {
+			/* чтение из кэша */
 			_r =  _read_ask__from_cache(c, msg, &cnfo);
+		} else {
+			/* запрос через драйвер */
+			_r = _read_ask__from_driver(c, msg, &cnfo);
 		}
-
-		/* запрос через драйвер */
-		_r = _read_ask__from_driver(c, msg, &cnfo);
 
 		spq_getChunkInfo_free(&cnfo);
 		return _r;
