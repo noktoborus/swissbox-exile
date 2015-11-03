@@ -180,7 +180,6 @@ client_alloc(struct ev_loop *loop, int fd, struct sev_ctx *next)
 
 	xsyslog(LOG_INFO, "client init(%p, fd#%d) serial: %u",
 			(void*)cev, fd, ++sev_ctx_seq);
-	memset(cev, 0, sizeof(struct sev_ctx));
 	/* сигналирование и поллинг
 	 * сделать это нужно как можно раньше, похоже
 	 * что если это делать после создания потока, в libev что-то ломается
