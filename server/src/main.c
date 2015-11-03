@@ -177,8 +177,6 @@ client_alloc(struct ev_loop *loop, int fd, struct sev_ctx *next)
 				fd, strerror(errno));
 		return NULL;
 	}
-	cev->fd = -1;
-	cev->pain = pain;
 
 	xsyslog(LOG_INFO, "client init(%p, fd#%d) serial: %u",
 			(void*)cev, fd, ++sev_ctx_seq);
@@ -187,6 +185,8 @@ client_alloc(struct ev_loop *loop, int fd, struct sev_ctx *next)
 	 * сделать это нужно как можно раньше, похоже
 	 * что если это делать после создания потока, в libev что-то ломается
 	 */
+	cev->fd = -1;
+	cev->pain = pain;
 	cev->async.cev = cev;
 	ev_async_init((struct ev_async*)&cev->async, alarm_cb);
 	ev_async_start(loop, (struct ev_async*)&cev->async);
