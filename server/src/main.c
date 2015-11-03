@@ -255,6 +255,32 @@ client_alloc(struct ev_loop *loop, int fd, struct sev_ctx *next)
 }
 
 /* call in thread */
+
+bool
+sev_perhaps(void *ctx, int action)
+{
+	struct sev_ctx *cev = (struct sev_ctx*)ctx;
+	bool retval = true;
+	switch(action) {
+		case SEV_ACTION_WRITE:
+			pthread_mutex_lock(&cev->send.lock);
+			if (cev->send.eof || cev->send.len >= cev->send.size)
+				retval = false;
+			pthread_mutex_unlock(&cev->send.lock);
+			break;
+		case SEV_ACTION_READ:
+			pthread_mutex_lock(&cev->recv.lock);
+			if (!cev->recv.len)
+				retval = false;
+			pthread_mutex_unlock(&cev->recv.lock);
+			break;
+		default:
+			xsyslog(LOG_WARNING, "sev_perhaps: unknow argument: %d", action);
+			return false;
+	}
+	return retval;
+}
+
 int
 sev_send(void *ctx, const unsigned char *buf, size_t size)
 {
@@ -266,6 +292,25 @@ sev_send(void *ctx, const unsigned char *buf, size_t size)
 	if (cev->send.eof) {
 		pthread_mutex_unlock(&cev->send.lock);
 		return -1;
+	}
+
+	if (cev->send.size - cev->send.len < size) {
+		size_t _bsize = cev->send.len + size;
+		uint8_t *_btmp = realloc(cev->send.buf, cev->send.len);
+		/* если размер буфера меньше запрашиваемого, то нужно увеличить размер
+		 */
+		if (!_btmp) {
+			xsyslog(LOG_WARNING, "client[%p] realloc "
+					"from %"PRIuPTR" to %"PRIuPTR" failed in send: %s",
+					(void*)cev, cev->send.size, _bsize, strerror(errno));
+			pthread_mutex_unlock(&cev->send.lock);
+			return -1;
+		}
+		xsyslog(LOG_INFO, "client[%p] send buffer grow "
+				"from %"PRIuPTR" to %"PRIuPTR,
+				(void*)cev, cev->send.size, _bsize);
+		cev->send.buf = _btmp;
+		cev->send.size = _bsize;
 	}
 
 	/* подсчёт объёмов копирования
@@ -822,8 +867,10 @@ redis_t(struct main *pain, const char *cmd, const char *ch, const char *data, si
  * тогда, когда не производится действий над подключениями
  */
 bool
-bus_query(struct sev_ctx *cev, struct almsg_parser *a)
+bus_query(struct sev_ctx *cev, struct almsg_parser *a,
+		bus_result_cb cb, void *cb_data)
 {
+	struct bus_result *br;
 	char *p = NULL;
 	uint64_t hash = 0ul;
 	/* (* 2) количество блоков под long
@@ -841,10 +888,16 @@ bus_query(struct sev_ctx *cev, struct almsg_parser *a)
 	almsg_append(a, PSLEN_S("id"), PSLEN(idbuf));
 	/*almsg_insert(a, PSLEN_S("action"), PSLEN_S("query"));*/
 
-	if (!list_alloc(cev->pain->bus_task, hash, (void*)cev)) {
+	if (!(br = calloc(1, sizeof(*br)))
+			|| !list_alloc(cev->pain->bus_task, hash, (void*)br)) {
+		if (br)
+			free(br);
 		xsyslog(LOG_WARNING, "bus_query: queue allocation failed");
 		return false;
 	}
+	br->cev = cev;
+	br->cb = cb;
+	br->data = cb_data;
 
 	/* отправка сообщения в redis */
 	almsg_format_buf(a, &p, &l);
@@ -880,6 +933,7 @@ void
 timeout_cb(struct ev_loop *loop, ev_timer *w, int revents)
 {
 	struct main *pain = (struct main*)ev_userdata(loop);
+	char buf[4096] = {0};
 	if (!pain)
 		return;
 
@@ -910,11 +964,37 @@ timeout_cb(struct ev_loop *loop, ev_timer *w, int revents)
 					/* если это нулевое подключение, то
 					 * подписываемся на каналы
 					 */
-					if (!i) {
-						redisAsyncCommand(pain->rs[i].ac,
-								(redisCallbackFn*)rds_incoming_cb,
-								NULL,
-								"SUBSCRIBE %s", pain->options.redis_chan);
+					switch(i) {
+						case 0:
+							/* подписка на общий канал */
+							redisAsyncCommand(pain->rs[i].ac,
+									(redisCallbackFn*)rds_incoming_cb,
+									NULL,
+									"SUBSCRIBE %s", pain->options.redis_chan);
+							break;
+						case 1:
+							/* подписка на канал класса */
+							snprintf(buf, sizeof(buf), "SUBSCRIBE %s%%fep",
+									pain->options.redis_chan);
+
+							redisAsyncCommand(pain->rs[i].ac,
+									(redisCallbackFn*)rds_incoming_cb,
+									NULL,
+									buf);
+							break;
+						case 2:
+							/* подписка на персональный канал */
+							snprintf(buf, sizeof(buf), "SUBSCRIBE %s@%s",
+									pain->options.redis_chan,
+									pain->options.name);
+
+							redisAsyncCommand(pain->rs[i].ac,
+									(redisCallbackFn*)rds_incoming_cb,
+									NULL,
+									"SUBSCRIBE %s", pain->options.redis_chan);
+							break;
+						default:
+							break;
 					}
 					pain->rs[i].connected = true;
 				}

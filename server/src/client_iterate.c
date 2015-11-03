@@ -1118,6 +1118,13 @@ client_iterate(struct sev_ctx *cev, bool last, void **p)
 				(void*)cev);
 		return true;
 	}
+	/* проверяем состояние буфера отправки,
+	 * если отправить что-либо нет возможности
+	 * то пропускаем цикл
+	 */
+	if (!sev_perhaps(c->cev, SEV_ACTION_WRITE)) {
+		return true;
+	}
 	/* send helolo */
 	if (c->state == CEV_FIRST) {
 		struct spq_InitialUser _ui;

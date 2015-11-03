@@ -169,7 +169,7 @@ query_address(struct main *pain, struct almsg_parser *ap)
 
 	if (!id || !resource) {
 		xsyslog(LOG_WARNING, "no id or resource in query");
-		return true;
+		return false;
 	}
 
 	almsg_init(&rap);
@@ -183,11 +183,25 @@ query_address(struct main *pain, struct almsg_parser *ap)
 			pain->w.c.service, resource);
 	almsg_insert(&rap, PSLEN_S("url"), PSLEN(buf));
 
+	almsg_insert(&rap, PSLEN_S("action"), PSLEN_S("result-driver"));
 	almsg_insert(&rap, PSLEN_S("from"), PSLEN(pain->options.name));
 
-	/* TODO: send */
+	/* send to main channel */
+	{
+		char *_a = NULL;
+		size_t _l = 0u;
+		const char *_from = almsg_get(ap, PSLEN_S("from"), ALMSG_ALL);
+		if (_from)
+			snprintf(buf, sizeof(buf), "%s@%s",
+					pain->options.redis_chan, pain->options.name);
+		else
+			snprintf(buf, sizeof(buf), "%s", pain->options.redis_chan);
+		almsg_format_buf(&rap, &_a, &_l);
+		rdc_exec_once(&pain->rdc, NULL, NULL, buf, _a, _l);
+	}
+
 	almsg_destroy(&rap);
-	return false;
+	return true;
 }
 
 static void
@@ -638,6 +652,11 @@ rloop(struct main *pain)
 		/* подписка на канал драйвера */
 		snprintf(_buf, sizeof(_buf),
 				"SUBSCRIBE %s%%swift", pain->options.redis_chan);
+		rdc_subscribe(&pain->rdc,
+				(redisCallbackFn*)rdc_broadcast_cb, pain, _buf);
+		/* подписка на персональный канал */
+		snprintf(_buf, sizeof(_buf),
+				"SUBSCRIBE %s@%s", pain->options.redis_chan, pain->options.name);
 		rdc_subscribe(&pain->rdc,
 				(redisCallbackFn*)rdc_broadcast_cb, pain, _buf);
 		/* подписка на общий канал очереди */

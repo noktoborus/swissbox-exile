@@ -111,7 +111,7 @@ struct redis_c {
 	struct main *pain;
 };
 
-#define	REDIS_C_MAX 2
+#define	REDIS_C_MAX 5
 struct main
 {
 	ev_signal sigint;
@@ -148,6 +148,14 @@ struct main
 
 };
 
+typedef void(*bus_result_cb)(struct almsg_parser *a, void *data);
+
+struct bus_result {
+	struct sev_ctx *cev;
+	bus_result_cb cb;
+	void *data;
+};
+
 typedef enum direction
 {
 	/* в любую сторону, нужно осторожно использовать в циклах */
@@ -165,9 +173,15 @@ typedef enum direction
  */
 int sev_send(void *ctx, const unsigned char *buf, size_t len);
 int sev_recv(void *ctx, unsigned char *buf, size_t len);
+/*
+ * проверка возможности совершения действия
+ * SEV_ACTION_READ или SEV_ACTION_WRITE
+ */
+bool sev_perhaps(void *ctx, int action);
 
 /* */
-bool bus_query(struct sev_ctx *cev, struct almsg_parser *a);
+bool bus_query(struct sev_ctx *cev, struct almsg_parser *a,
+		bus_result_cb cb, void *cb_data);
 bool redis_t(struct main *pain, const char *cmd, const char *ch,
 		const char *data, size_t size);
 void almsg2redis(struct main *pain, const char *cmd, const char *chan,

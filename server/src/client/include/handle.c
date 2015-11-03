@@ -451,13 +451,45 @@ _handle_want_sync(struct client *c, unsigned type, Fep__WantSync *msg)
 	return send_ok(c, msg->id, C_OK_SIMPLE, NULL);
 }
 
+struct _bus_data {
+	uint64_t msgid;
+	struct client *c;
+};
+
+static void
+_bus_result_driver(struct almsg_parser *a, struct _bus_data *bd)
+{
+	/* сразу получаем значения и высвобождаем кусочек памяти */
+	uint64_t msgid = bd->msgid;
+	struct client *c = bd->c;
+	free(bd);
+
+	if (!a) {
+		/* если a == NULL, значит запрос выпал
+		 * нужно сообщить клиенту ошибочку
+		 */
+		send_error(c, msgid, "timeout", -1);
+		return;
+	}
+
+	/* формируем запрос к файлу через драйвер и ответ клиенту */
+
+
+
+	/* TODO */
+}
+
 static inline bool
 _read_ask__from_driver(struct client *c, Fep__ReadAsk *msg,
 		struct getChunkInfo *ci)
 {
-	/* TODO */
 	bool r = true;
 	struct almsg_parser alm;
+	/* FIXME: нужно больше фрагментации!
+	 * альтернативный способ: глобальный массив,
+	 * синхронизация не нужна, т.к. всё выполняется синхронно в libev
+	 */
+	struct _bus_data *bd = calloc(1, sizeof(struct _bus_data));
 	almsg_init(&alm);
 
 	almsg_insert(&alm, PSLEN_S("action"), PSLEN_S("query-driver"));
@@ -466,7 +498,8 @@ _read_ask__from_driver(struct client *c, Fep__ReadAsk *msg,
 	almsg_append(&alm, PSLEN_S("address"), PSLEN(ci->address));
 	almsg_append(&alm, PSLEN_S("driver"), PSLEN(ci->driver));
 
-	r = bus_query(c->cev, &alm);
+	r = bus_query(c->cev, &alm,
+			(bus_result_cb)_bus_result_driver, (void*)bd);
 	almsg_destroy(&alm);
 	return r;
 	/*return send_error(c, msg->id, "Not implement", -1);

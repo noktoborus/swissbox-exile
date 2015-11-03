@@ -11,6 +11,40 @@
 #include "junk/xsyslog.h"
 #include "junk/almsg.h"
 
+
+static bool
+action_result_driver(struct main *pain, struct almsg_parser *alm, char *action)
+{
+	uint64_t hash = 0lu;
+	struct listNode *n;
+	struct bus_result *br;
+	const char *id = almsg_get(alm, PSLEN_S("id"), ALMSG_ALL);
+	if (!id) {
+		xsyslog(LOG_WARNING, "bus: result-driver has no id");
+		return false;
+	}
+
+	hash = hash_pjw(PSLEN(id));
+
+	if (!(n = list_find(pain->bus_task, hash))) {
+		xsyslog(LOG_WARNING,
+				"bus: action 'result-driver' with invalid id: %"PRIx64,
+				hash);
+		return false;
+	}
+
+	if ((br = n->data) != NULL) {
+		if (br->cb) {
+			br->cb(alm, br->data);
+		}
+	}
+
+	list_free_node(n, free);
+	/* ответ слать не нужно */
+	return false;
+}
+
+
 static bool
 _action_accept(struct almsg_parser *p, const char *val, size_t val_len,
 	size_t i, struct main *pain)
@@ -22,7 +56,7 @@ _action_accept(struct almsg_parser *p, const char *val, size_t val_len,
 	driver = almsg_get(p, PSLEN("driver"), i);
 	address = almsg_get(p, PSLEN("address"), i);
 	if (!driver || !address) {
-		xsyslog(LOG_WARNING, "empty driver ('%s') or address ('%s') "
+		xsyslog(LOG_WARNING, "bus: empty driver ('%s') or address ('%s') "
 				"for file id#%s", driver, address, val);
 		return false;
 	}
@@ -161,6 +195,7 @@ static struct redis_actions {
 } _actions[] = {
 	{ 0u, action_files, "files"},
 	{ 0u, action_accept, "accept"},
+	{ 0u, action_result_driver, "result_driver"},
 	{ 0u, NULL, "" }
 };
 
