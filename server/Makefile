@@ -1,13 +1,13 @@
 # vim: ft=make ff=unix fenc=utf-8
 # file: Makefile
 LIBS+=-pthread -lhiredis
-CFLAGS=-ggdb2 -D_GNU_SOURCE -D_POSIX_C_SOURCE -D_BSD_SOURCE -D_DEFAULT_SOURCE -Wall -pedantic -std=c99 -I.
+CFLAGS=-ggdb2 -D_GNU_SOURCE -D_POSIX_C_SOURCE -D_BSD_SOURCE -D_DEFAULT_SOURCE -Wall -pedantic -std=c99 -I. -I./junk
 CFLAGS+=${EF}
 BIN=bin/server
 SRC=src/
 SIMPLEPQ=simplepq/simplepq.c
 SQUEUE=squeue/squeue.c
-JUNK=junk/guid.c junk/utils.c junk/almsg.c
+JUNK=junk/guid.c junk/utils.c junk/almsg.c junk/curlev/curlev.c
 AS3=${SRC}/as3/as3.c
 
 SOURCES=${SRC}/main.c ${SRC}/client_iterate.c proto/fep.pb-c.c\

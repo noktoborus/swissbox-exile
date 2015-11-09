@@ -25,12 +25,16 @@ static void
 _ev_event_curl_cb(struct ev_loop *loop, struct ev_io *w, int revents)
 {
 	struct curlev *cuev = w->data;
-	CURLMcode cc;
+	CURLMcode rc = 0;
 	int curla = (revents & EV_READ ? CURL_POLL_IN : 0) |
 		( revents & EV_WRITE ? CURL_POLL_OUT : 0);
 	int running = 0;
 
-	cc = curl_multi_socket_action(cuev->multi, w->fd, curla, &running);
+	if ((rc = curl_multi_socket_action(cuev->multi, w->fd, curla, &running))
+			!= CURLM_OK) {
+		xsyslog(LOG_WARNING, "curl_multi_socket_action() error: rc=%d", rc);
+		return;
+	}
 	/* TODO: ? */
 	/* проверка состояния */
 	{
@@ -85,7 +89,7 @@ static int
 _curl_socket_cb(CURL *e, curl_socket_t s, int what,
 		struct curlev *cuev, struct ev_io *evio)
 {
-	xsyslog(LOG_INFO, "socket #%d action: %d, evio %p", s, what, evio);
+	xsyslog(LOG_DEBUG, "socket #%d action: %d, evio %p", s, what, (void*)evio);
 	/* события curl с сокетами (what):
 	 * CURL_POLL_NONE: ничего
 	 * CURL_POLL_REMOVE: удаление

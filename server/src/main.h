@@ -4,6 +4,7 @@
 #ifndef _MAIN_1422961154_H_
 #define _MAIN_1422961154_H_
 
+#include "curlev/curlev.h"
 #include "list.h"
 #include "junk/xsyslog.h"
 #include "junk/almsg.h"
@@ -127,6 +128,9 @@ struct main
 	pthread_cond_t rs_wait;
 	pthread_mutex_t rs_lock;
 	size_t rs_awaits;
+
+	/* работа с курлом */
+	struct curlev cuev;
 
 	/* server list */
 	struct sev_main *sev;

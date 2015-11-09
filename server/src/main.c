@@ -1226,6 +1226,8 @@ main(int argc, char *argv[])
 			/* таймер на чистку всяких устаревших структур и прочего */
 			ev_timer_init(&pain.watcher, timeout_cb, 1., 10.);
 			ev_timer_start(loop, &pain.watcher);
+			/* инициализация curl */
+			cuev_init(&pain.cuev, loop);
 			/* инициализация структур редиса */
 			pthread_mutex_init(&pain.rs_lock, NULL);
 			pthread_cond_init(&pain.rs_wait, NULL);
@@ -1268,6 +1270,8 @@ main(int argc, char *argv[])
 			}
 			pthread_mutex_destroy(&pain.rs_lock);
 			pthread_cond_destroy(&pain.rs_wait);
+			/* деинициализация curl */
+			cuev_destroy(&pain.cuev);
 			/* чистка клиентских сокетов */
 			ev_signal_stop(loop, &pain.sigterm);
 			ev_signal_stop(loop, &pain.sigint);
