@@ -200,9 +200,6 @@ client_alloc(struct ev_loop *loop, int fd, struct sev_ctx *next)
 	cev->recv.size = SEV_RECV_BUF;
 	cev->send.size = SEV_SEND_BUF;
 
-	/* некоторые опции */
-	cev->options.cache_dir = (const char*)pain->options.cache_dir;
-
 	/* не получилось */
 	if (!cev->recv.buf || !cev->send.buf) {
 		xsyslog(LOG_WARNING, "client init(%p, fd#%d) "

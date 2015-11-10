@@ -574,11 +574,12 @@ bool
 client_load(struct client *c)
 {
 	/* + sizeof('/') + sizeof('\0') */
-	size_t len = strlen(c->name) + strlen(c->cev->options.cache_dir) + 2;
+	size_t len = strlen(c->name) + strlen(c->cev->pain->options.cache_dir) + 2;
 	c->options.home = calloc(1, len + 1);
 	if (!c->options.home)
 		return false;
-	snprintf(c->options.home, len, "%s/%s", c->cev->options.cache_dir, c->name);
+	snprintf(c->options.home, len, "%s/%s",
+			c->cev->pain->options.cache_dir, c->name);
 	if (mkdir(c->options.home, S_IRWXU) == -1 && errno != EEXIST) {
 		xsyslog(LOG_WARNING, "client[%p] mkdir(%s) in client_load() fail: %s",
 				(void*)c->cev, c->options.home, strerror(errno));
