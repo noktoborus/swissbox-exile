@@ -27,8 +27,8 @@ c_pong_cb(struct client *c, uint64_t id,
 		tv.tv_sec++;
 	}
 
-	xsyslog(LOG_INFO, "client[%p] pong received in %"PRIu64".%06u seconds",
-			(void*)c->cev,
+	xsyslog(LOG_INFO, "client[%"SEV_LOG"] pong received in %"PRIu64".%06u seconds",
+			c->cev->serial,
 			(uint64_t)(tv.tv_sec - data->tv_sec),
 			(unsigned)(tv.tv_usec - data->tv_usec));
 	return true;
@@ -90,8 +90,8 @@ c_auth_cb(struct client *c, uint64_t id, unsigned int msgtype, void *msg, void *
 	if (errmsg) {
 		lval = sendlog_error(c, id, errmsg, --c->count_error);
 		if (c->count_error <= 0) {
-			xsyslog(LOG_INFO, "client[%p] to many login attempts",
-					(void*)c->cev);
+			xsyslog(LOG_INFO, "client[%"SEV_LOG"] to many login attempts",
+					c->cev->serial);
 			return false;
 		}
 		return lval;
@@ -106,8 +106,8 @@ c_auth_cb(struct client *c, uint64_t id, unsigned int msgtype, void *msg, void *
 	squeue_subscribe(&c->cum->broadcast, &c->broadcast_c);
 
 	strcpy(c->name, amsg->username);
-	xsyslog(LOG_INFO, "client[%p] authorized as %s, device=%"PRIX64,
-			(void*)c->cev, c->name, c->device_id);
+	xsyslog(LOG_INFO, "client[%"SEV_LOG"] authorized as %s, device=%"PRIX64,
+			c->cev->serial, c->name, c->device_id);
 	if (!client_load(c)) {
 		/* отправляем сообщение и выходим */
 		send_error(c, id, "Can't load user info", 0);

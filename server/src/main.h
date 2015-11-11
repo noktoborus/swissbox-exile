@@ -31,6 +31,8 @@ struct evptr {
 #define SEV_RECV_BUF 1024 * 1024
 #define SEV_SEND_BUF 1024 * 1024
 
+#define SEV_LOG "06"PRIuPTR
+
 #define SEV_ACTION_READ 1
 #define SEV_ACTION_WRITE 2
 #define SEV_ACTION_EXIT 4
@@ -73,7 +75,7 @@ struct sev_ctx
 
 	bool isfree;
 
-	unsigned int serial;
+	size_t serial;
 
 	struct sev_ctx *prev;
 	struct sev_ctx *next;

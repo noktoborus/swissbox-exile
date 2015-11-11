@@ -55,8 +55,8 @@ client_thread(void *ctx)
 	pthread_mutex_unlock(&cev->utex);
 	while (true) {
 		if (!client_iterate(cev, false, &p)) {
-			xsyslog(LOG_DEBUG, "client %p thread[%p] leave thread",
-					(void*)cev, (void*)cev->thread);
+			xsyslog(LOG_DEBUG, "client[%"SEV_LOG"] thread[%p] leave thread",
+					cev->serial, (void*)cev->thread);
 			break;
 		}
 		/* если выставлен флаг быстрого прохода или есть необработанные
@@ -77,8 +77,8 @@ client_thread(void *ctx)
 			pthread_cond_timedwait(&cev->ond, &cev->utex, &tv);
 		}
 		if (cev->action & SEV_ACTION_EXIT) {
-			xsyslog(LOG_DEBUG, "client %p thread[%p] exit at event",
-					(void*)cev, (void*)cev->thread);
+			xsyslog(LOG_DEBUG, "client[%"SEV_LOG"] thread[%p] exit at event",
+					cev->serial, (void*)cev->thread);
 			pthread_mutex_unlock(&cev->utex);
 			break;
 		}
@@ -92,22 +92,22 @@ client_thread(void *ctx)
 struct sev_ctx *
 client_free(struct sev_ctx *cev)
 {
-	xsyslog(LOG_INFO, "client free(%p, fd#%d)", (void*)cev, cev->fd);
+	xsyslog(LOG_INFO, "client[%"SEV_LOG"] free(fd#%d)", cev->serial, cev->fd);
 
 	/* send event */
 	if (cev->thread) {
 		void *retval;
-		xsyslog(LOG_INFO, "client free(%p, fd#%d) wait thread[%p]",
-				(void*)cev, cev->fd, (void*)cev->thread);
+		xsyslog(LOG_INFO, "client[%"SEV_LOG"] free(fd#%d) wait thread[%p]",
+				cev->serial, cev->fd, (void*)cev->thread);
 		pthread_mutex_lock(&cev->utex);
 		cev->action |= SEV_ACTION_EXIT;
 		pthread_cond_signal(&cev->ond);
 		pthread_mutex_unlock(&cev->utex);
-		xsyslog(LOG_DEBUG, "client free(%p, fd#%d) join thread[%p]",
-				(void*)cev, cev->fd, (void*)cev->thread);
+		xsyslog(LOG_DEBUG, "client[%"SEV_LOG"] free(fd#%d) join thread[%p]",
+				cev->serial, cev->fd, (void*)cev->thread);
 		pthread_join(cev->thread, &retval);
-		xsyslog(LOG_INFO, "client free(%p, fd#%d) exit thread[%p]",
-				(void*)cev, cev->fd, (void*)cev->thread);
+		xsyslog(LOG_INFO, "client[%"SEV_LOG"] free(fd#%d) exit thread[%p]",
+				cev->serial, cev->fd, (void*)cev->thread);
 	}
 
 	pthread_cond_destroy(&cev->ond);
@@ -118,7 +118,8 @@ client_free(struct sev_ctx *cev)
 
 	if (cev->fd != -1) {
 #if DEEPDEBUG
-		xsyslog(LOG_DEBUG, "client[%p] destroy fd#%d", (void*)cev, cev->fd);
+		xsyslog(LOG_DEBUG,
+				"client[%"SEV_LOG"] destroy fd#%d", cev->serial, cev->fd);
 #endif
 		shutdown(cev->fd, SHUT_RDWR);
 		close(cev->fd);
@@ -131,9 +132,9 @@ client_free(struct sev_ctx *cev)
 		cev->recv.size = 0u;
 #if DEEPDEBUG
 		if (cev->recv.len)
-			xsyslog(LOG_DEBUG, "client[%p] hash non-empty recv buffer "
+			xsyslog(LOG_DEBUG, "client[%"SEV_LOG"] hash non-empty recv buffer "
 					"(%"PRIuPTR" bytes)",
-					(void*)cev, cev->recv.len);
+					cev->serial, cev->recv.len);
 #endif
 		pthread_mutex_destroy(&cev->recv.lock);
 	}
@@ -143,9 +144,9 @@ client_free(struct sev_ctx *cev)
 		cev->send.size = 0u;
 #if DEEPDEBUG
 		if (cev->send.len)
-			xsyslog(LOG_DEBUG, "client[%p] hash non-empty send buffer "
+			xsyslog(LOG_DEBUG, "client[%"SEV_LOG"] hash non-empty send buffer "
 					"(%"PRIuPTR" bytes)",
-					(void*)cev, cev->send.len);
+					cev->serial, cev->send.len);
 #endif
 		pthread_mutex_destroy(&cev->send.lock);
 	}
@@ -171,15 +172,18 @@ client_alloc(struct ev_loop *loop, int fd, struct sev_ctx *next)
 {
 	struct main *pain = (struct main*)ev_userdata(loop);
 	struct sev_ctx *cev;
+
 	cev = calloc(1, sizeof(struct sev_ctx));
 	if (!cev) {
-		xsyslog(LOG_WARNING, "client init(fd#%d) memory fail: %s",
-				fd, strerror(errno));
+		xsyslog(LOG_WARNING,
+				"init(fd#%d) memory error: %s", fd, strerror(errno));
 		return NULL;
 	}
 
-	xsyslog(LOG_INFO, "client init(%p, fd#%d) serial: %u",
-			(void*)cev, fd, ++sev_ctx_seq);
+	cev->serial = ++sev_ctx_seq;
+	xsyslog(LOG_INFO, "client[%"SEV_LOG"] init(fd#%d) ptr: %p",
+			cev->serial, fd, (void*)cev);
+
 	/* сигналирование и поллинг
 	 * сделать это нужно как можно раньше, похоже
 	 * что если это делать после создания потока, в libev что-то ломается
@@ -202,9 +206,9 @@ client_alloc(struct ev_loop *loop, int fd, struct sev_ctx *next)
 
 	/* не получилось */
 	if (!cev->recv.buf || !cev->send.buf) {
-		xsyslog(LOG_WARNING, "client init(%p, fd#%d) "
+		xsyslog(LOG_WARNING, "client[%"SEV_LOG"] init(fd#%d) "
 				"alloc recv/send buffer failed",
-				(void*)cev, fd);
+				cev->serial, fd);
 		client_free(cev);
 		return NULL;
 	}
@@ -213,23 +217,22 @@ client_alloc(struct ev_loop *loop, int fd, struct sev_ctx *next)
 	pthread_cond_init(&cev->ond, NULL);
 	pthread_mutex_init(&cev->utex, NULL);
 
-	cev->serial = sev_ctx_seq;
 	/* лок для того, что бы тред не попытался прочитать/писать в сокет
 	 * до того, как ev_io будет проинициализировано
 	 */
 	pthread_mutex_lock(&cev->utex);
 
 	if (pthread_create(&cev->thread, NULL, client_thread, (void*)cev)) {
-		xsyslog(LOG_WARNING, "client init(%p, fd#%d) thread fail: %s",
-				(void*)cev, cev->fd, strerror(errno));
+		xsyslog(LOG_WARNING, "client[%"SEV_LOG"] init(fd#%d) thread fail: %s",
+				cev->serial, cev->fd, strerror(errno));
 		memset(&cev->thread, 0, sizeof(cev->thread));
 		pthread_mutex_unlock(&cev->utex);
 		client_free(cev);
 		cev = NULL;
 		return NULL;
 	} else {
-		xsyslog(LOG_INFO, "client init(%p, fd#%d) new thread[%p]",
-				(void*)cev, fd, (void*)cev->thread);
+		xsyslog(LOG_INFO, "client[%"SEV_LOG"] init(fd#%d) new thread[%p]",
+				cev->serial, fd, (void*)cev->thread);
 
 		/* интеграция в список */
 		if (next) {
@@ -238,8 +241,12 @@ client_alloc(struct ev_loop *loop, int fd, struct sev_ctx *next)
 				next->prev->next = cev;
 				cev->prev = next->prev;
 			}
-			xsyslog(LOG_DEBUG, "client init(%p, fd#%d) prev: %p, next: %p",
-					(void*)cev, fd, (void*)cev->prev, (void*)cev->next);
+			xsyslog(LOG_DEBUG,
+					"client[%"SEV_LOG"] "
+					"init(fd#%d) prev: %"SEV_LOG":%p, next: %"SEV_LOG":%p",
+					cev->serial, fd,
+					(cev->prev ? cev->prev->serial : 0), (void*)cev->prev,
+					(cev->next ? cev->next->serial : 0), (void*)cev->next);
 		}
 
 		/* инициализация вторичных значений */
@@ -296,15 +303,15 @@ sev_send(void *ctx, const unsigned char *buf, size_t size)
 		/* если размер буфера меньше запрашиваемого, то нужно увеличить размер
 		 */
 		if (!_btmp) {
-			xsyslog(LOG_WARNING, "client[%p] realloc "
+			xsyslog(LOG_WARNING, "client[%"SEV_LOG"] realloc "
 					"from %"PRIuPTR" to %"PRIuPTR" failed in send: %s",
-					(void*)cev, cev->send.size, _bsize, strerror(errno));
+					cev->serial, cev->send.size, _bsize, strerror(errno));
 			pthread_mutex_unlock(&cev->send.lock);
 			return -1;
 		}
-		xsyslog(LOG_INFO, "client[%p] send buffer grow "
+		xsyslog(LOG_INFO, "client[%"SEV_LOG"] send buffer grow "
 				"from %"PRIuPTR" to %"PRIuPTR,
-				(void*)cev, cev->send.size, _bsize);
+				cev->serial, cev->send.size, _bsize);
 		cev->send.buf = _btmp;
 		cev->send.size = _bsize;
 	}
@@ -353,8 +360,8 @@ sev_recv(void *ctx, unsigned char *buf, size_t size)
 					 * и должен завершить общение, но известить об этом нужно
 					 */
 					xsyslog(LOG_WARNING,
-							"client[%p] got memory error at read: %s",
-							(void*)cev, strerror(errno));
+							"client[%"SEV_LOG"] got memory error at read: %s",
+							cev->serial, strerror(errno));
 				}
 			} else {
 				/* нужно сбросить флажок что есть данные */
@@ -406,8 +413,8 @@ server_cb(struct ev_loop *loop, ev_io *w, int revents)
 			close(sock);
 			return;
 		}
-		xsyslog(LOG_DEBUG, "accept(%s, fd#%d) client %p",
-				xaddr, ptx->fd, (void*)ptx);
+		xsyslog(LOG_DEBUG, "client[%"SEV_LOG"] socket(%s, fd#%d)",
+				ptx->serial, xaddr, ptx->fd);
 		sev->client = ptx;
 	}
 }
@@ -585,8 +592,8 @@ alarm_cb(struct ev_loop *loop, ev_async *w, int revents)
 		cev->action &= ~SEV_ACTION_READ;
 		if (evio->events & EV_READ) {
 			/* ерунда какая-то */
-			xsyslog(LOG_INFO, "client[%p] wtf: already in read queue",
-					(void*)cev);
+			xsyslog(LOG_INFO, "client[%"SEV_LOG"] wtf: already in read queue",
+					cev->serial);
 
 		} else {
 			actions |= EV_READ;
@@ -595,8 +602,8 @@ alarm_cb(struct ev_loop *loop, ev_async *w, int revents)
 	if (cev->action & SEV_ACTION_WRITE) {
 		cev->action &= ~SEV_ACTION_WRITE;
 		if (evio->events & EV_WRITE) {
-			xsyslog(LOG_INFO, "client[%p] wtf: already in write queue",
-					(void*)cev);
+			xsyslog(LOG_INFO, "client[%"SEV_LOG"] wtf: already in write queue",
+					cev->serial);
 		} else {
 			actions |= EV_WRITE;
 		}
@@ -680,8 +687,8 @@ _client_cb_write(struct ev_loop *loop, struct ev_io *w, struct sev_ctx *cev)
 				 * но протокол поехал и клиент об этом известит
 				 */
 				xsyslog(LOG_WARNING,
-						"client[%p] got memory error at write: %s",
-						(void*)cev, strerror(errno));
+						"client[%"SEV_LOG"] got memory error at write: %s",
+						cev->serial, strerror(errno));
 			}
 		}
 	}
@@ -1005,7 +1012,7 @@ timeout_cb(struct ev_loop *loop, ev_timer *w, int revents)
 		}
 		/* хуита */
 		if (sev_it->prev) {
-			xsyslog(LOG_WARNING, "watcher: server %p has left node %p ",
+			xsyslog(LOG_WARNING, "server %p has left node %p ",
 					(void*)sev_it, (void*)sev_it->prev);
 		}
 		/* обход узлов */
@@ -1018,8 +1025,9 @@ timeout_cb(struct ev_loop *loop, ev_timer *w, int revents)
 			if ((cev_it = sev_it->client) == NULL)
 				continue;
 			if (cev_it->prev)
-				xsyslog(LOG_WARNING, "watcher: client %p has left node %p ",
-						(void*)cev_it, (void*)cev_it->prev);
+				xsyslog(LOG_WARNING,
+						"client[%"SEV_LOG"] has left node %"SEV_LOG":%p",
+						cev_it->serial, cev_it->serial, (void*)cev_it->prev);
 			if (cev_it->isfree) {
 				if (cev_it == sev_it->client)
 					sev_it->client = client_free(cev_it);

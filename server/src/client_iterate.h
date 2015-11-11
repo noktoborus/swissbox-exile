@@ -304,7 +304,8 @@ bool wait_id(struct client *c, struct listRoot *list, uint64_t id, wait_store_t 
 	static bool \
 	_handle_ ##name(struct client *c, unsigned type, struct_t *msg)\
 	{\
-		xsyslog(LOG_WARNING, "client[%p] require " #name, (void*)c->cev);\
+		xsyslog(LOG_WARNING,\
+				"client[%"SEV_LOG"] require " #name, c->cev->serial);\
 		return sendlog_error(c, 0, # name " not implement", -1);\
 	}
 

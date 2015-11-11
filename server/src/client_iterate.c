@@ -120,13 +120,16 @@ client_share_checkpoint(struct client *c, guid_t *rootdir, uint64_t checkpoint)
 				char _rootdir[GUID_MAX + 1];
 				guid2string(rootdir, PSIZE(_rootdir));
 				xsyslog(LOG_DEBUG,
-						"client[%p] add share rootdir '%s' checkpoint: %"PRIu64
+						"client[%"SEV_LOG"]"
+						" add share rootdir '%s' checkpoint: %"PRIu64
 						" (%s:%"PRIX64")",
-						(void*)c->cev, _rootdir, checkpoint, c->name, c->device_id);
+						c->cev->serial,
+						_rootdir, checkpoint, c->name, c->device_id);
 #endif
 			} else {
-				xsyslog(LOG_WARNING, "client[%p] can't alloc root node",
-						(void*)c->cev);
+				xsyslog(LOG_WARNING,
+						"client[%"SEV_LOG"] can't alloc root node",
+						c->cev->serial);
 			}
 		}
 	} else if ((rg = rp->data)->checkpoint < checkpoint) {
@@ -135,9 +138,10 @@ client_share_checkpoint(struct client *c, guid_t *rootdir, uint64_t checkpoint)
 			char _rootdir[GUID_MAX + 1];
 			guid2string(rootdir, PSIZE(_rootdir));
 			xsyslog(LOG_DEBUG,
-					"client[%p] update share rootdir '%s' checkpoint: %"PRIu64
+					"client[%"SEV_LOG"]"
+					" update share rootdir '%s' checkpoint: %"PRIu64
 					" -> %"PRIu64" (%s:%"PRIX64")",
-					(void*)c->cev, _rootdir, rg->checkpoint, checkpoint,
+					c->cev->serial, _rootdir, rg->checkpoint, checkpoint,
 					c->name, c->device_id);
 		}
 #endif
@@ -168,8 +172,9 @@ client_local_rootdir(struct client *c, guid_t *rootdir, uint64_t checkpoint)
 			c->rootdir.g[i].hash = hash;
 			c->rootdir.c++;
 		} else {
-			xsyslog(LOG_WARNING, "client[%p] can't add rootdir in list: %s",
-					(void*)c->cev, strerror(errno));
+			xsyslog(LOG_WARNING,
+					"client[%"SEV_LOG"] can't add rootdir in list: %s",
+					c->cev->serial, strerror(errno));
 			return;
 		}
 	}
@@ -180,16 +185,18 @@ client_local_rootdir(struct client *c, guid_t *rootdir, uint64_t checkpoint)
 		guid2string(&c->rootdir.g[i].rootdir, PSIZE(_rootdir));
 		if (checkpoint != C_ROOTDIR_ACTIVATE) {
 			xsyslog(LOG_DEBUG,
-					"client[%p] change checkpoint (%s): %"PRIu64" -> %"PRIu64
+					"client[%"SEV_LOG"]"
+					" change checkpoint (%s): %"PRIu64" -> %"PRIu64
 					" (%s:%"PRIX64") [%u]",
-					(void*)c->cev, _rootdir,
+					c->cev->serial, _rootdir,
 					c->rootdir.g[i].checkpoint, checkpoint,
 					c->name, c->device_id, i);
 		} else {
 			xsyslog(LOG_DEBUG,
-					"client[%p] Set sync active (%s): at checkpoint %"PRIu64
+					"client[%"SEV_LOG"]"
+					" Set sync active (%s): at checkpoint %"PRIu64
 					" (%s:%"PRIX64") [%u]",
-					(void*)c->cev, _rootdir,
+					c->cev->serial, _rootdir,
 					c->rootdir.g[i].checkpoint,
 					c->name, c->device_id, i);
 		}
@@ -217,9 +224,9 @@ _active_sync(struct client *c, guid_t *rootdir, uint64_t checkpoint,
 		char _rootdir[GUID_MAX + 1];
 		guid2string(rootdir, PSIZE(_rootdir));
 		xsyslog(LOG_DEBUG,
-				"client[%p] activate sync from checkpoint=%"PRIu64
+				"client[%"SEV_LOG"] activate sync from checkpoint=%"PRIu64
 				" for device=%"PRIX64" in '%s'",
-				(void*)c->cev, c->checkpoint, c->device_id, _rootdir);
+				c->cev->serial, c->checkpoint, c->device_id, _rootdir);
 	}
 #endif
 
@@ -275,8 +282,8 @@ bool
 wait_id(struct client *c, struct listRoot *list, uint64_t id, wait_store_t *s)
 {
 #if DEEPDEBUG
-	xsyslog(LOG_DEBUG, "client[%p] list wait_id(%s, %"PRIu64")",
-			(void*)c->cev, list_name(c, list), id);
+	xsyslog(LOG_DEBUG, "client[%"SEV_LOG"] list wait_id(%s, %"PRIu64")",
+			c->cev->serial, list_name(c, list), id);
 #endif
 
 	return list_alloc(list, id, s);
@@ -288,8 +295,8 @@ query_id(struct client *c, struct listRoot *list, uint64_t id)
 	struct listNode *ln;
 	wait_store_t *data;
 #if DEEPDEBUG
-	xsyslog(LOG_DEBUG, "client[%p] list query_id(%s, %"PRIu64")",
-			(void*)c->cev, list_name(c, list), id);
+	xsyslog(LOG_DEBUG, "client[%"SEV_LOG"] list query_id(%s, %"PRIu64")",
+			c->cev->serial, list_name(c, list), id);
 #endif
 	if (!(ln = list_find(list, id)))
 		return NULL;
@@ -307,8 +314,8 @@ touch_id(struct client *c, struct listRoot *list, uint64_t id)
 	struct listNode *ln;
 	ln = list_find(list, id);
 #if DEEPDEBUG
-	xsyslog(LOG_DEBUG, "client[%p] list touch_id(%s, %"PRIu64") -> %s",
-			(void*)c->cev, list_name(c, list), id, ln ? "found" : "not found");
+	xsyslog(LOG_DEBUG, "client[%"SEV_LOG"] list touch_id(%s, %"PRIu64") -> %s",
+			c->cev->serial, list_name(c, list), id, ln ? "found" : "not found");
 #endif
 	if (ln)
 		return (wait_store_t*)ln->data;
@@ -387,15 +394,15 @@ _send_message(struct sev_ctx *cev, unsigned type, void *msg, char *name)
 	unsigned char *buf;
 
 	if (!type || type >= sizeof(handle) / sizeof(struct handle)) {
-		xsyslog(LOG_ERR, "client[%p] invalid type %d in send_message(%s)",
-				(void*)cev, type, name);
+		xsyslog(LOG_ERR, "client[%"SEV_LOG"] invalid type %d in send_message(%s)",
+				cev->serial, type, name);
 		return false;
 	}
 
 	if (!handle[type].f_sizeof || !handle[type].f_pack) {
-		xsyslog(LOG_ERR, "client[%p] type %d (%s)"
+		xsyslog(LOG_ERR, "client[%"SEV_LOG"] type %d (%s)"
 				"has no sizeof and pack field",
-				(void*)cev, type, name);
+				cev->serial, type, name);
 
 	}
 
@@ -404,20 +411,21 @@ _send_message(struct sev_ctx *cev, unsigned type, void *msg, char *name)
 		len = handle[type].f_sizeof(msg);
 	buf = pack_header(type, &len);
 	if (!buf) {
-		xsyslog(LOG_WARNING, "client[%p] memory fail in %s: %s",
-				(void*)cev, name, strerror(errno));
+		xsyslog(LOG_WARNING, "client[%"SEV_LOG"] memory fail in %s: %s",
+				cev->serial, name, strerror(errno));
 		return false;
 	}
 
 #if DEEPDEBUG
 	xsyslog(LOG_DEBUG,
-			"client[%p] transmit header[type: %s (%u), len: %"PRIuPTR"]",
-			(void*)cev, Fepstr(type), type, len);
+			"client[%"SEV_LOG"] transmit header[type: %s (%u), len: %"PRIuPTR"]",
+			cev->serial, Fepstr(type), type, len);
 #endif
 	/* упаковывается сообщение */
 	handle[type].f_pack(msg, &buf[HEADER_OFFSET]);
 	if ((lval = sev_send(cev, buf, len)) != len) {
-		xsyslog(LOG_WARNING, "client[%p] send fail in %s", (void*)cev, name);
+		xsyslog(LOG_WARNING,
+				"client[%"SEV_LOG"] send fail in %s", cev->serial, name);
 	}
 	free(buf);
 
@@ -475,19 +483,19 @@ handle_header(unsigned char *buf, size_t size, struct client *c)
 			c->h_len = ntohl(c->h_len << 8);
 #if DEEPDEBUG
 			xsyslog(LOG_DEBUG,
-					"client[%p] got header[type: %s (%u), len: %u]: "
+					"client[%"SEV_LOG"] got header[type: %s (%u), len: %u]: "
 					"%02x %02x %02x %02x %02x %02x "
 					"(in %"PRIuPTR" bytes)",
-					(void*)c->cev, Fepstr(c->h_type), c->h_type, c->h_len,
+					c->cev->serial, Fepstr(c->h_type), c->h_type, c->h_len,
 					buf[0], buf[1], buf[2], buf[3], buf[4], buf[5],
 					size);
 #endif
 			/* бесполезная проверка на длину пакета */
 			if (c->h_len > 1 << 24 || c->h_len == 0) {
 				xsyslog(LOG_WARNING,
-						"client[%p] header[type: %s (%u), len: %u]: "
+						"client[%"SEV_LOG"] header[type: %s (%u), len: %u]: "
 						"length can't be great then %d and equal zero",
-						(void*)c->cev, Fepstr(c->h_type), c->h_type, c->h_len,
+						c->cev->serial, Fepstr(c->h_type), c->h_type, c->h_len,
 						1 << 24);
 				c->h_type = 0u;
 				return HEADER_INVALID;
@@ -496,9 +504,9 @@ handle_header(unsigned char *buf, size_t size, struct client *c)
 			if (sizeof(handle) / sizeof(struct handle) <= c->h_type ||
 					c->h_type == 0u) {
 				xsyslog(LOG_WARNING,
-						"client[%p] header[type: %s (%u), len: %u]: "
+						"client[%"SEV_LOG"] header[type: %s (%u), len: %u]: "
 						"invalid type",
-						(void*)c->cev, Fepstr(c->h_type), c->h_type, c->h_len);
+						c->cev->serial, Fepstr(c->h_type), c->h_type, c->h_len);
 				c->h_type = 0u;
 				c->h_len = 0u;
 				/*
@@ -517,9 +525,9 @@ handle_header(unsigned char *buf, size_t size, struct client *c)
 		void *msg;
 		bool exit = false;
 		if (!handle[c->h_type].f) {
-			xsyslog(LOG_INFO, "client[%p] header[type: %s (%u), len: %u]: "
+			xsyslog(LOG_INFO, "client[%"SEV_LOG"] header[type: %s (%u), len: %u]: "
 					"message has no handle",
-					(void*)c->cev, Fepstr(c->h_type), c->h_type, c->h_len);
+					c->cev->serial, Fepstr(c->h_type), c->h_type, c->h_len);
 		} else {
 			/* не должно случаться такого, что бы небыло анпакера,
 			 * но как-то вот
@@ -548,8 +556,8 @@ handle_header(unsigned char *buf, size_t size, struct client *c)
 							"malformed message type %s (%u), len %u",
 							Fepstr(c->h_type), c->h_type, c->h_len);
 					xsyslog(LOG_INFO,
-							"client[%p] %s",
-							(void*)c->cev, _errormsg);
+							"client[%"SEV_LOG"] %s",
+							c->cev->serial, _errormsg);
 					send_error(c, 0, _errormsg, -1);
 				}
 			}
@@ -581,8 +589,8 @@ client_load(struct client *c)
 	snprintf(c->options.home, len, "%s/%s",
 			c->cev->pain->options.cache_dir, c->name);
 	if (mkdir(c->options.home, S_IRWXU) == -1 && errno != EEXIST) {
-		xsyslog(LOG_WARNING, "client[%p] mkdir(%s) in client_load() fail: %s",
-				(void*)c->cev, c->options.home, strerror(errno));
+		xsyslog(LOG_WARNING, "client[%"SEV_LOG"] mkdir(%s) in client_load() fail: %s",
+				c->cev->serial, c->options.home, strerror(errno));
 		return false;
 	}
 	c->options.send_buffer = 9660;
@@ -597,20 +605,20 @@ client_destroy(struct client *c)
 	/* чистка очередей */
 	do {
 #if DEEPDEBUG
-		xsyslog(LOG_DEBUG, "client[%p] remain %"PRIuPTR" mid",
-				(void*)c->cev, c->mid.count);
+		xsyslog(LOG_DEBUG, "client[%"SEV_LOG"] remain %"PRIuPTR" mid",
+				c->cev->serial, c->mid.count);
 #endif
 	} while (list_free_root(&c->mid, &mid_free));
 	do {
 #if DEEPDEBUG
-		xsyslog(LOG_DEBUG, "client[%p] remain %"PRIuPTR" sid",
-				(void*)c->cev, c->sid.count);
+		xsyslog(LOG_DEBUG, "client[%"SEV_LOG"] remain %"PRIuPTR" sid",
+				c->cev->serial, c->sid.count);
 #endif
 	} while (list_free_root(&c->sid, (void(*)(void*))&sid_free));
 	do {
 #if DEEPDEBUG
-		xsyslog(LOG_DEBUG, "client[%p] remain %"PRIuPTR" fid",
-				(void*)c->cev, c->fid.count);
+		xsyslog(LOG_DEBUG, "client[%"SEV_LOG"] remain %"PRIuPTR" fid",
+				c->cev->serial, c->fid.count);
 #endif
 	} while (list_free_root(&c->fid, (void(*)(void*))&fid_free));
 
@@ -646,8 +654,8 @@ client_alloc(struct sev_ctx *cev)
 	struct client *c;
 	c = (struct client*)calloc(1, sizeof(struct client));
 	if (!c) {
-		xsyslog(LOG_WARNING, "client[%p] memory fail: %s",
-				(void*)cev, strerror(errno));
+		xsyslog(LOG_WARNING, "client[%"SEV_LOG"] memory fail: %s",
+				cev->serial, strerror(errno));
 		return NULL;
 	}
 	c->count_error = 3;
@@ -709,10 +717,10 @@ _client_iterate_result_logdf(struct client *c, struct logDirFile *ldf)
 
 		c->rout->packets++;
 #if DEEPDEBUG
-		xsyslog(LOG_DEBUG, "client[%p] log(%"PRIu64") "
+		xsyslog(LOG_DEBUG, "client[%"SEV_LOG"] log(%"PRIu64") "
 				"DirectoryUpdate id = %"PRIu64
 				" sid = %"PRIu32" #%"PRIu32"/%"PRIu32" -> root: %s, dir: %s",
-				(void*)c->cev, msg.checkpoint, msg.id, msg.session_id,
+				c->cev->serial, msg.checkpoint, msg.id, msg.session_id,
 				msg.no, msg.max,
 				rootdir, guid);
 #endif
@@ -755,10 +763,10 @@ _client_iterate_result_logdf(struct client *c, struct logDirFile *ldf)
 
 		c->rout->packets++;
 #if DEEPDEBUG
-		xsyslog(LOG_DEBUG, "client[%p] log(%"PRIu64") FileUpdate id = %"PRIu64
+		xsyslog(LOG_DEBUG, "client[%"SEV_LOG"] log(%"PRIu64") FileUpdate id = %"PRIu64
 				" sid = %"PRIu32" #%"PRIu32"/%"PRIu32" -> "
 				"root: %s, dir: %s, file: %s, rev: %s",
-				(void*)c->cev, msg.checkpoint, msg.id, msg.session_id,
+				c->cev->serial, msg.checkpoint, msg.id, msg.session_id,
 				msg.no, msg.max,
 				rootdir, dir, file, rev);
 #endif
@@ -789,11 +797,11 @@ _client_iterate_result_logdf(struct client *c, struct logDirFile *ldf)
 
 		c->rout->packets++;
 #if DEEPDEBUG
-		xsyslog(LOG_DEBUG, "client[%p] log(%"PRIu64") "
+		xsyslog(LOG_DEBUG, "client[%"SEV_LOG"] log(%"PRIu64") "
 				"RootdirUpdate id = %"PRIu64
 				" sid = %"PRIu32" #%"PRIu32"/%"PRIu32" -> "
 				"root: %s",
-				(void*)c->cev, msg.checkpoint, msg.id, msg.session_id,
+				c->cev->serial, msg.checkpoint, msg.id, msg.session_id,
 				msg.no, msg.max, rootdir);
 #endif
 		return send_message(c->cev, FEP__TYPE__tRootdirUpdate, &msg);
@@ -835,9 +843,9 @@ _client_iterate_result(struct client *c)
 		msg.chunk_hash.data = (uint8_t*)hash;
 		msg.chunk_hash.len = hash_len;
 #if DEEPDEBUG
-		xsyslog(LOG_DEBUG, "client[%p] <- ResultChunk id = %"PRIu64
+		xsyslog(LOG_DEBUG, "client[%"SEV_LOG"] <- ResultChunk id = %"PRIu64
 				" sid = %"PRIu32" #%"PRIu32"/%"PRIu32,
-				(void*)c->cev, msg.id, msg.session_id,
+				c->cev->serial, msg.id, msg.session_id,
 				msg.chunk_no, msg.chunk_max);
 #endif
 		c->rout->packets++;
@@ -861,9 +869,9 @@ _client_iterate_result(struct client *c)
 		msg.rev_max = c->rout->v.r.max;
 		msg.revision_guid = guid;
 #if DEEPDEBUG
-		xsyslog(LOG_DEBUG, "client[%p] <- ResultRevision id = %"PRIu64
+		xsyslog(LOG_DEBUG, "client[%"SEV_LOG"] <- ResultRevision id = %"PRIu64
 				" sid = %"PRIu32" #%"PRIu32"/%"PRIu32,
-				(void*)c->cev, msg.id, msg.session_id,
+				c->cev->serial, msg.id, msg.session_id,
 				msg.rev_no, msg.rev_max);
 #endif
 		c->rout->packets++;
@@ -894,8 +902,8 @@ _client_iterate_result(struct client *c)
 		c->rout->packets++;
 		return send_message(c->cev, FEP__TYPE__tResultDevice, &msg);
 	} else {
-		xsyslog(LOG_WARNING, "client[%p] unknown rout type: %d\n",
-				(void*)c->cev, c->rout->type);
+		xsyslog(LOG_WARNING, "client[%"SEV_LOG"] unknown rout type: %d\n",
+				c->cev->serial, c->rout->type);
 		rout_free(c);
 	}
 	return true;
@@ -914,9 +922,9 @@ _client_iterate_chunk(struct client *c)
 	if (!c->cout_buffer || c->cout_bfsz != c->options.send_buffer) {
 		void *p = realloc(c->cout_buffer, c->options.send_buffer);
 		if (!p) {
-			xsyslog(LOG_INFO, "client[%p] realloc from "
+			xsyslog(LOG_INFO, "client[%"SEV_LOG"] realloc from "
 					"%"PRIuPTR" to %"PRIuPTR": %s",
-					(void*)c->cev, c->cout_bfsz, c->options.send_buffer,
+					c->cev->serial, c->cout_bfsz, c->options.send_buffer,
 					strerror(errno));
 			if (!c->cout_bfsz)
 				return true;
@@ -937,11 +945,11 @@ _client_iterate_chunk(struct client *c)
 		transed = read(c->cout->fd, c->cout_buffer, readsz);
 		if (transed <= 0) {
 			if (transed == -1) {
-				xsyslog(LOG_INFO, "client[%p] read failed: %s",
-						(void*)c->cev, strerror(errno));
+				xsyslog(LOG_INFO, "client[%"SEV_LOG"] read failed: %s",
+						c->cev->serial, strerror(errno));
 			} else {
-				xsyslog(LOG_INFO, "client[%p] read wtf: %s",
-						(void*)c->cev, strerror(errno));
+				xsyslog(LOG_INFO, "client[%"SEV_LOG"] read wtf: %s",
+						c->cev->serial, strerror(errno));
 			}
 		} else {
 			Fep__Xfer xfer_msg = FEP__XFER__INIT;
@@ -957,9 +965,9 @@ _client_iterate_chunk(struct client *c)
 			 */
 			c->cout->sent += (size_t)readsz;
 #if DEEPDEBUG
-			xsyslog(LOG_DEBUG, "client[%p] <- xfer id = %"PRIu64
+			xsyslog(LOG_DEBUG, "client[%"SEV_LOG"] <- xfer id = %"PRIu64
 					" sid = %"PRIu32", offset=%"PRIu64", len = %"PRIu64,
-					(void*)c->cev, xfer_msg.id, xfer_msg.session_id,
+					c->cev->serial, xfer_msg.id, xfer_msg.session_id,
 					xfer_msg.offset, xfer_msg.data.len);
 #endif
 			c->cout->packets++;
@@ -1015,8 +1023,9 @@ _client_iterate_read(struct client *c)
 		void *tmp;
 		tmp = realloc(c->buffer, c->bsz + BUFFER_ALLOC);
 		if (!tmp) {
-			xsyslog(LOG_WARNING, "client %p, grow from %lu to %lu fail: %s",
-					(void*)c->cev, c->bsz, c->bsz + BUFFER_ALLOC,
+			xsyslog(LOG_WARNING,
+					"client[%"SEV_LOG"], grow from %lu to %lu fail: %s",
+					c->cev->serial, c->bsz, c->bsz + BUFFER_ALLOC,
 					strerror(errno));
 			/* если обвалились по памяти, то ждём следующей итерации,
 			 * так как в процессе может что-то освободиться */
@@ -1028,7 +1037,8 @@ _client_iterate_read(struct client *c)
 	/* wait data */
 	lval = sev_recv(c->cev, &c->buffer[c->blen], c->bsz - c->blen);
 	if (lval < 0) {
-		xsyslog(LOG_WARNING, "client[%p] recv %d\n", (void*)c->cev, lval);
+		xsyslog(LOG_WARNING,
+				"client[%"SEV_LOG"] recv %d\n", c->cev->serial, lval);
 		return false;
 	} else if (lval == 0) {
 		/* pass to cycle sanitize (check timeouts, etc) */
@@ -1065,8 +1075,8 @@ _client_iterate_handle(struct client *c)
 			 * FIXME: и снова ring buffer
 			 */
 			if (!memmove(c->buffer, &c->buffer[lval], c->blen - lval)) {
-				xsyslog(LOG_WARNING, "client[%p] memmove() fail: %s",
-						(void*)c->cev, strerror(errno));
+				xsyslog(LOG_WARNING, "client[%"SEV_LOG"] memmove() fail: %s",
+						c->cev->serial, strerror(errno));
 				return false;
 			}
 			c->blen -= lval;
@@ -1074,16 +1084,16 @@ _client_iterate_handle(struct client *c)
 			c->blen = 0u;
 		}
 	} else if (lval == HEADER_INVALID) {
-		xsyslog(LOG_WARNING, "client[%p] mismatch protocol:"
-				"%02x %02x %02x %02x %02x %02x", (void*)c->cev,
+		xsyslog(LOG_WARNING, "client[%"SEV_LOG"] mismatch protocol:"
+				"%02x %02x %02x %02x %02x %02x", c->cev->serial,
 				c->buffer[0], c->buffer[1], c->buffer[2],
 				c->buffer[3], c->buffer[4], c->buffer[5]);
 		return false;
 	} else if (lval == HEADER_STOP) {
 		/* словили остановку -- сообщаем в лог и выходим */
-		xsyslog(LOG_WARNING, "client[%p] stop chat with "
+		xsyslog(LOG_WARNING, "client[%"SEV_LOG"] stop chat with "
 				"header[type: %s (%u), len: %u]",
-				(void*)c->cev, Fepstr(c->h_type), c->h_type, c->h_len);
+				c->cev->serial, Fepstr(c->h_type), c->h_type, c->h_len);
 		return false;
 	} else if (lval == HEADER_MORE) {
 		/* если просит больше, нужно взять */
@@ -1092,7 +1102,7 @@ _client_iterate_handle(struct client *c)
 	}
 	if (c->count_error <= 0) {
 		/* слишком много странного произошло в сессию, дропаем подключение */
-		xsyslog(LOG_INFO, "client[%p] to many errors", (void*)c->cev);
+		xsyslog(LOG_INFO, "client[%"SEV_LOG"] to many errors", c->cev->serial);
 		return false;
 	}
 	return true;
@@ -1115,8 +1125,9 @@ client_iterate(struct sev_ctx *cev, bool last, void **p)
 			return true;
 		c->cev->recv_timeout = 2;
 	} else if (!p) {
-		xsyslog(LOG_WARNING, "client[%p] field for structure not passed",
-				(void*)cev);
+		xsyslog(LOG_WARNING,
+				"client[%"SEV_LOG"] field for structure not passed",
+				cev->serial);
 		return true;
 	}
 	/* проверяем состояние буфера отправки,
@@ -1157,12 +1168,13 @@ client_iterate(struct sev_ctx *cev, bool last, void **p)
 			if (!s || !wait_id(c, &c->mid, reqAuth.id, s)) {
 				if (s) free(s);
 				xsyslog(LOG_WARNING,
-						"client[%p] can't set filter for id %"PRIu64,
-						(void*)cev, reqAuth.id);
+						"client[%"SEV_LOG"] can't set filter for id %"PRIu64,
+						cev->serial, reqAuth.id);
 			}
 		} else {
-			xsyslog(LOG_WARNING, "client[%p] no hello with memory fail: %s",
-					(void*)cev, strerror(errno));
+			xsyslog(LOG_WARNING,
+					"client[%"SEV_LOG"] no hello with memory fail: %s",
+					cev->serial, strerror(errno));
 		}
 	}
 

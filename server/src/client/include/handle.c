@@ -88,9 +88,9 @@ _file_complete(struct client *c, struct wait_file *wf, bool prepare)
 		retval = send_ok(c, wf->msg_id, checkpoint, NULL);
 	}
 #if DEEPDEBUG
-		xsyslog(LOG_DEBUG, "client[%p] file complete with ref=%u, "
+		xsyslog(LOG_DEBUG, "client[%"SEV_LOG"] file complete with ref=%u, "
 				" chunks=%u/%u (chunks_fail=%u) and status=%s",
-				(void*)c->cev, wf->ref,
+				c->cev->serial, wf->ref,
 				wf->chunks_ok, wf->chunks, wf->chunks_fail,
 				retval ? "Ok" : "Error");
 #endif
@@ -140,10 +140,10 @@ _handle_file_meta(struct client *c, unsigned type, Fep__FileMeta *msg)
 		string2guid(PSLEN(msg->file_guid), &_file);
 		string2guid(PSLEN(msg->revision_guid), &_rev);
 #if DEEPDEBUG
-		xsyslog(LOG_DEBUG, "client[%p] "
+		xsyslog(LOG_DEBUG, "client[%"SEV_LOG"] "
 				"FileMeta Prepare: enc_filename: \"%s\", "
 				"file_guid: \"%s\", revision_guid: \"%s\", key_len: %"PRIuPTR,
-				(void*)c->cev,
+				c->cev->serial,
 				msg->enc_filename, msg->file_guid, msg->revision_guid,
 				msg->key.len);
 #endif
@@ -210,10 +210,10 @@ _handle_file_meta(struct client *c, unsigned type, Fep__FileMeta *msg)
 	if (need_clear)
 		spq_getFileMeta_free(&fmeta);
 #if DEEPDEBUG
-	xsyslog(LOG_DEBUG, "client[%p] FileMeta: enc_filename: \"%s\", "
+	xsyslog(LOG_DEBUG, "client[%"SEV_LOG"] FileMeta: enc_filename: \"%s\", "
 			"file_guid: \"%s\", revision_guid: \"%s\", key_len: %"PRIuPTR" "
 			"hash: %"PRIu64,
-			(void*)c->cev,
+			c->cev->serial,
 			enc_filename, msg->file_guid, msg->revision_guid, key_len,
 			hash);
 #endif
@@ -305,8 +305,8 @@ _handle_end(struct client *c, unsigned type, Fep__End *end)
 	ws = query_id(c, &c->sid, end->session_id);
 	if (!ws) {
 #if DEEPDEBUG
-		xsyslog(LOG_DEBUG, "client[%p] End not found for id %"PRIu32,
-				(void*)c->cev, end->session_id);
+		xsyslog(LOG_DEBUG, "client[%"SEV_LOG"] End not found for id %"PRIu32,
+				c->cev->serial, end->session_id);
 #endif
 		return send_error(c, end->id, "Unexpected End message", -1);
 	}
@@ -317,9 +317,9 @@ _handle_end(struct client *c, unsigned type, Fep__End *end)
 		return send_error(c, end->id, "Internal error 1928", -1);
 	}
 #if DEEPDEBUG
-	xsyslog(LOG_DEBUG, "client[%p] close fd#%d, id %"PRIu32" "
+	xsyslog(LOG_DEBUG, "client[%"SEV_LOG"] close fd#%d, id %"PRIu32" "
 			"file meta hash: %"PRIu64,
-			(void*)c->cev, wx->fd, end->session_id, wf->id);
+			c->cev->serial, wx->fd, end->session_id, wf->id);
 #endif
 	/* размеры не совпали */
 	if (wx->filling != wx->size) {
@@ -380,8 +380,8 @@ _handle_ping(struct client *c, unsigned type, Fep__Ping *ping)
 	struct timeval tv;
 
 	if (gettimeofday(&tv, NULL) == -1) {
-		xsyslog(LOG_WARNING, "client[%p] gettimeofday() fail in pong: %s",
-				(void*)c->cev, strerror(errno));
+		xsyslog(LOG_WARNING, "client[%"SEV_LOG"] gettimeofday() fail in pong: %s",
+				c->cev->serial, strerror(errno));
 		return false;
 	}
 
@@ -400,9 +400,9 @@ _handle_ping(struct client *c, unsigned type, Fep__Ping *ping)
 			ping->sec = ping->sec - tv.tv_sec;
 			ping->usec = ping->usec - tv.tv_usec;
 			xsyslog(LOG_INFO,
-					"client[%p] client lives in far future: "
+					"client[%"SEV_LOG"] client lives in far future: "
 					"%"PRIu64".%06"PRIu32"s offset",
-					(void*)c->cev, ping->sec, ping->usec);
+					c->cev->serial, ping->sec, ping->usec);
 		} else if (ping->sec < tv.tv_sec - 300) {
 			if (ping->usec > tv.tv_usec) {
 				ping->sec++;
@@ -411,9 +411,9 @@ _handle_ping(struct client *c, unsigned type, Fep__Ping *ping)
 			ping->sec = tv.tv_sec - ping->sec;
 			ping->usec = tv.tv_usec - ping->sec;
 			xsyslog(LOG_INFO,
-					"client[%p] client living in the past: "
+					"client[%"SEV_LOG"] client living in the past: "
 					"%"PRIu64".%06"PRIu32"s offset",
-					(void*)c->cev, ping->sec, ping->usec);
+					c->cev->serial, ping->sec, ping->usec);
 		}
 		send_ping(c);
 		c->timed = true;
@@ -539,8 +539,8 @@ _read_ask__from_cache(struct client *c, Fep__ReadAsk *msg,
 	chs->file_offset = ci->offset;
 	c->cout = chs;
 #if DEEPDEBUG
-	xsyslog(LOG_DEBUG, "client[%p] -> ReadAsk id = %"PRIu64,
-			(void*)c->cev, msg->id);
+	xsyslog(LOG_DEBUG, "client[%"SEV_LOG"] -> ReadAsk id = %"PRIu64,
+			c->cev->serial, msg->id);
 #endif
 	{
 		Fep__OkRead rdok = FEP__OK_READ__INIT;
@@ -685,8 +685,8 @@ _handle_write_ask(struct client *c, unsigned type, Fep__WriteAsk *msg)
 	/* открытие дескриптора файла и создание структуры для ожидания данных */
 	if (mkdir(path, S_IRWXU) == -1 && errno != EEXIST) {
 		errmsg = "Internal error: cache not available";
-		xsyslog(LOG_WARNING, "client[%p] can't create path %s as cachedir: %s",
-				(void*)c->cev, path, strerror(errno));
+		xsyslog(LOG_WARNING, "client[%"SEV_LOG"] can't create path %s as cachedir: %s",
+				c->cev->serial, path, strerror(errno));
 	} else {
 		/* FIXME: на данный момент не понимаю как именно нужно сохранять
 			файл и связывать его с бд, возможны нехорошие варианты,
@@ -701,12 +701,12 @@ _handle_write_ask(struct client *c, unsigned type, Fep__WriteAsk *msg)
 
 		if (stat(path, &st) == -1 && errno != ENOENT) {
 			errmsg = "Internal error: prepare space failed";
-			xsyslog(LOG_WARNING, "client[%p] stat(%s) error: %s",
-					(void*)c->cev, path, strerror(errno));
+			xsyslog(LOG_WARNING, "client[%"SEV_LOG"] stat(%s) error: %s",
+					c->cev->serial, path, strerror(errno));
 		} else if (errno != ENOENT) {
 			if (unlink(path)) {
-				xsyslog(LOG_WARNING, "client[%p] can't unlink %s: %s",
-						(void*)c->cev, path, strerror(errno));
+				xsyslog(LOG_WARNING, "client[%"SEV_LOG"] can't unlink %s: %s",
+						c->cev->serial, path, strerror(errno));
 			}
 		}
 	}
@@ -755,8 +755,8 @@ _handle_write_ask(struct client *c, unsigned type, Fep__WriteAsk *msg)
 			close(wx.fd);
 		if (fid_ws)
 			free(fid_ws);
-		xsyslog(LOG_WARNING, "client[%p] open(%s) failed: %s",
-				(void*)c->cev, path, strerror(errno));
+		xsyslog(LOG_WARNING, "client[%"SEV_LOG"] open(%s) failed: %s",
+				c->cev->serial, path, strerror(errno));
 		return send_error(c, msg->id, errmsg, -1);
 	}
 	/* инициализируем polarssl */
@@ -772,8 +772,8 @@ _handle_write_ask(struct client *c, unsigned type, Fep__WriteAsk *msg)
 	ws->data = ws + 1;
 	memcpy(ws->data, &wx, sizeof(struct wait_xfer));
 #if DEEPDEBUG
-	xsyslog(LOG_DEBUG, "client[%p] fd#%d for %s [%"PRIu32"]",
-			(void*)c->cev, wx.fd, wx.path, wrok.session_id);
+	xsyslog(LOG_DEBUG, "client[%"SEV_LOG"] fd#%d for %s [%"PRIu32"]",
+			c->cev->serial, wx.fd, wx.path, wrok.session_id);
 #endif
 	/* инициализаци полей wait_file */
 	wait_id(c, &c->sid, wrok.session_id, ws);
@@ -943,9 +943,9 @@ _handle_query_revisions(struct client *c, unsigned type,
 	rs->next = c->rout;
 	c->rout = rs;
 #if DEEPDEBUG
-	xsyslog(LOG_DEBUG, "client[%p] -> QueryRevisions id = %"PRIu64
+	xsyslog(LOG_DEBUG, "client[%"SEV_LOG"] -> QueryRevisions id = %"PRIu64
 			" sid = %"PRIu32,
-			(void*)c->cev, msg->id, msg->session_id);
+			c->cev->serial, msg->id, msg->session_id);
 #endif
 	return send_ok(c, msg->id, C_OK_SIMPLE, NULL);
 }
@@ -976,9 +976,9 @@ _handle_query_devices(struct client *c, unsigned type, Fep__QueryDevices *msg)
 	c->rout = rs;
 
 #if DEEPDEBUG
-	xsyslog(LOG_DEBUG, "client[%p] -> QueryDevices id = %"PRIu64
+	xsyslog(LOG_DEBUG, "client[%"SEV_LOG"] -> QueryDevices id = %"PRIu64
 			" sid = %"PRIu32,
-			(void*)c->cev, msg->id, msg->session_id);
+			c->cev->serial, msg->id, msg->session_id);
 #endif
 	return send_ok(c, msg->id, C_OK_SIMPLE, NULL);
 }
@@ -1072,8 +1072,8 @@ _handle_xfer(struct client *c, unsigned type, Fep__Xfer *xfer)
 	ws = touch_id(c, &c->sid, xfer->session_id);
 	if (!ws) {
 #if DEEPDEBUG
-		xsyslog(LOG_DEBUG, "client[%p] xfer not found for id %"PRIu32,
-				(void*)c->cev, xfer->session_id);
+		xsyslog(LOG_DEBUG, "client[%"SEV_LOG"] xfer not found for id %"PRIu32,
+				c->cev->serial, xfer->session_id);
 #endif
 		return send_error(c, xfer->id, "Unexpected xfer message", -1);
 	}
@@ -1092,11 +1092,11 @@ _handle_xfer(struct client *c, unsigned type, Fep__Xfer *xfer)
 	}
 #if DEEPDEBUG
 	if (errmsg) {
-		xsyslog(LOG_DEBUG, "client[%p] got xfer fd#%d error: %s",
-				(void*)c->cev, wx->fd, strerror(errno));
+		xsyslog(LOG_DEBUG, "client[%"SEV_LOG"] got xfer fd#%d error: %s",
+				c->cev->serial, wx->fd, strerror(errno));
 	} else {
-		xsyslog(LOG_DEBUG, "client[%p] destroy xfer fd#%d because error",
-				(void*)c->cev, wx->fd);
+		xsyslog(LOG_DEBUG, "client[%"SEV_LOG"] destroy xfer fd#%d because error",
+				c->cev->serial, wx->fd);
 	}
 #endif
 	/*

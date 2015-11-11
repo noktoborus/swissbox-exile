@@ -25,8 +25,8 @@ send_ping(struct client *c)
 	wait_store_t *s;
 
 	if (gettimeofday(&tv, NULL) == -1) {
-		xsyslog(LOG_WARNING, "client[%p] gettimeofday() fail in ping: %s",
-				(void*)c->cev, strerror(errno));
+		xsyslog(LOG_WARNING, "client[%"SEV_LOG"] gettimeofday() fail in ping: %s",
+				c->cev->serial, strerror(errno));
 		return false;
 	}
 
@@ -39,16 +39,16 @@ send_ping(struct client *c)
 	}
 	s = calloc(1, sizeof(wait_store_t) + sizeof(struct timeval));
 	if (!s) {
-		xsyslog(LOG_WARNING, "client[%p] memory fail: %s",
-				(void*)c->cev, strerror(errno));
+		xsyslog(LOG_WARNING, "client[%"SEV_LOG"] memory fail: %s",
+				c->cev->serial, strerror(errno));
 		return false;
 	}
 	s->cb = (c_cb_t)c_pong_cb;
 	s->data = s + 1;
 	memcpy(s->data, &tv, sizeof(struct timeval));
 	if (!wait_id(c, &c->mid, ping.id, s)) {
-		xsyslog(LOG_WARNING, "client[%p] can't set filter for pong id %"PRIu64,
-				(void*)c->cev, ping.id);
+		xsyslog(LOG_WARNING, "client[%"SEV_LOG"] can't set filter for pong id %"PRIu64,
+				c->cev->serial, ping.id);
 		free(s);
 		return false;
 	}
@@ -65,8 +65,8 @@ send_error(struct client *c, uint64_t id, char *message, int remain)
 	if (remain > 0)
 		err.remain = (unsigned)remain;
 #if DEEPDEBUG
-	xsyslog(LOG_DEBUG, "client[%p] send error(%d): %s",
-			(void*)c->cev, remain, message);
+	xsyslog(LOG_DEBUG, "client[%"SEV_LOG"] send error(%d): %s",
+			c->cev->serial, remain, message);
 #endif
 	return send_message(c->cev, FEP__TYPE__tError, &err);
 }
@@ -74,7 +74,7 @@ send_error(struct client *c, uint64_t id, char *message, int remain)
 bool
 sendlog_error(struct client *c, uint64_t id, char *message, int remain)
 {
-	xsyslog(LOG_INFO, "client[%p] send_error: %s", (void*)c->cev, message);
+	xsyslog(LOG_INFO, "client[%"SEV_LOG"] send_error: %s", c->cev->serial, message);
 	return send_error(c, id, message, remain);
 }
 
