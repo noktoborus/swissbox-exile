@@ -17,7 +17,7 @@ DECLARE
 	_exc_str text;
 BEGIN
 	/* версия структуры */
-	SELECT INTO _struct_version_value '6';
+	SELECT INTO _struct_version_value '7';
 
 	/* проверка pgcrypto, на всякий случай
 	// уже не нужно, для примера
@@ -1926,7 +1926,8 @@ CREATE OR REPLACE FUNCTION chunk_info(_rootdir UUID,
 		r_address text,
 		r_driver text,
 		r_size integer,
-		r_offset integer
+		r_offset integer,
+		r_group integer
 	) AS $$
 DECLARE
 	_r record;
@@ -1955,6 +1956,7 @@ BEGIN
 	r_driver := _r.driver;
 	r_size := _r.size;
 	r_offset := _r.offset;
+	r_group := _r.location_group;
 	return next;
 END $$ LANGUAGE plpgsql;
 

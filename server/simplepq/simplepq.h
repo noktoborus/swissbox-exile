@@ -67,12 +67,13 @@ uint64_t spq_directory_create(char *username, uint64_t device_id,
 		struct spq_hint *hint);
 
 /* */
-/* информация о чанке: расположение, драйвер, принадлежность */
+/* информация о чанке: расположение, драйвер, размеры и группа */
 struct getChunkInfo {
 	char *address;
 	char *driver;
 	size_t size;
 	size_t offset;
+	uint64_t group; /* location_group в sql */
 };
 
 bool spq_getChunkInfo(char *username, uint64_t device_id,

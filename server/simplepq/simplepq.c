@@ -138,6 +138,11 @@ _spq_getChunkInfo(PGconn *pgc,
 		o->offset = strtoul(PQgetvalue(res, 0, 4), NULL, 10);
 	}
 
+	if ((_l = PQgetlength(res, 0, 5)) > 0) {
+		o->group = strtoull(PQgetvalue(res, 0, 5), NULL, 10);
+	}
+
+
 	PQclear(res);
 	return true;
 }
