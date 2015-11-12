@@ -1,6 +1,21 @@
 нужно:
 postgresql, start-stop-daemon
 
+сборка:
+	make debug
+	в случае возникновения ошибки
+		undefined reference to `sha256_free'
+	добавить в файл additional_flags строчку
+		 -DPOLARSSL_LESS_138
+
+конфигурирование БД:
+	1. psql < server/sql/struct.sql
+	2. в конфигурации сервера указать кооректный pg_connstr
+
+запуск без установки:
+	конфигурация в server/server.conf
+	cd server && bin/server
+
 установка:
 make install
 
@@ -15,4 +30,7 @@ make install
 в /etc/rsyslog.d/ добавить правило для фильтрации:
 
 if $programname contains "dodiboxd" then /var/log/dodiboxd.log
+
+
+Сообщения в логе о невозможности подключиться к redis не критичны.
 
