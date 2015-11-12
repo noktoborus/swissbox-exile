@@ -149,12 +149,9 @@ struct main
 
 };
 
-typedef void(*bus_result_cb)(struct almsg_parser *a, void *data);
-
 struct bus_result {
 	struct sev_ctx *cev;
-	bus_result_cb cb;
-	void *data;
+	size_t cev_serial;
 };
 
 typedef enum direction
@@ -180,9 +177,11 @@ int sev_recv(void *ctx, unsigned char *buf, size_t len);
  */
 bool sev_perhaps(void *ctx, int action);
 
+/* возвращает структуру клиента по его serial или NULL, если не найден */
+struct sev_ctx *cev_by_serial(struct main *pain, size_t serial);
+
 /* */
-bool bus_query(struct sev_ctx *cev, struct almsg_parser *a,
-		bus_result_cb cb, void *cb_data);
+bool bus_query(struct sev_ctx *cev, struct almsg_parser *a);
 bool redis_t(struct main *pain, const char *cmd, const char *ch,
 		const char *data, size_t size);
 void almsg2redis(struct main *pain, const char *cmd, const char *chan,

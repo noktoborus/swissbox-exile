@@ -871,8 +871,7 @@ redis_t(struct main *pain, const char *cmd, const char *ch, const char *data, si
  * тогда, когда не производится действий над подключениями
  */
 bool
-bus_query(struct sev_ctx *cev, struct almsg_parser *a,
-		bus_result_cb cb, void *cb_data)
+bus_query(struct sev_ctx *cev, struct almsg_parser *a)
 {
 	struct bus_result *br;
 	char *p = NULL;
@@ -900,8 +899,7 @@ bus_query(struct sev_ctx *cev, struct almsg_parser *a,
 		return false;
 	}
 	br->cev = cev;
-	br->cb = cb;
-	br->data = cb_data;
+	br->cev_serial = cev->serial;
 
 	/* отправка сообщения в redis */
 	almsg_format_buf(a, &p, &l);
@@ -1021,22 +1019,56 @@ timeout_cb(struct ev_loop *loop, ev_timer *w, int revents)
 			if (sev_it->fd == -1) {
 				server_bind(loop, sev_it);
 			}
-			/* чистка клиентов */
+			/* если клиентов не обслуживается на узле, то выходим */
 			if ((cev_it = sev_it->client) == NULL)
 				continue;
+			/* пускаем предупреждение, если у узла какой-то косяк
+			 * в связности структур
+			 */
 			if (cev_it->prev)
 				xsyslog(LOG_WARNING,
 						"client[%"SEV_LOG"] has left node %"SEV_LOG":%p",
 						cev_it->serial, cev_it->serial, (void*)cev_it->prev);
-			if (cev_it->isfree) {
-				if (cev_it == sev_it->client)
-					sev_it->client = client_free(cev_it);
-				else
-					client_free(cev_it);
+			{
+				void *_cev_next;
+				for(; cev_it; cev_it = _cev_next) {
+					_cev_next = cev_it->next;
+					/* клиент готов к отчистке */
+					if (cev_it->isfree) {
+						/* структура первая в списке */
+						if (cev_it == sev_it->client) {
+							sev_it->client = client_free(cev_it);
+						} else {
+							client_free(cev_it);
+						}
+					}
+				}
 			}
 
 		}
 	}
+}
+
+struct sev_ctx *
+cev_by_serial(struct main *pain, size_t serial)
+{
+	struct sev_main *sev = NULL;
+	struct sev_ctx *cev = NULL;
+	/* TODO */
+	for (sev = pain->sev; sev; sev = sev->next) {
+		for (cev = sev->client; cev; cev = cev->next) {
+			if (cev->serial == serial) {
+				if (cev->isfree) {
+					/* прекращаем цикл если клиент помечен для отчистки
+					 *
+					 */
+					break;
+				}
+				return cev;
+			}
+		}
+	}
+	return NULL;
 }
 
 const char *const
