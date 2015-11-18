@@ -16,9 +16,13 @@ static bool
 action_result_driver(struct main *pain, struct almsg_parser *alm, char *action)
 {
 	uint64_t hash = 0lu;
-	struct listNode *n;
-	struct bus_result *br;
+
+	struct listNode *n = NULL;
+	struct bus_result *br = NULL;
+	struct sev_ctx *cev = NULL;
+
 	const char *id = almsg_get(alm, PSLEN_S("id"), ALMSG_ALL);
+
 	if (!id) {
 		xsyslog(LOG_WARNING, "bus: result-driver has no id");
 		return false;
@@ -32,11 +36,23 @@ action_result_driver(struct main *pain, struct almsg_parser *alm, char *action)
 				hash);
 		return false;
 	}
-
+	/* хуита всё, запрос к драйверу должен делать менеджер кеша */
 	if ((br = n->data) != NULL) {
-		if (br->cb) {
-			br->cb(alm, br->data);
+		if (!(cev = cev_by_serial(pain, br->cev_serial))) {
+			list_free_node(n, free);
+			/* клиент потерялся раньше, чем пришёл ответ
+			 * штатная ситуация
+			 */
+			xsyslog(LOG_INFO, );
+
+			return false;
 		}
+		/* TODO */
+	}
+
+	/* ищём клиента в списке и впихиваем ему результат */
+	{
+
 	}
 
 	list_free_node(n, free);

@@ -452,45 +452,36 @@ _handle_want_sync(struct client *c, unsigned type, Fep__WantSync *msg)
 }
 
 struct _bus_data {
+	struct main *pain;
 	uint64_t msgid;
-	struct client *c;
+	/* указатель на клиента, использовать прямую ссылку
+	 * нельзя, потому что клиент может откинуться до того
+	 * как прийдёт ответ
+	 */
+	size_t client_serial;
 };
-
-static void
-_bus_result_driver(struct almsg_parser *a, struct _bus_data *bd)
-{
-	/* сразу получаем значения и высвобождаем кусочек памяти */
-	uint64_t msgid = bd->msgid;
-	struct client *c = bd->c;
-	free(bd);
-
-	if (!a) {
-		/* если a == NULL, значит запрос выпал
-		 * нужно сообщить клиенту ошибочку
-		 */
-		send_error(c, msgid, "timeout", -1);
-		return;
-	}
-
-	/* формируем запрос к файлу через драйвер и ответ клиенту */
-
-
-
-	/* TODO */
-}
 
 static inline bool
 _read_ask__from_driver(struct client *c, Fep__ReadAsk *msg,
 		struct getChunkInfo *ci)
 {
+	/*
+	 * 1. проверяем наличие в кеше
+	 * 2. пишем в канал что хотим информацию по файлу
+	 * 3. ставим в локальную очередь на ожидание ответа
+	 */
 	bool r = true;
 	struct almsg_parser alm;
-	/* FIXME: нужно больше фрагментации!
+	/*
 	 * альтернативный способ: глобальный массив,
 	 * синхронизация не нужна, т.к. всё выполняется синхронно в libev
 	 */
 	struct _bus_data *bd = calloc(1, sizeof(struct _bus_data));
 	almsg_init(&alm);
+
+	bd->pain = c->cev->pain;
+	bd->msgid = msg->id;
+	bd->client_serial = c->cev->serial;
 
 	almsg_insert(&alm, PSLEN_S("action"), PSLEN_S("query-driver"));
 	/*almsg_insert(&alm, PSLEN_S("query"), PSLEN_S("read-data"));*/
@@ -498,8 +489,7 @@ _read_ask__from_driver(struct client *c, Fep__ReadAsk *msg,
 	almsg_append(&alm, PSLEN_S("address"), PSLEN(ci->address));
 	almsg_append(&alm, PSLEN_S("driver"), PSLEN(ci->driver));
 
-	r = bus_query(c->cev, &alm,
-			(bus_result_cb)_bus_result_driver, (void*)bd);
+	r = bus_query(c->cev, &alm);
 	almsg_destroy(&alm);
 	return r;
 	/*return send_error(c, msg->id, "Not implement", -1);
@@ -512,6 +502,11 @@ static inline bool
 _read_ask__from_cache(struct client *c, Fep__ReadAsk *msg,
 		struct getChunkInfo *ci)
 {
+	/*
+	 * 1. открываем файл
+	 * 2. генерируем структуру
+	 * 3. уходим
+	 */
 	struct stat st;
 	struct chunk_send *chs;
 	int fd;
@@ -558,17 +553,13 @@ bool
 _handle_read_ask(struct client *c, unsigned type, Fep__ReadAsk *msg)
 {
 	/*
-	 * 1. поиск файла в бд
-	 * 2. формирование структуры для отправки файла или отсылка Error
-	 */
-	/*
 	 * 1. Отдача через драйвер
 	 * 1.1. получение информации из БД
 	 * 1.2. обращение к драйверу, если присутсвует
 	 * 1.3. ожидание ответа
 	 * 1.4. (при затянувшемся ожидании ответ Pendgin клиенту)
 	 * 1.5. ответ клиенту
-	 * 2. Отдача из кэша
+	 * 2. Отдача из входящего кэша
 	 * 2.1. получение информации из БД
 	 * 2.2. обращение к файловой системе
 	 * 2.3. ответ клиенту
