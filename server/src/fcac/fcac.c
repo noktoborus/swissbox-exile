@@ -11,6 +11,9 @@
 static inline bool
 _lock(struct fcac *r, struct fcac_node *n)
 {
+	/* FIXME: добавить обязательный лок и необязательный
+	 * при необязательном выполняетс mutex_trylock вместо mutex_lock()
+	 */
 	if (r->thread_safe) {
 		if (!pthread_mutex_lock(&r->lock)) {
 			/* если указан узел, то нужно освободить
@@ -153,6 +156,33 @@ fcac_set(struct fcac *r, enum fcac_key key, ...)
 			r->path_len = (size_t)_len;
 		}
 		break;
+	case FCAC_TIME_EXPIRE:
+		{
+			time_t *_time = va_arg(ap, time_t*);
+			if (!_time) {
+				xsyslog(LOG_WARNING,
+						"fcac error: FCAC_TIME_EXPIRE value must be != NULL");
+				rval = false;
+				break;
+			}
+			/* паранойя: вдруг time_t страшная структура? */
+			memcpy(&r->expire, _time, sizeof(time_t));
+
+		}
+		break;
+	case FCAC_MEM_BLOCK_SIZE:
+		{
+			unsigned long _size = va_arg(ap, unsigned long);
+			if (_size <= 1) {
+				xsyslog(LOG_WARNING,
+						"fcac error: set(FCAC_MEM_BLOCK_SIZE)"
+						" value must be > 1 (obtain: %lu)", _size);
+				rval = false;
+				break;
+			}
+			r->mem_block_size = (size_t)_size;
+		}
+		break;
 	default:
 		break;
 	};
@@ -213,6 +243,11 @@ fcac_destroy(struct fcac *r)
 			pthread_mutex_destroy(&r->lock);
 		}
 	}
+
+	if (r->path)
+		free(r->path);
+
+	memset(r, 0, sizeof(*r));
 }
 
 /* *** */
@@ -348,9 +383,137 @@ fcac_close(struct fcac_ptr *p)
 	}
 }
 
-bool
+enum fcac_ready
 fcac_is_ready(struct fcac_ptr *p)
 {
+	enum fcac_ready rval = FCAC_CLOSED;
+	/* FIXME: нужна ли здесь блокировка?
+	 * даже при обращении к указателю может возникнуть ситуация
+	 * в которой p->n будет в неизвестном состоянии
+	 * (если операции присвоения значения не атомарны)
+	 */
+
+	/* TODO: по плану, в эту процедуре планируется дуплицировать
+	 * дескрипторы, хуипторы и прочее
+	 */
+
+	if (p->n && _lock(p->n->r, p->n)) {
+
+		if (!p->n->finilized)
+			rval = FCAC_NO_READY;
+
+		rval = FCAC_READY;
+		_unlock(p->n->r, p->n);
+	}
+	return rval;
+}
+
+
+size_t
+fcac_read(struct fcac_ptr *p, uint8_t *buf, size_t size)
+{
+	/* файловый дескриптор как приватный ресурс
+	 * с чтением из памяти сложнее, должен ссылаться
+	 */
+
+	if (p->fd != -1) {
+		/* если файловый дескриптор уже готовый, то игнорируем всё,
+		 * читаем по нему
+		 */
+		ssize_t _r = 0;
+		if ((_r = read(p->fd, buf, size)) == -1) {
+			/* чтение завершилось неудачно, освобождаем ресурс */
+			xsyslog(LOG_WARNING, "fcac error: read fd#%d failed: %s",
+					p->fd, strerror(errno));
+			close(p->fd);
+			p->fd = -1;
+			return 0;
+		} else {
+			p->offset += (size_t)_r;
+			return (size_t)_r;
+		}
+	} else {
+		size_t _r = 0u;
+		/* проверка типа узла и чтение из памяти
+		 * необходимо выставлять локи и прочее
+		 */
+		if (!_lock(p->n->r, p->n))
+			return false;
+
+		if (p->n->type == FCAC_MEMORY) {
+			/* всё остальные типы нас не инетересуют
+			 * попасть сюда с типом FCAC_FILE не должны,
+			 * как и с FCAC_UNKNOWN (отсеивается на стадии fcac_is_ready())
+			 */
+			if (p->n->s.memory.size < p->offset) {
+				xsyslog(LOG_WARNING, "fcac error: memory pointer invalid,"
+						" have size: %"PRIuPTR", wanted offset: %"PRIuPTR,
+						p->n->s.memory.size, p->offset);
+			} else {
+				_r = p->n->s.memory.size - p->offset;
+				memcpy(buf, p->n->s.memory.buf + p->offset, _r);
+				p->offset += _r;
+			}
+		}
+
+		_unlock(p->n->r, p->n);
+		return _r;
+	}
+}
+
+bool
+fcac_set_ready(struct fcac_ptr *p)
+{
+	bool rval = false;
+
+	if (_lock(p->n->r, p->n)) {
+		if (p->n->type != FCAC_UNKNOWN) {
+			/* если тип всё ещё FCAC_UNKNOWN,
+			 * то ни какой готовность быть не может
+			 */
+			p->n->finilized = true;
+			rval = true;
+		}
+		if (p->n->type == FCAC_FILE) {
+			/* если открыто как файл, то нужно закрыть дескрипторв,
+			 * т.к. все указатели имеют свой
+			 */
+			close(p->n->s.file.fd);
+			p->n->s.file.fd = -1;
+
+		}
+		_unlock(p->n->r, p->n);
+	}
+	return rval;
+}
+
+size_t
+fcac_write(struct fcac_ptr *p, uint8_t *buf, size_t size)
+{
 	/* TODO */
+	size_t max_count = 0u;
+	size_t max_size = 0u;
+	size_t count = 0u;
+	size_t block_size = 0u;
+
+	if (!_lock(p->n->r, p->n)) {
+		return 0u;
+	}
+
+	/* кеширование полезных значений
+	 * при блокировке узла происходит освобождение корня,
+	 * потому нужно ещё раз заблокировать корень
+	 * FIXME: слишком много блокировок
+	 */
+	if (_lock(p->n->r, NULL)) {
+		max_count = p->n->r->mem_count_max;
+		max_size = p->n->r->mem_block_max;
+		block_size = p->n->r->mem_block_size;
+		count = p->n->r->count;
+
+		_unlock(p->n->r, NULL);
+	}
+
+	_unlock(p->n->r, p->n);
 }
 

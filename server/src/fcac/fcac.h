@@ -39,8 +39,18 @@ enum fcac_key {
 	/*
 	 * через сколько секунд считать структуру устаревшей
 	 * (после последнего закрытия)
+	 * аргументы:
+	 *  time_t *time
 	 */
-	FCAC_TIME_EXPIRE = 4
+	FCAC_TIME_EXPIRE = 4,
+	/*
+	 * размер размечаемого блока памяти для записи в FCAC_MEMORY
+	 * на это значение каждый раз увеличивается буфер,
+	 * но не более FCAC_MAX_MEM_SIZE
+	 * аргументы:
+	 *  unsigned long size
+	 */
+	FCAC_MEM_BLOCK_SIZE = 5
 };
 
 enum fcac_type {
@@ -96,6 +106,11 @@ struct fcac {
 	size_t mem_count_max;
 	/* максимальный размер элемента в памяти */
 	size_t mem_block_max;
+	/* размер начального размера и размера блока для реалокации
+	 * при записи в FCAC_MEMORY */
+	size_t mem_block_size;
+	/* учёт тухлятины */
+	time_t expire;
 	/* путь к файловому кешу */
 	char *path;
 	size_t path_len;
@@ -161,6 +176,9 @@ bool fcac_set(struct fcac *r, enum fcac_key key, ...);
  */
 bool fcac_tick(struct fcac *r);
 
+/* закрытие узла
+ * все указатели (fcac_ptr) становятся штатно невалидными
+ */
 bool fcac_destroy(struct fcac *r);
 
 /* *** общее */
@@ -176,7 +194,15 @@ bool fcac_close(struct fcac_ptr *p);
 /* *** чтение */
 
 /* проверка готовности на чтения узла кеша */
-bool fcac_is_ready(struct fcac_ptr *p);
+enum fcac_ready{
+	/* готово к чтению */
+	FCAC_READY = 0,
+	/* не готово к чтению */
+	FCAC_NO_READY = 1,
+	/* не готово и узел в кеше умер (кривой указатель?) */
+	FCAC_CLOSED = 2,
+};
+enum fcac_ready fcac_is_ready(struct fcac_ptr *p);
 
 /* чтение узла в буфер buf */
 size_t fcac_read(struct fcac_ptr *p, uint8_t *buf, size_t size);
