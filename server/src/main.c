@@ -153,15 +153,26 @@ client_free(struct sev_ctx *cev)
 	/* освобождение структуры клиента */
 	{
 		struct sev_ctx *ocev = NULL;
-		if (cev->prev) {
-			cev->prev->next = cev->next;
-			ocev = cev->prev;
-		}
+
 		if (cev->next) {
 			cev->next->prev = cev->prev;
-			if (!ocev)
-				ocev = cev->next;
+			ocev = cev->next;
 		}
+
+		if (cev->prev) {
+			cev->prev->next = cev->next;
+			if (!ocev)
+				ocev = cev->prev;
+		}
+
+		xsyslog(LOG_DEBUG, "client free(%p):%"PRIu64
+				" [prev: %p:%"PRIu64", next: %p:%"PRIu64"]"
+				", return(%p):%"PRIu64,
+				(void*)cev, cev->serial,
+				(void*)cev->prev, (cev->prev ? cev->prev->serial : 0lu),
+				(void*)cev->next, (cev->next ? cev->next->serial : 0lu),
+				(void*)ocev, (ocev ? ocev->serial : 0lu));
+
 		free(cev);
 		return ocev;
 	}
@@ -241,6 +252,7 @@ client_alloc(struct ev_loop *loop, int fd, struct sev_ctx *next)
 				next->prev->next = cev;
 				cev->prev = next->prev;
 			}
+			next->prev = cev;
 			xsyslog(LOG_DEBUG,
 					"client[%"SEV_LOG"] "
 					"init(fd#%d) prev: %"SEV_LOG":%p, next: %"SEV_LOG":%p",
@@ -1015,6 +1027,7 @@ timeout_cb(struct ev_loop *loop, ev_timer *w, int revents)
 		}
 		/* обход узлов */
 		for (; sev_it; sev_it = sev_it->next) {
+			void *_cev_next = NULL;
 			/* ребиндим сокет, если не забинден */
 			if (sev_it->fd == -1) {
 				server_bind(loop, sev_it);
@@ -1024,27 +1037,25 @@ timeout_cb(struct ev_loop *loop, ev_timer *w, int revents)
 				continue;
 			/* пускаем предупреждение, если у узла какой-то косяк
 			 * в связности структур
-			 */
 			if (cev_it->prev)
 				xsyslog(LOG_WARNING,
 						"client[%"SEV_LOG"] has left node %"SEV_LOG":%p",
 						cev_it->serial, cev_it->serial, (void*)cev_it->prev);
-			{
-				void *_cev_next;
-				for(; cev_it; cev_it = _cev_next) {
-					_cev_next = cev_it->next;
-					/* клиент готов к отчистке */
-					if (cev_it->isfree) {
-						/* структура первая в списке */
-						if (cev_it == sev_it->client) {
-							sev_it->client = client_free(cev_it);
-						} else {
-							client_free(cev_it);
-						}
+			 */
+			/* обход списка */
+			for(; cev_it; cev_it = _cev_next) {
+				/* клиент готов к отчистке */
+				if (cev_it->isfree) {
+					/* структура первая в списке */
+					if (cev_it == sev_it->client) {
+						_cev_next = (sev_it->client = client_free(cev_it));
+					} else {
+						_cev_next = client_free(cev_it);
 					}
+				} else {
+					_cev_next = cev_it->next;
 				}
 			}
-
 		}
 	}
 }
@@ -1147,7 +1158,7 @@ pidfile_accept(struct main *pain)
 	pid_t pid = 0u;
 	pid_t spid = 0u;
 	int fd;
-	char bf[64];
+	char bf[64] = {0};
 	/* ок, если pidfile не назначен */
 	if (!*pain->options.pidfile)
 		return true;
