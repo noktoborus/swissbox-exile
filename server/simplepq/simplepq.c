@@ -1025,7 +1025,7 @@ _spq_initial_user(PGconn *pgc, struct spq_InitialUser *iu,
 
 	/* r_mark */
 	if ((ml = PQgetlength(res, 0, 1)) != 0) {
-		m = PQgetvalue(res, 0, 0);
+		m = PQgetvalue(res, 0, 1);
 		string2guid(m, ml, &iu->mark);
 	} else {
 		string2guid(NULL, 0u, &iu->mark);
