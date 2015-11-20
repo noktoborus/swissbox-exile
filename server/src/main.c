@@ -299,7 +299,7 @@ sev_send(void *ctx, const unsigned char *buf, size_t size)
 
 	if (cev->send.size - cev->send.len < size) {
 		size_t _bsize = cev->send.len + size;
-		uint8_t *_btmp = realloc(cev->send.buf, cev->send.len);
+		uint8_t *_btmp = realloc(cev->send.buf, _bsize);
 		/* если размер буфера меньше запрашиваемого, то нужно увеличить размер
 		 */
 		if (!_btmp) {
