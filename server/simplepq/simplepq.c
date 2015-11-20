@@ -1031,6 +1031,7 @@ _spq_initial_user(PGconn *pgc, struct spq_InitialUser *iu,
 		string2guid(NULL, 0u, &iu->mark);
 	}
 
+	PQclear(res);
 	return true;
 }
 
