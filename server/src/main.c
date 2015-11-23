@@ -1260,10 +1260,10 @@ main(int argc, char *argv[])
 		xsyslog(LOG_INFO, "read config: %s", cfgpath);
 		cfg_parse(cfg, cfgpath);
 		/* небольшие проверки */
-		if (pg_poolsize < 10) {
+		if (pg_poolsize <= SPQ_DEFAULT_POOLSIZE) {
 			xsyslog(LOG_WARNING,
 					"ignore cfg's pg_poolsize value"
-					" (%ld < "S(SPQ_DEFAULT_POOLSIZE)")",
+					" (%ld <= "S(SPQ_DEFAULT_POOLSIZE)")",
 					pg_poolsize);
 			pg_poolsize = SPQ_DEFAULT_POOLSIZE;
 		}
