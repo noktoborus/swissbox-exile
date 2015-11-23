@@ -4,6 +4,10 @@
 #include <arpa/inet.h>
 #include <stdlib.h>
 #include <stdio.h>
+#include <string.h>
+#include <errno.h>
+#include <sys/types.h>
+#include <sys/stat.h>
 #include "utils.h"
 
 
@@ -100,3 +104,39 @@ saddr_char(char *str, size_t size, sa_family_t family, struct sockaddr *sa)
 		break;
 	}
 }
+
+int
+mkpath(const char *path, mode_t mode)
+{
+	char rpath[PATH_MAX] = {0};
+	const char *base;
+	char *end;
+	size_t len;
+	int rval = 0;
+
+	base = path;
+	while ((end = strchr(base, '/')) != NULL) {
+		len = end - base;
+		if (len > 0) {
+			len = end - path;
+			memcpy(rpath, path, len);
+			rpath[len] = '\0';
+			if ((rval = mkdir(rpath, mode)) == -1) {
+				if (errno == EEXIST) {
+					rval = 0;
+				} else {
+					break;
+				}
+			}
+		}
+		base = ++end;
+	}
+	/* обработка хвоста */
+	if (*base && !rval) {
+		if ((rval = mkdir(path, mode)) == -1 && errno == EEXIST)
+			rval = 0;
+	}
+
+	return rval;
+}
+

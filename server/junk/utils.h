@@ -37,6 +37,9 @@ uint32_t hash_pjw(const char *str, size_t size);
 size_t hex2bin(const char *hex, size_t hex_len, uint8_t *binary, size_t bin_len);
 size_t bin2hex(uint8_t *binary, size_t bin_len, char *string, size_t str_len);
 
+/* рекурсивная реализация mkdir */
+int mkpath(const char *path, mode_t mode);
+
 #define SADDR_MIN 48
 /*
  * print port and host to str with lenght size
