@@ -1202,6 +1202,7 @@ main(int argc, char *argv[])
 	cfg_t *cfg;
 	char *bindline = strdup("0.0.0.0:5151");
 	char *pg_connstr = strdup("dbname = fepserver");
+	long pg_poolsize = 10;
 
 	memset(&pain, 0, sizeof(struct main));
 	{
@@ -1225,6 +1226,7 @@ main(int argc, char *argv[])
 		cfg_opt_t opt[] = {
 			CFG_SIMPLE_STR("bind", &bindline),
 			CFG_SIMPLE_STR("pg_connstr", &pg_connstr),
+			CFG_SIMPLE_INT("pg_poolsize", &pg_poolsize),
 			CFG_SIMPLE_STR("redis_chan", &pain.options.redis_chan),
 			CFG_SIMPLE_STR("server_name", &pain.options.name),
 			CFG_SIMPLE_STR("cache_dir", &pain.options.cache_dir),
@@ -1257,10 +1259,18 @@ main(int argc, char *argv[])
 		snprintf(cfgpath, PATH_MAX, "/etc/%s.conf", _bname);
 		xsyslog(LOG_INFO, "read config: %s", cfgpath);
 		cfg_parse(cfg, cfgpath);
+		/* небольшие проверки */
+		if (pg_poolsize < 10) {
+			xsyslog(LOG_WARNING,
+					"ignore cfg's pg_poolsize value"
+					" (%ld < "S(SPQ_DEFAULT_POOLSIZE)")",
+					pg_poolsize);
+			pg_poolsize = SPQ_DEFAULT_POOLSIZE;
+		}
 	}
 	if ((_r = pidfile_accept(&pain)) && (_r = chuser(&pain))) {
 		xsyslog(LOG_DEBUG, "pg: \"%s\"", pg_connstr);
-		spq_open(10, pg_connstr);
+		spq_open(SPQ_DEFAULT_POOLSIZE, pg_connstr);
 		/* всякая ерунда с бд */
 		if ((_r = spq_create_tables()) != false) {
 			loop = EV_DEFAULT;
@@ -1300,6 +1310,8 @@ main(int argc, char *argv[])
 			}
 			if (pain.sev) {
 				ev_set_userdata(loop, (void*)&pain);
+				/* изменение размера пула подключений */
+				spq_resize((unsigned)pg_poolsize);
 				/* выход происходит при остановке всех evio в лупе */
 				ev_run(loop, 0);
 				/* чистка серверных сокетов */

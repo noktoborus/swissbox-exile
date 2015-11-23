@@ -19,6 +19,8 @@
 #include <stdbool.h>
 #include <pthread.h>
 
+#define SPQ_DEFAULT_POOLSIZE 3
+
 struct evptr {
 	union {
 		struct ev_io io;

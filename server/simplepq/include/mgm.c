@@ -277,6 +277,9 @@ spq_resize(unsigned pool)
 	if (pool == _spq.pool)
 		return;
 	xsyslog(LOG_INFO, "resize pool: %u -> %u", _spq.pool, pool);
+	pthread_mutex_lock(&_spq.mutex);
+	_spq.pool = pool;
+	pthread_mutex_unlock(&_spq.mutex);
 }
 
 void
