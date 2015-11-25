@@ -1,9 +1,11 @@
 /* vim: ft=c ff=unix fenc=utf-8
  * file: fcac/fcac.c
  */
-#include "fcac/fcac.h"
+#include "fcac.h"
 #include "junk/xsyslog.h"
 #include <stdarg.h>
+#include <libgen.h>
+#include <fcntl.h>
 #include <errno.h>
 #include <string.h>
 #include <unistd.h>
@@ -108,6 +110,7 @@ fcac_init(struct fcac *r, bool thread_safe)
 		pthread_mutex_init(&r->lock, NULL);
 		r->thread_safe = true;
 	}
+	return true;
 }
 
 bool
@@ -248,6 +251,7 @@ fcac_destroy(struct fcac *r)
 		free(r->path);
 
 	memset(r, 0, sizeof(*r));
+	return true;
 }
 
 /* *** */
@@ -381,6 +385,7 @@ fcac_close(struct fcac_ptr *p)
 		p->n->r->statistic.closed_ptr++;
 		_unlock(p->n->r, NULL);
 	}
+	return true;
 }
 
 enum fcac_ready
@@ -399,7 +404,7 @@ fcac_is_ready(struct fcac_ptr *p)
 
 	if (p->n && _lock(p->n->r, p->n)) {
 
-		if (!p->n->finilized)
+		if (!p->n->finalized)
 			rval = FCAC_NO_READY;
 
 		rval = FCAC_READY;
@@ -471,7 +476,7 @@ fcac_set_ready(struct fcac_ptr *p)
 			/* если тип всё ещё FCAC_UNKNOWN,
 			 * то ни какой готовность быть не может
 			 */
-			p->n->finilized = true;
+			p->n->finalized = true;
 			rval = true;
 		}
 		if (p->n->type == FCAC_FILE) {
@@ -487,33 +492,211 @@ fcac_set_ready(struct fcac_ptr *p)
 	return rval;
 }
 
+/*
+ * формирование пути файла на основе его id
+ * base: базовый путь к кешу
+ * dst и dstlen: массив и максимальный размер массива для
+ *  полученного значения
+ * id: идентификатор файла
+ */
+static size_t
+_format_filename(const char *base, char *dst, size_t dstlen, uint64_t id)
+{
+	int rval = 0;
+
+	if (!base) {
+		base = "fcac_data";
+	}
+
+	if ((rval = snprintf(dst, dstlen, "%s/%"PRIu64, base, id)) < 0) {
+		xsyslog(LOG_WARNING, "fcac error: snprintf() failed");
+		rval = 0;
+	}
+
+	return (size_t)rval;
+}
+
+/* перевод в тип file */
+static bool
+_fcac_to_file(struct fcac_node *n)
+{
+	char filepath[PATH_MAX];
+	char dirpath[sizeof(filepath)];
+	int fd = -1;
+	size_t offset = 0u;
+
+	if (n->type == FCAC_FILE) {
+		/* вроде как желание уже исполнено, уже файл */
+		return true;
+	}
+
+	_format_filename(n->r->path, filepath, sizeof(filepath), n->id);
+	memcpy(dirpath, filepath, sizeof(dirpath));
+
+	dirname(dirpath);
+
+	if (!mkpath(dirpath, S_IRWXU)) {
+		xsyslog(LOG_WARNING, "fcac error: mkdir(%s) -> %s",
+				dirpath, strerror(errno));
+		return false;
+	}
+
+	fd = open(filepath, O_CREAT | O_TRUNC | O_RDWR, S_IRUSR | S_IWUSR);
+	if (fd == -1) {
+		xsyslog(LOG_WARNING, "fcac error: open(%s) -> %s",
+				filepath, strerror(errno));
+		return false;
+	}
+
+	if (n->type == FCAC_MEMORY && n->s.memory.offset) {
+		/* если оно в памяти, то нужно перетащить на диск */
+		ssize_t _wr;
+		if ((_wr = write(fd, n->s.memory.buf, n->s.memory.offset)) == -1) {
+			xsyslog(LOG_WARNING,
+					"fcac error: migration write(%"PRIuPTR") -> %s",
+					n->s.memory.offset, strerror(errno));
+			close(fd);
+			unlink(filepath);
+			return false;
+		}
+
+		offset += _wr;
+		if (_wr != n->s.memory.offset) {
+			/* на всякий случай делаем две попытки произвести запись,
+			 * возвращаем ошибку, в случае неудачи
+			 */
+			size_t __s;
+			xsyslog(LOG_WARNING,
+					"fcac error:"
+					" writed %"PRIdPTR", expected %"PRIuPTR", retry",
+					_wr, n->s.memory.offset);
+			__s = n->s.memory.offset - _wr;
+			if ((_wr = write(fd, n->s.memory.buf + _wr, __s)) == -1) {
+				xsyslog(LOG_WARNING,
+						"fcac error: migration write(%"PRIuPTR") -> %s",
+						__s, strerror(errno));
+				close(fd);
+				unlink(filepath);
+				return false;
+			}
+			/* FIXME: по нормальному это нужно как-то разнести по libev loop */
+			offset += _wr;
+			if (_wr != __s) {
+				xsyslog(LOG_WARNING,
+						"fcac error:"
+						" writed %"PRIdPTR", expected %"PRIuPTR", exit",
+						_wr, n->s.memory.offset);
+				unlink(filepath);
+				return false;
+			}
+		}
+		free(n->s.memory.buf);
+	}
+	/* инициализация значений */
+	n->type = FCAC_FILE;
+	/* глубоко пофиг, если strdup() вернул NULL,
+	 * тогда при завершении записи не закрываем дескриптор,
+	 * а потом делаем dup() на него
+	 */
+	n->s.file.path = strdup(filepath);
+	n->s.file.offset = offset;
+	n->s.file.fd = fd;
+
+	return true;
+}
+
 size_t
 fcac_write(struct fcac_ptr *p, uint8_t *buf, size_t size)
 {
-	/* TODO */
 	size_t max_count = 0u;
 	size_t max_size = 0u;
 	size_t count = 0u;
 	size_t block_size = 0u;
 
+	size_t rval = 0u;
+	bool allow = true;
+
 	if (!_lock(p->n->r, p->n)) {
 		return 0u;
 	}
 
-	/* кеширование полезных значений
-	 * при блокировке узла происходит освобождение корня,
-	 * потому нужно ещё раз заблокировать корень
-	 * FIXME: слишком много блокировок
-	 */
+	if (p->n->finalized) {
+		xsyslog(LOG_WARNING, "fcac error: write to finalized structure");
+		_unlock(p->n->r, p->n);
+		return 0u;
+	}
+
 	if (_lock(p->n->r, NULL)) {
+		/* кеширование полезных значений
+		 * при блокировке узла происходит освобождение корня,
+		 * потому нужно ещё раз заблокировать корень
+		 * FIXME: слишком много блокировок
+		 */
 		max_count = p->n->r->mem_count_max;
 		max_size = p->n->r->mem_block_max;
 		block_size = p->n->r->mem_block_size;
 		count = p->n->r->count;
-
 		_unlock(p->n->r, NULL);
+
+		/* проверка значений */
+		if (p->n->type == FCAC_UNKNOWN) {
+			/* подготовка, выбор типа */
+			if (size <= max_size && count < max_count) {
+				p->n->type = FCAC_MEMORY;
+			} else {
+				allow = _fcac_to_file(p->n);
+			}
+		} else if (p->n->type == FCAC_MEMORY) {
+			/* проверка на выход за допустимые значения */
+			if (p->n->s.memory.offset + size > max_size) {
+				allow = _fcac_to_file(p->n);
+			}
+		}
 	}
 
+	if (allow) {
+		/* инициализация записи прошла, осталось произвести запись */
+		if (p->n->type == FCAC_FILE) {
+			/* с файлом всё просто */
+			ssize_t _wr = 0;
+			if ((_wr = write(p->n->s.file.fd, buf, size)) == -1) {
+				xsyslog(LOG_WARNING, "fcac error: write(%"PRIuPTR") -> %s",
+						size, strerror(errno));
+			} else {
+				rval = (size_t)_wr;
+				p->n->s.file.offset += rval;
+			}
+		} else if (p->n->type == FCAC_MEMORY) {
+			/* для памяти нужно выделить кусок и положить туда */
+			if (p->n->s.memory.offset + size > p->n->s.memory.size) {
+				uint8_t *_t = NULL;
+				size_t _s;
+				/* расчёт будущего размера
+				 * сначала выясняем количество необходимых блоков
+				 */
+				_s = ((p->n->s.memory.offset + size) / block_size) + 1;
+				/* и вычисляем размер блока под данные */
+				_s *= block_size;
+				_t = realloc(p->n->s.memory.buf, _s);
+				if (!_t) {
+					xsyslog(LOG_WARNING,
+							"fcac error: realloc(%"PRIuPTR") -> %s",
+						    _s, strerror(errno));
+				} else {
+					p->n->s.memory.buf = _t;
+					p->n->s.memory.size = _s;
+					/* длина записываемых данных
+					 * может оказаться чуть короче, чем планировалось
+					 */
+					_s = _s - p->n->s.memory.offset;
+					rval = MIN(_s, size);
+					memcpy(&p->n->s.memory.buf[p->n->s.memory.offset], buf, rval);
+					p->n->s.memory.offset += rval;
+				}
+			}
+		}
+	}
 	_unlock(p->n->r, p->n);
+	return rval;
 }
 

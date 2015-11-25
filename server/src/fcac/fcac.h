@@ -71,7 +71,7 @@ struct fcac_ptr {
 
 struct fcac_node {
 	enum fcac_type type;
-	bool finilized;
+	bool finalized;
 
 	time_t last;
 
@@ -80,13 +80,13 @@ struct fcac_node {
 	union {
 		struct {
 			uint8_t *buf;
-			size_t offset;
-			size_t size;
+			size_t offset; /* насколько заполнен буфер */
+			size_t size; /* размер буфера */
 		} memory;
 		struct {
 			int fd;
 			char *path;
-			size_t offset;
+			size_t offset; /* сколько байт в файл уже положили */
 		} file;
 	} s;
 
