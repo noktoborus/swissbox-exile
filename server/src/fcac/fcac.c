@@ -435,14 +435,14 @@ fcac_is_ready(struct fcac_ptr *p)
 					xsyslog(LOG_WARNING, "fcac error: open(%s) -> %s",
 							p->n->s.file.path, strerror(errno));
 				}
-			} else if (p->n->s.id != -1) {
+			} else if (p->n->s.file.fd != -1) {
 				/* непредсказуемая часть,
 				 * вероятность появления чудесных ситуациях крайне велика
 				 */
-				if ((p->fd = dup(p->n->s.id)) == -1) {
+				if ((p->fd = dup(p->n->s.file.fd)) == -1) {
 					rval = FCAC_NO_READY;
 					xsyslog(LOG_WARNING, "fcac error: dup(%d) -> %s",
-							p->n->s.id, strerror(errno));
+							p->n->s.file.fd, strerror(errno));
 				} else {
 					/* бессмысленно делать lseek,
 					 * т.к. offset для всех dup()'нутых
