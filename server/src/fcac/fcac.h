@@ -62,6 +62,8 @@ enum fcac_type {
 struct fcac_ptr {
 	struct fcac_node *n;
 
+	bool ready;
+
 	int fd;
 	size_t offset;
 

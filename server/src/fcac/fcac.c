@@ -3,6 +3,7 @@
  */
 #include "fcac.h"
 #include "junk/xsyslog.h"
+#include <sys/types.h>
 #include <stdarg.h>
 #include <libgen.h>
 #include <fcntl.h>
@@ -398,18 +399,65 @@ fcac_is_ready(struct fcac_ptr *p)
 	 * (если операции присвоения значения не атомарны)
 	 */
 
-	/* TODO: по плану, в эту процедуре планируется дуплицировать
-	 * дескрипторы, хуипторы и прочее
-	 */
-
-	if (p->n && _lock(p->n->r, p->n)) {
-
-		if (!p->n->finalized)
-			rval = FCAC_NO_READY;
-
-		rval = FCAC_READY;
-		_unlock(p->n->r, p->n);
+	if (p->fd != -1) {
+		/* если у нас уже есть захваченный ресурс, то лезть
+		 * в глубины нет смысла
+		 */
+		return FCAC_READY;
 	}
+
+	if (!p->n) {
+		/* вероятнее что у нас FCAC_MEMORY или FCAC_UNKNOWN
+		 * и структура отвались, потому возвращаем
+		 * FCAC_CLOSED
+		 */
+		return FCAC_CLOSED;
+	}
+
+	if (!_lock(p->n->r, p->n))
+		return FCAC_NO_READY;
+
+	if (!p->n->finalized || p->n->type == FCAC_UNKNOWN) {
+		/* вообще, если вдруг p->n->finalized */
+		rval = FCAC_NO_READY;
+	} else {
+		rval = FCAC_READY;
+		/* структура готова, можно подключаться к ней */
+		if (p->n->type == FCAC_MEMORY) {
+			/* сделать ссылку на область */
+			p->offset = 0u;
+		} else if (p->n->type == FCAC_FILE) {
+			p->offset = 0u;
+			/* открыть файл или дюпнуть дескриптор */
+			if (p->n->s.file.path) {
+				if ((p->fd = open(p->n->s.file.path, O_RDONLY)) == -1) {
+					rval = FCAC_NO_READY;
+					xsyslog(LOG_WARNING, "fcac error: open(%s) -> %s",
+							p->n->s.file.path, strerror(errno));
+				}
+			} else if (p->n->s.id != -1) {
+				/* непредсказуемая часть,
+				 * вероятность появления чудесных ситуациях крайне велика
+				 */
+				if ((p->fd = dup(p->n->s.id)) == -1) {
+					rval = FCAC_NO_READY;
+					xsyslog(LOG_WARNING, "fcac error: dup(%d) -> %s",
+							p->n->s.id, strerror(errno));
+				} else {
+					/* бессмысленно делать lseek,
+					 * т.к. offset для всех dup()'нутых
+					 * дескрипторов одинаков
+					 */
+					lseek(p->fd, 0u, SEEK_SET);
+				}
+			} else {
+				xsyslog(LOG_WARNING, "fcac error: can't attach to `file`");
+				rval = FCAC_NO_READY;
+			}
+		}
+	}
+	_unlock(p->n->r, p->n);
+
 	return rval;
 }
 
@@ -426,6 +474,7 @@ fcac_read(struct fcac_ptr *p, uint8_t *buf, size_t size)
 		 * читаем по нему
 		 */
 		ssize_t _r = 0;
+		lseek(p->fd, p->offset, SEEK_SET);
 		if ((_r = read(p->fd, buf, size)) == -1) {
 			/* чтение завершилось неудачно, освобождаем ресурс */
 			xsyslog(LOG_WARNING, "fcac error: read fd#%d failed: %s",
@@ -480,11 +529,17 @@ fcac_set_ready(struct fcac_ptr *p)
 			rval = true;
 		}
 		if (p->n->type == FCAC_FILE) {
-			/* если открыто как файл, то нужно закрыть дескрипторв,
-			 * т.к. все указатели имеют свой
+			if (p->n->s.file.path) {
+				/* если открыто как файл, то нужно закрыть дескрипторв,
+				 * т.к. все указатели имеют свой
+				 */
+				close(p->n->s.file.fd);
+				p->n->s.file.fd = -1;
+			}
+			/* если пути к файлу нет, то не стоит закрывать дескриптор
+			 * хотя, путь можно сформировать заного, но мы не пойдём этим
+			 * путём сейчас
 			 */
-			close(p->n->s.file.fd);
-			p->n->s.file.fd = -1;
 
 		}
 		_unlock(p->n->r, p->n);
