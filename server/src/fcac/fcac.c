@@ -499,12 +499,13 @@ fcac_read(struct fcac_ptr *p, uint8_t *buf, size_t size)
 			 * попасть сюда с типом FCAC_FILE не должны,
 			 * как и с FCAC_UNKNOWN (отсеивается на стадии fcac_is_ready())
 			 */
-			if (p->n->s.memory.size < p->offset) {
+			if (p->n->s.memory.offset < p->offset) {
 				xsyslog(LOG_WARNING, "fcac error: memory pointer invalid,"
 						" have size: %"PRIuPTR", wanted offset: %"PRIuPTR,
 						p->n->s.memory.size, p->offset);
 			} else {
-				_r = p->n->s.memory.size - p->offset;
+				_r = p->n->s.memory.offset - p->offset;
+				_r = MIN(_r, size);
 				memcpy(buf, p->n->s.memory.buf + p->offset, _r);
 				p->offset += _r;
 			}
