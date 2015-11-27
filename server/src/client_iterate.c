@@ -16,6 +16,8 @@
 #include <sys/types.h>
 #include <netinet/in.h>
 
+#include "packet.h"
+
 TYPICAL_HANDLE_F(Fep__Pong, pong, &c->mid)
 TYPICAL_HANDLE_F(Fep__Auth, auth, &c->mid)
 TYPICAL_HANDLE_F(Fep__Ok, ok, &c->mid)
@@ -372,7 +374,7 @@ static struct handle handle[] =
 	INVALID_P_HANDLE_S(FEP__TYPE__tRootdirUpdate, "RootdirUpdate",
 			rootdir_update), /* 23 */
 	INVALID_P_HANDLE_S(FEP__TYPE__tOkWrite, "OkRead", ok_read), /* 24 */
-	TYPICAL_HANDLE_S(FEP__TYPE__tChat, "chat", chat), /* 25 */
+	TYPICAL_HANDLE_S(FEP__TYPE__tChat, "Chat", chat), /* 25 */
 	INVALID_P_HANDLE_S(FEP__TYPE__tState, "State", state), /* 26 */
 	TYPICAL_HANDLE_S(FEP__TYPE__tQueryDevices, "QueryDevices", query_devices), /* 27 */
 	INVALID_P_HANDLE_S(FEP__TYPE__tResultDevice, "ResultDevice", result_device), /* 28 */
@@ -428,6 +430,14 @@ _send_message(struct sev_ctx *cev, unsigned type, void *msg, char *name)
 				"client[%"SEV_LOG"] send fail in %s", cev->serial, name);
 	}
 	free(buf);
+
+	{
+		char _header[96] = {0};
+		snprintf(_header, sizeof(_header),
+				"client[%"SEV_LOG"] TX %"PRIdPTR" >> ",
+				cev->serial, lval);
+		packet2syslog(_header, type, msg, name, PACKET_ALL);
+	}
 
 	return (lval == len);
 }
@@ -538,6 +548,17 @@ handle_header(unsigned char *buf, size_t size, struct client *c)
 			} else {
 				msg = handle[c->h_type].p(NULL, c->h_len, (uint8_t*)rawmsg);
 				if (msg) {
+					/* передача пакета обработчику */
+					/* TODO: печать сообщения в лог */
+					{
+						char _header[96] = {0};
+						snprintf(_header, sizeof(_header),
+								"client[%"SEV_LOG"] RX %"PRIu32" << ",
+								c->cev->serial, c->h_len);
+						packet2syslog(_header,
+								c->h_type, msg, handle[c->h_type].text,
+								PACKET_ALL);
+					}
 					if (!handle[c->h_type].f(c, c->h_type, msg))
 						exit = true;
 					/* проверять заполненность структуры нужно в компилтайме,

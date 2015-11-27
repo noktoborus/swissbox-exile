@@ -11,7 +11,7 @@ JUNK=junk/guid.c junk/utils.c junk/almsg.c junk/curlev/curlev.c
 AS3=${SRC}/as3/as3.c
 FCAC=${SRC}/fcac/fcac.c
 
-SOURCES=${SRC}/main.c ${SRC}/client_iterate.c proto/fep.pb-c.c\
+SOURCES=${SRC}/main.c ${SRC}/packet.c ${SRC}/client_iterate.c proto/fep.pb-c.c\
 	${SRC}/redis_process.c\
 	${SRC}/list.c ${SRC}/client/cum.c ${SRC}/client_cb.c\
 	${AS3}\
@@ -20,7 +20,7 @@ SOURCES=${SRC}/main.c ${SRC}/client_iterate.c proto/fep.pb-c.c\
 	${SIMPLEPQ}\
 	${JUNK}
 
-INC_SOURCES=${SRC}/client/include/send.c ${SRC}/client/include/handle.c
+INC_SOURCES=${SRC}/client/include/send.c ${SRC}/client/include/handle.c\
 
 INST_N=dodiboxd
 INST_B=/usr/bin/${INST_N}
