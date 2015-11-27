@@ -51,6 +51,32 @@ _unlock(struct fcac *r, struct fcac_node *n)
 	}
 }
 
+/*
+ * формирование пути файла на основе его id
+ * base: базовый путь к кешу
+ * dst и dstlen: массив и максимальный размер массива для
+ *  полученного значения
+ * id: идентификатор файла
+ */
+static size_t
+_format_filename(const char *base, char *dst, size_t dstlen, uint64_t id)
+{
+	int rval = 0;
+
+	if (!base) {
+		base = "fcac_data";
+	}
+
+	if ((rval = snprintf(dst, dstlen, "%s/%"PRIu64, base, id)) < 0) {
+		xsyslog(LOG_WARNING,
+				"fcac error[id#%"PRIu64"]: snprintf() failed",
+				id);
+		rval = 0;
+	}
+
+	return (size_t)rval;
+}
+
 static void
 _fcac_node_remove(struct fcac *r, struct fcac_node *n)
 {
@@ -144,14 +170,15 @@ fcac_set(struct fcac *r, enum fcac_key key, ...)
 			long _len = va_arg(ap, long);
 			if (_path == NULL || _len <= 0) {
 				xsyslog(LOG_WARNING,
-						"fcac error: invalid path (%p, %lu)",
+						"fcac error[config]: invalid path (%p, %lu)",
 						(void*)_path, _len);
 				break;
 			}
 			r->path = calloc(1, _len + 1);
 			if (!r->path) {
 				xsyslog(LOG_WARNING,
-						"fcac error: path not allocated: calloc(%ld) -> %s",
+						"fcac error[config]:"
+						" path not allocated: calloc(%ld) -> %s",
 						_len, strerror(errno));
 				rval = false;
 				break;
@@ -165,7 +192,8 @@ fcac_set(struct fcac *r, enum fcac_key key, ...)
 			time_t *_time = va_arg(ap, time_t*);
 			if (!_time) {
 				xsyslog(LOG_WARNING,
-						"fcac error: FCAC_TIME_EXPIRE value must be != NULL");
+						"fcac error[config]:"
+						" FCAC_TIME_EXPIRE value must be != NULL");
 				rval = false;
 				break;
 			}
@@ -179,7 +207,8 @@ fcac_set(struct fcac *r, enum fcac_key key, ...)
 			unsigned long _size = va_arg(ap, unsigned long);
 			if (_size <= 1) {
 				xsyslog(LOG_WARNING,
-						"fcac error: set(FCAC_MEM_BLOCK_SIZE)"
+						"fcac error[config]:"
+						" set(FCAC_MEM_BLOCK_SIZE)"
 						" value must be > 1 (obtain: %lu)", _size);
 				rval = false;
 				break;
@@ -236,12 +265,14 @@ fcac_destroy(struct fcac *r)
 			pthread_mutex_unlock(&r->lock);
 		} else {
 			xsyslog(LOG_WARNING,
-					"fcac error: lock already taken, wait and destroy");
+					"fcac error[destroy]:"
+					" lock already taken, wait and destroy");
 			if (!pthread_mutex_lock(&r->lock)) {
 				pthread_mutex_unlock(&r->lock);
 			} else {
 				xsyslog(LOG_WARNING,
-						"fcac error: lock destroy error: %s", strerror(errno));
+						"fcac error[destroy]:"
+						" lock destroy error: %s", strerror(errno));
 			}
 			/* не получилось захватить? Ну и ладно, всё равно крушим. */
 			pthread_mutex_destroy(&r->lock);
@@ -297,6 +328,9 @@ fcac_open(struct fcac *r, uint64_t id, void *data, struct fcac_ptr *p)
 
 	/* поиск на фс */
 	if (!n) {
+		char _path[PATH_MAX] = {0};
+		_format_filename(r->path, _path, sizeof(_path), id);
+
 		/* TODO */
 		/* r->statistic.hit_fs++; */
 
@@ -326,6 +360,7 @@ fcac_open(struct fcac *r, uint64_t id, void *data, struct fcac_ptr *p)
 	memset(p, 0, sizeof(*p));
 	p->n = n;
 	p->fd = -1;
+	p->id = n->id;
 
 	/* вход в список */
 	n->ref_count++;
@@ -432,7 +467,10 @@ fcac_is_ready(struct fcac_ptr *p)
 			if (p->n->s.file.path) {
 				if ((p->fd = open(p->n->s.file.path, O_RDONLY)) == -1) {
 					rval = FCAC_NO_READY;
-					xsyslog(LOG_WARNING, "fcac error: open(%s) -> %s",
+					xsyslog(LOG_WARNING,
+							"fcac error[id#%"PRIu64":%p]:"
+							" open(%s) -> %s",
+							p->id, (void*)p,
 							p->n->s.file.path, strerror(errno));
 				}
 			} else if (p->n->s.file.fd != -1) {
@@ -441,7 +479,10 @@ fcac_is_ready(struct fcac_ptr *p)
 				 */
 				if ((p->fd = dup(p->n->s.file.fd)) == -1) {
 					rval = FCAC_NO_READY;
-					xsyslog(LOG_WARNING, "fcac error: dup(%d) -> %s",
+					xsyslog(LOG_WARNING,
+							"fcac error[id#%"PRIu64":%p]:"
+							" dup(%d) -> %s",
+							p->id, (void*)p,
 							p->n->s.file.fd, strerror(errno));
 				} else {
 					/* бессмысленно делать lseek,
@@ -451,7 +492,9 @@ fcac_is_ready(struct fcac_ptr *p)
 					lseek(p->fd, 0u, SEEK_SET);
 				}
 			} else {
-				xsyslog(LOG_WARNING, "fcac error: can't attach to `file`");
+				xsyslog(LOG_WARNING, "fcac error[id#%"PRIu64":%p]:"
+						" can't attach to `file`",
+						p->id, (void*)p);
 				rval = FCAC_NO_READY;
 			}
 		}
@@ -477,7 +520,9 @@ fcac_read(struct fcac_ptr *p, uint8_t *buf, size_t size)
 		lseek(p->fd, p->offset, SEEK_SET);
 		if ((_r = read(p->fd, buf, size)) == -1) {
 			/* чтение завершилось неудачно, освобождаем ресурс */
-			xsyslog(LOG_WARNING, "fcac error: read fd#%d failed: %s",
+			xsyslog(LOG_WARNING, "fcac error[id#%"PRIu64":%p]:"
+					" read fd#%d failed: %s",
+					p->id, (void*)p,
 					p->fd, strerror(errno));
 			close(p->fd);
 			p->fd = -1;
@@ -500,8 +545,10 @@ fcac_read(struct fcac_ptr *p, uint8_t *buf, size_t size)
 			 * как и с FCAC_UNKNOWN (отсеивается на стадии fcac_is_ready())
 			 */
 			if (p->n->s.memory.offset < p->offset) {
-				xsyslog(LOG_WARNING, "fcac error: memory pointer invalid,"
+				xsyslog(LOG_WARNING, "fcac error[id#%"PRIu64":%p]:"
+						" memory pointer invalid,"
 						" have size: %"PRIuPTR", wanted offset: %"PRIuPTR,
+						p->id, (void*)p,
 						p->n->s.memory.size, p->offset);
 			} else {
 				_r = p->n->s.memory.offset - p->offset;
@@ -536,6 +583,11 @@ fcac_set_ready(struct fcac_ptr *p)
 				 */
 				close(p->n->s.file.fd);
 				p->n->s.file.fd = -1;
+			} else {
+				xsyslog(LOG_WARNING,
+						"fcac error[id#%"PRIu64"]: file not finnalized",
+						p->n->id);
+
 			}
 			/* если пути к файлу нет, то не стоит закрывать дескриптор
 			 * хотя, путь можно сформировать заного, но мы не пойдём этим
@@ -546,30 +598,6 @@ fcac_set_ready(struct fcac_ptr *p)
 		_unlock(p->n->r, p->n);
 	}
 	return rval;
-}
-
-/*
- * формирование пути файла на основе его id
- * base: базовый путь к кешу
- * dst и dstlen: массив и максимальный размер массива для
- *  полученного значения
- * id: идентификатор файла
- */
-static size_t
-_format_filename(const char *base, char *dst, size_t dstlen, uint64_t id)
-{
-	int rval = 0;
-
-	if (!base) {
-		base = "fcac_data";
-	}
-
-	if ((rval = snprintf(dst, dstlen, "%s/%"PRIu64, base, id)) < 0) {
-		xsyslog(LOG_WARNING, "fcac error: snprintf() failed");
-		rval = 0;
-	}
-
-	return (size_t)rval;
 }
 
 /* перевод в тип file */
@@ -592,15 +620,15 @@ _fcac_to_file(struct fcac_node *n)
 	dirname(dirpath);
 
 	if (!mkpath(dirpath, S_IRWXU)) {
-		xsyslog(LOG_WARNING, "fcac error: mkdir(%s) -> %s",
-				dirpath, strerror(errno));
+		xsyslog(LOG_WARNING, "fcac error[id#%"PRIu64"]: mkdir(%s) -> %s",
+				n->id, dirpath, strerror(errno));
 		return false;
 	}
 
 	fd = open(filepath, O_CREAT | O_TRUNC | O_RDWR, S_IRUSR | S_IWUSR);
 	if (fd == -1) {
-		xsyslog(LOG_WARNING, "fcac error: open(%s) -> %s",
-				filepath, strerror(errno));
+		xsyslog(LOG_WARNING, "fcac error[id#%"PRIu64"]: open(%s) -> %s",
+				n->id, filepath, strerror(errno));
 		return false;
 	}
 
@@ -609,7 +637,9 @@ _fcac_to_file(struct fcac_node *n)
 		ssize_t _wr;
 		if ((_wr = write(fd, n->s.memory.buf, n->s.memory.offset)) == -1) {
 			xsyslog(LOG_WARNING,
-					"fcac error: migration write(%"PRIuPTR") -> %s",
+					"fcac error[id#%"PRIu64"]:"
+					" migration write(%"PRIuPTR") -> %s",
+					n->id,
 					n->s.memory.offset, strerror(errno));
 			close(fd);
 			unlink(filepath);
@@ -623,14 +653,15 @@ _fcac_to_file(struct fcac_node *n)
 			 */
 			size_t __s;
 			xsyslog(LOG_WARNING,
-					"fcac error:"
+					"fcac error[id#%"PRIu64"]:"
 					" writed %"PRIdPTR", expected %"PRIuPTR", retry",
-					_wr, n->s.memory.offset);
+					n->id, _wr, n->s.memory.offset);
 			__s = n->s.memory.offset - _wr;
 			if ((_wr = write(fd, n->s.memory.buf + _wr, __s)) == -1) {
 				xsyslog(LOG_WARNING,
-						"fcac error: migration write(%"PRIuPTR") -> %s",
-						__s, strerror(errno));
+						"fcac error[id#%"PRIu64"]:"
+						" migration write(%"PRIuPTR") -> %s",
+						n->id, __s, strerror(errno));
 				close(fd);
 				unlink(filepath);
 				return false;
@@ -639,9 +670,9 @@ _fcac_to_file(struct fcac_node *n)
 			offset += _wr;
 			if (_wr != __s) {
 				xsyslog(LOG_WARNING,
-						"fcac error:"
+						"fcac error[id#%"PRIu64"]:"
 						" writed %"PRIdPTR", expected %"PRIuPTR", exit",
-						_wr, n->s.memory.offset);
+						n->id, _wr, n->s.memory.offset);
 				unlink(filepath);
 				return false;
 			}
@@ -677,7 +708,10 @@ fcac_write(struct fcac_ptr *p, uint8_t *buf, size_t size)
 	}
 
 	if (p->n->finalized) {
-		xsyslog(LOG_WARNING, "fcac error: write to finalized structure");
+		xsyslog(LOG_WARNING,
+				"fcac error[id#%"PRIu64":%p]:"
+				" write to finalized structure",
+				p->id, (void*)p);
 		_unlock(p->n->r, p->n);
 		return 0u;
 	}
@@ -716,8 +750,10 @@ fcac_write(struct fcac_ptr *p, uint8_t *buf, size_t size)
 			/* с файлом всё просто */
 			ssize_t _wr = 0;
 			if ((_wr = write(p->n->s.file.fd, buf, size)) == -1) {
-				xsyslog(LOG_WARNING, "fcac error: write(%"PRIuPTR") -> %s",
-						size, strerror(errno));
+				xsyslog(LOG_WARNING,
+						"fcac error[id#%"PRIu64":%p]:"
+						" write(%"PRIuPTR") -> %s",
+						p->id, (void*)p, size, strerror(errno));
 			} else {
 				rval = (size_t)_wr;
 				p->n->s.file.offset += rval;
@@ -736,8 +772,9 @@ fcac_write(struct fcac_ptr *p, uint8_t *buf, size_t size)
 				_t = realloc(p->n->s.memory.buf, _s);
 				if (!_t) {
 					xsyslog(LOG_WARNING,
-							"fcac error: realloc(%"PRIuPTR") -> %s",
-						    _s, strerror(errno));
+							"fcac error[id#%"PRIu64":%p]:"
+							" realloc(%"PRIuPTR") -> %s",
+						    p->id, (void*)p, _s, strerror(errno));
 				} else {
 					p->n->s.memory.buf = _t;
 					p->n->s.memory.size = _s;

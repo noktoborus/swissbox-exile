@@ -62,6 +62,7 @@ enum fcac_type {
 struct fcac_ptr {
 	struct fcac_node *n;
 
+	uint64_t id; /* кешированное значение, что бы не лезть за локом */
 	bool ready;
 
 	int fd;
