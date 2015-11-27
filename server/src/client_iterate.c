@@ -389,22 +389,23 @@ Fepstr(unsigned type)
 }
 
 bool
-_send_message(struct sev_ctx *cev, unsigned type, void *msg, char *name)
+send_message(struct sev_ctx *cev, unsigned type, void *msg)
 {
 	ssize_t lval;
 	size_t len = 0u;
 	unsigned char *buf;
 
 	if (!type || type >= sizeof(handle) / sizeof(struct handle)) {
-		xsyslog(LOG_ERR, "client[%"SEV_LOG"] invalid type %d in send_message(%s)",
-				cev->serial, type, name);
+		xsyslog(LOG_ERR,
+				"client[%"SEV_LOG"] invalid type %d in send_message(%s)",
+				cev->serial, type, Fepstr(type));
 		return false;
 	}
 
 	if (!handle[type].f_sizeof || !handle[type].f_pack) {
 		xsyslog(LOG_ERR, "client[%"SEV_LOG"] type %d (%s)"
 				"has no sizeof and pack field",
-				cev->serial, type, name);
+				cev->serial, type, Fepstr(type));
 
 	}
 
@@ -414,7 +415,7 @@ _send_message(struct sev_ctx *cev, unsigned type, void *msg, char *name)
 	buf = pack_header(type, &len);
 	if (!buf) {
 		xsyslog(LOG_WARNING, "client[%"SEV_LOG"] memory fail in %s: %s",
-				cev->serial, name, strerror(errno));
+				cev->serial, Fepstr(type), strerror(errno));
 		return false;
 	}
 
@@ -427,7 +428,8 @@ _send_message(struct sev_ctx *cev, unsigned type, void *msg, char *name)
 	handle[type].f_pack(msg, &buf[HEADER_OFFSET]);
 	if ((lval = sev_send(cev, buf, len)) != len) {
 		xsyslog(LOG_WARNING,
-				"client[%"SEV_LOG"] send fail in %s", cev->serial, name);
+				"client[%"SEV_LOG"] send fail in %s",
+				cev->serial, Fepstr(type));
 	}
 	free(buf);
 
@@ -436,7 +438,7 @@ _send_message(struct sev_ctx *cev, unsigned type, void *msg, char *name)
 		snprintf(_header, sizeof(_header),
 				"client[%"SEV_LOG"] TX %"PRIdPTR" >> ",
 				cev->serial, lval);
-		packet2syslog(_header, type, msg, name, PACKET_ALL);
+		packet2syslog(_header, type, msg, PACKET_ALL);
 	}
 
 	return (lval == len);
@@ -555,9 +557,7 @@ handle_header(unsigned char *buf, size_t size, struct client *c)
 						snprintf(_header, sizeof(_header),
 								"client[%"SEV_LOG"] RX %"PRIu32" << ",
 								c->cev->serial, c->h_len);
-						packet2syslog(_header,
-								c->h_type, msg, handle[c->h_type].text,
-								PACKET_ALL);
+						packet2syslog(_header, c->h_type, msg, PACKET_ALL);
 					}
 					if (!handle[c->h_type].f(c, c->h_type, msg))
 						exit = true;

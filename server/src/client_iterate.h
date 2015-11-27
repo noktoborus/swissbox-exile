@@ -195,9 +195,7 @@ const char *Fepstr(unsigned type);
 #define HEADER_STOP 	-2
 
 unsigned char *pack_header(unsigned type, size_t *len);
-bool _send_message(struct sev_ctx *cev, unsigned type, void *msg, char *name);
-#define send_message(cev, type, msg) \
-	_send_message(cev, type, msg, #type)
+bool send_message(struct sev_ctx *cev, unsigned type, void *msg);
 
 uint64_t generate_id(struct client*);
 uint32_t generate_sid(struct client*);
