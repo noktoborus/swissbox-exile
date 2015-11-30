@@ -8,8 +8,27 @@
 #include <errno.h>
 #include <sys/types.h>
 #include <sys/stat.h>
+#include <ctype.h>
 #include "utils.h"
 
+
+size_t
+tolower_s(char *string, size_t len)
+{
+	size_t c = 0u;
+
+	if (len == 0u) {
+		for (c = 0u; string[c]; c++) {
+			string[c] = tolower(string[c]);
+		}
+	} else {
+		for (c = 0u; c < len; c++) {
+			string[c] = tolower(string[c]);
+		}
+	}
+
+	return c;
+}
 
 uint32_t
 hash_pjw(const char *str, size_t size)

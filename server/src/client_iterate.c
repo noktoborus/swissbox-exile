@@ -438,7 +438,7 @@ send_message(struct sev_ctx *cev, unsigned type, void *msg)
 		snprintf(_header, sizeof(_header),
 				"client[%"SEV_LOG"] TX %"PRIdPTR" >> ",
 				cev->serial, lval);
-		packet2syslog(_header, type, msg, PACKET_ALL);
+		packet2syslog(_header, type, msg);
 	}
 
 	return (lval == len);
@@ -557,7 +557,7 @@ handle_header(unsigned char *buf, size_t size, struct client *c)
 						snprintf(_header, sizeof(_header),
 								"client[%"SEV_LOG"] RX %"PRIu32" << ",
 								c->cev->serial, c->h_len);
-						packet2syslog(_header, c->h_type, msg, PACKET_ALL);
+						packet2syslog(_header, c->h_type, msg);
 					}
 					if (!handle[c->h_type].f(c, c->h_type, msg))
 						exit = true;
