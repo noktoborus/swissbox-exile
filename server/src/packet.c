@@ -6,12 +6,12 @@
 #include <stdio.h>
 #include <inttypes.h>
 #include <stdint.h>
+#include <string.h>
 
 #include "junk/utils.h"
 #include "junk/xsyslog.h"
 #include "proto/fep.pb-c.h"
 #include "packet.h"
-#include "client_iterate.h"
 
 #define _value_or_null(s, result, fmt, field, begin, len) \
 {\
@@ -29,10 +29,12 @@
 			", "#field"=\"%s\"", s->field);\
 }
 
-/*static enum packet_verbose _packet_verbose[FEP__TYPE__t_max];*/
+static enum packet_verbose _packet_verbose[FEP__TYPE__t_max];
 
-#define PACKET_NAME_LEN 16
-static const struct packet_info {
+#define PACKET_NAME_LEN 16 /* размер строки с именем */
+#define PACKET_FULL_LEN 64 /* размер строки с именем и флагами */
+
+static struct packet_info {
 	char name[PACKET_NAME_LEN];
 	char name_lower[PACKET_NAME_LEN];
 	uint64_t name_hash;
@@ -85,6 +87,16 @@ _packet_info_init(struct packet_info i[FEP__TYPE__t_max])
 	}
 }
 
+const char *
+packet_type_to_name(unsigned type)
+{
+	_packet_info_init(_packet_info);
+	if (type >= FEP__TYPE__t_max) {
+		type = 0u;
+	}
+	return _packet_info[type].name;
+}
+
 bool
 packet_name_to_type(char *in, unsigned *type, enum packet_verbose *flags)
 {
@@ -92,6 +104,8 @@ packet_name_to_type(char *in, unsigned *type, enum packet_verbose *flags)
 	char _name_lower[PACKET_NAME_LEN + 1] = {0};
 	size_t len = 0u;
 	uint64_t hash;
+
+	_packet_info_init(_packet_info);
 
 	*flags = PACKET_NONE;
 	memset(_name_lower, 0u, sizeof(_name_lower));
@@ -102,12 +116,14 @@ packet_name_to_type(char *in, unsigned *type, enum packet_verbose *flags)
 		memcpy(_name_lower, in, MIN(e - in, PACKET_NAME_LEN));
 		/* разбор флагов */
 		do {
-			e++;
 			if (!strncmp(e, PSIZE(":hex"))) {
 				*flags |= PACKET_HEX;
-			} else if (!strncmp(e, PSIZE(":field"))) {
+			} else if (!strncmp(e, PSLEN_S(":field"))) {
 				*flags |= PACKET_FIELD;
+			} else if (!strncmp(e, PSLEN_S(":discard"))) {
+				*flags |= PACKET_DISCARD;
 			}
+			e++;
 		} while((e = strchr(e, ':')) != NULL);
 	}
 
@@ -126,22 +142,59 @@ packet_name_to_type(char *in, unsigned *type, enum packet_verbose *flags)
 }
 
 void
-packet_verbose(const char *packet_string, enum packet_action a)
+packet_verbose(const char *packet_string)
 {
-	char *b = NULL;
-	char *c = strdup(packet_string);
-	if (!c) {
-		xsyslog(LOG_WARNING,
-				"packet2syslog error: strdup() failed: %s",
-				strerror(errno));
-		return;
-	}
+	const char *b = packet_string;
+	char *c = NULL;
+	size_t len;
+
+	char _string[PACKET_FULL_LEN];
+	unsigned type = 0u;
+	enum packet_verbose flags = PACKET_NONE;
+	char format[80];
 
 	/* обработка всего массива */
-	while ((b = strrchr(c, ',')) != NULL) {
-		*b = '\0';
-	}
-	/* обрабатываем хвост */
+	do {
+		/* получение длины */
+		if ((c = strchr(b, ',')) == NULL) {
+			len = strlen(b);
+		} else {
+			len = c - b;
+		}
+		memset(format, 0, sizeof(format));
+		memset(_string, 0, sizeof(_string));
+		memcpy(_string, b, len);
+		if (!packet_name_to_type(_string, &type, &flags)) {
+			continue;
+		}
+		if (!flags) {
+			/* базовое значение */
+			flags = PACKET_FIELD;
+		} if (flags & PACKET_DISCARD) {
+			/* сам флаг PACKET_DISCARD не используется */
+			flags = PACKET_NONE;
+		}
+
+		/* простая замена значения */
+		_packet_verbose[type] = flags;
+
+		/* форматирование строки */
+		if (!_packet_verbose[type]) {
+			xsyslog(LOG_DEBUG,
+					"packet2syslog: unset %s", packet_type_to_name(type));
+		} else {
+			if (_packet_verbose[type] & PACKET_FIELD) {
+				strncat(format, ":field", sizeof(format) - strlen(format));
+			}
+			if (_packet_verbose[type] & PACKET_HEX) {
+				strncat(format, ":hex", sizeof(format) - strlen(format));
+			}
+			/* и печать в лог */
+			xsyslog(LOG_DEBUG, "packet2syslog: set %s to %s",
+					packet_type_to_name(type), format);
+		}
+
+	} while ((b = strchr(b, ',')) != NULL && *++b);
 
 }
 
@@ -153,6 +206,9 @@ packet2syslog(const char *head,
 	char result[4096];
 	size_t _l = 0u;
 	size_t _e = sizeof(result);
+
+	if (type >= FEP__TYPE__t_max || !(_packet_verbose[type] & PACKET_FIELD))
+		return;
 
 	switch (type) {
 	case FEP__TYPE__tError:
@@ -222,6 +278,6 @@ packet2syslog(const char *head,
 		snprintf(result, sizeof(result), "-");
 	}
 
-	xsyslog(LOG_DEBUG, "%s{%s? %s}", head, Fepstr(type), result);
+	xsyslog(LOG_DEBUG, "%s{%s? %s}", head, packet_type_to_name(type), result);
 }
 

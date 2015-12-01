@@ -29,6 +29,8 @@
 #include <sys/select.h>
 #include <unistd.h>
 
+#include "packet.h"
+
 static unsigned int sev_ctx_seq = 0u;
 
 bool client_iterate(struct sev_ctx *, bool, void **);
@@ -1202,6 +1204,7 @@ main(int argc, char *argv[])
 	cfg_t *cfg;
 	char *bindline = strdup("0.0.0.0:5151");
 	char *pg_connstr = strdup("dbname = fepserver");
+	char *packets_print = strdup("");
 	long pg_poolsize = 10;
 
 	memset(&pain, 0, sizeof(struct main));
@@ -1236,6 +1239,8 @@ main(int argc, char *argv[])
 			CFG_SIMPLE_STR("pidfile", &pain.options.pidfile),
 			CFG_SIMPLE_STR("user", &pain.options.user),
 			CFG_SIMPLE_STR("group", &pain.options.group),
+			/* конфигурация лога */
+			CFG_SIMPLE_STR("packet_verbose", &packets_print),
 			CFG_END()
 		};
 
@@ -1294,6 +1299,9 @@ main(int argc, char *argv[])
 				pain.rs[i].self = i;
 				pain.rs[i].pain = &pain;
 			}
+			/* инициализация лога сервера */
+			if (*packets_print)
+				packet_verbose(packets_print);
 			/* мультисокет */
 			{
 				char *_x = strdup(bindline);
@@ -1346,6 +1354,7 @@ main(int argc, char *argv[])
 	cfg_free(cfg);
 	free(bindline);
 	free(pg_connstr);
+	free(packets_print);
 	free(pain.options.redis_chan);
 	free(pain.options.name);
 	free(pain.options.cache_dir);
