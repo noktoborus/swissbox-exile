@@ -138,7 +138,7 @@ message Pong {
 	required uint32 usec = 3;
 	/* время на удалённом пире */
 	required uint64 peer_sec = 4;
-	required uint64 peer_usec = 5;
+	required uint32 peer_usec = 5;
 }
 
 message Ping {
