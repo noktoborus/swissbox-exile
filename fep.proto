@@ -220,12 +220,6 @@ message Pending {
 	optional string debug = 999;
 }
 
-/* отмена операции */
-message Cancel {
-	required uint64 id = 1 [default = 0];
-	optional string message = 2;
-}
-
 /*
 	Переименование, удаление файлов
 	Ответы:
