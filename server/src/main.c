@@ -1277,6 +1277,7 @@ main(int argc, char *argv[])
 		pain.options.pg_connstr = strdup("dbname = fepserver");
 		pain.options.packet_verbose = strdup("");
 		pain.options.pg_poolsize = 10;
+		pain.options.unique_device_id = true;
 	}
 	/* получение конфигурации */
 	{
@@ -1295,6 +1296,8 @@ main(int argc, char *argv[])
 			CFG_SIMPLE_STR("group", &pain.options.group),
 			/* конфигурация лога */
 			CFG_SIMPLE_STR("packet_verbose", &pain.options.packet_verbose),
+			/* некоторые проверки */
+			CFG_SIMPLE_BOOL("unique_device_id", &pain.options.unique_device_id),
 			CFG_END()
 		};
 

@@ -24,6 +24,7 @@ client_cum_free(struct client_cum *ccum)
 	pthread_mutex_lock(&clients_cum.lock);
 	/* выпатрашиваем список rootdir */
 	while (list_free_root(&ccum->rootdir, (void(*)(void*))&free));
+	while (list_free_root(&ccum->devices, NULL));
 	/* развязываем список */
 	if (ccum == clients_cum.first)
 		clients_cum.first = ccum->next ? ccum->next : ccum->prev;

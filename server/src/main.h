@@ -155,6 +155,8 @@ struct main
 		char *bindline;
 		char *packet_verbose;
 		char *pg_connstr;
+
+		cfg_bool_t unique_device_id;
 	} options;
 
 };

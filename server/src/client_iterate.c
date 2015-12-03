@@ -643,6 +643,13 @@ client_destroy(struct client *c)
 #endif
 	} while (list_free_root(&c->fid, (void(*)(void*))&fid_free));
 
+	/* убираем себя из списка подключённых */
+	if (c->cum) {
+		pthread_mutex_lock(&c->cum->lock);
+		list_free_node(list_find(&c->cum->devices, c->device_id), NULL);
+		pthread_mutex_unlock(&c->cum->lock);
+	}
+
 	while (cout_free(c));
 	while (rout_free(c));
 

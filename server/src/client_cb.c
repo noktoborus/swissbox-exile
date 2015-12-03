@@ -102,8 +102,40 @@ c_auth_cb(struct client *c, uint64_t id, unsigned int msgtype, void *msg, void *
 	c->status.auth_ok = true;
 	c->device_id = amsg->device_id;
 	/* регистрация в списке и подписка на сообщения */
-	c->cum = client_cum_create(hash_pjw(c->name, strlen(c->name)));
+	if (!(c->cum = client_cum_create(hash_pjw(c->name, strlen(c->name))))) {
+		send_error(c, id, "Internal error 135", 0);
+		return false;
+	}
 	squeue_subscribe(&c->cum->broadcast, &c->broadcast_c);
+
+	/* проверка на подключённое устройство с тем же device_id */
+		pthread_mutex_lock(&c->cum->lock);
+		if (!list_find(&c->cum->devices, c->device_id)) {
+			/* никаких данных не передаётся
+			 * вообще, список содержит только уникальные значения,
+			 * что проверить уникальность device_id
+			 * можно было бы и попыткой добавления в список,
+			 * но так подробнее
+			 */
+			if (!list_alloc(&c->cum->devices, c->device_id, NULL) &&
+					c->cev->pain->options.unique_device_id) {
+				/*
+				 * если не получилось добавить в список при включенных
+				 * уникальных device_id, то нужно отключить клиента
+				 */
+				send_error(c, id, "Internal error 153", 0);
+				pthread_mutex_unlock(&c->cum->lock);
+				return false;
+			}
+		} else if (c->cev->pain->options.unique_device_id) {
+			char __e[80] = {0};
+			snprintf(__e, sizeof(__e),
+					"Device id (%"PRIX64") already taken", c->device_id);
+			send_error(c, id, __e, 0);
+			pthread_mutex_unlock(&c->cum->lock);
+			return false;
+		}
+		pthread_mutex_unlock(&c->cum->lock);
 
 	strcpy(c->name, amsg->username);
 	xsyslog(LOG_INFO, "client[%"SEV_LOG"] authorized as %s, device=%"PRIX64,

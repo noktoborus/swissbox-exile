@@ -11,6 +11,7 @@
 #include <stdbool.h>
 #include <pthread.h>
 
+/* структура для коммуникаций внутри одной учётной записи */
 struct client_cum {
 	uint32_t namehash;
 	pthread_mutex_t lock;
@@ -22,6 +23,9 @@ struct client_cum {
 
 	/* список рутдир */
 	struct listRoot rootdir;
+
+	/* список подключённых устройств */
+	struct listRoot devices;
 
 	/* сообщения от клиента к клиенту */
 	struct squeue broadcast;
