@@ -429,7 +429,9 @@ _handle_want_sync(struct client *c, unsigned type, Fep__WantSync *msg)
 	if (!c->status.auth_ok)
 		return send_error(c, msg->id, "Unauthorized", -1);
 
-	/* после запроса состояния можно и запустить экспресс-нотификацию */
+	/* после запроса состояния можно и запустить экспресс-нотификацию
+	 * если этого не было раньше (например, в auth_cb)
+	 */
 	if (!c->cum) {
 		c->cum = client_cum_create(hash_pjw(c->name, strlen(c->name)));
 	}
