@@ -489,7 +489,7 @@ packet2syslog(const char *head,
 			Fep__Chat *_m = (void*)msg;
 			_l = snprintf(result, _e,
 					"id=%"PRIu64", device_id_from=%"PRIu64
-					"message.len=%"PRIuPTR,
+					", message.len=%"PRIuPTR,
 					_m->id, _m->device_id_from,
 					_m->message.len);
 			_value_or_null(_m, result, "%"PRIu64, device_id_to, _l, _e);
