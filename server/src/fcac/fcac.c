@@ -331,7 +331,7 @@ fcac_open(struct fcac *r, uint64_t id, void *data, struct fcac_ptr *p)
 		char _path[PATH_MAX] = {0};
 		_format_filename(r->path, _path, sizeof(_path), id);
 
-		/* TODO */
+		/* TODO: доделать финализацию файла (контроль целостности) */
 		/* r->statistic.hit_fs++; */
 
 	}
@@ -577,6 +577,7 @@ fcac_set_ready(struct fcac_ptr *p)
 			rval = true;
 		}
 		if (p->n->type == FCAC_FILE) {
+			/* TODO: финализация файла в кеше */
 			if (p->n->s.file.path) {
 				/* если открыто как файл, то нужно закрыть дескрипторв,
 				 * т.к. все указатели имеют свой

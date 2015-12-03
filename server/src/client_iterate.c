@@ -1009,7 +1009,7 @@ _client_iterate_broadcast(struct client *c)
 	if (!(rs = squeue_query(&c->broadcast_c)))
 		return true;
 	/* наже же сообщение */
-	if (c->device_id == rs->device_id_from && !strcmp(c->name, rs->name_from))
+	if (c->cev->serial == rs->serial_from && !strcmp(c->name, rs->name_from))
 		return true;
 	/* или сообщение адресовалось не нам */
 	if (rs->unicast && rs->device_id_to != c->device_id)

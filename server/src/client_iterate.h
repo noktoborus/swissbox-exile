@@ -57,6 +57,7 @@ struct result_send {
 
 #define C_NAMELEN 128
 struct chat_store {
+	size_t serial_from;
 	uint64_t device_id_from;
 	char name_from[C_NAMELEN + 1];
 

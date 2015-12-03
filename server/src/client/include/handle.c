@@ -815,6 +815,9 @@ _handle_chat(struct client *c, unsigned type, Fep__Chat *msg)
 	 * (в сообщениях в пределах одной учётки не нужен)
 	 */
 	strncpy(rs->name_from, c->name, C_NAMELEN);
+
+	/* отметка что бы не было эха */
+	rs->serial_from = c->cev->serial;
 	/* и id устройства-отправителя */
 	rs->device_id_from = c->device_id;
 
