@@ -139,6 +139,9 @@ struct main
 	 */
 	struct listRoot *bus_task;
 
+	/* конфигурашка и прочее */
+	cfg_t *cfg;
+	char *a_basename;
 	/* параметры */
 	struct {
 		char *name;
@@ -147,6 +150,11 @@ struct main
 		char *pidfile;
 		char *user;
 		char *group;
+
+		long pg_poolsize;
+		char *bindline;
+		char *packet_verbose;
+		char *pg_connstr;
 	} options;
 
 };
