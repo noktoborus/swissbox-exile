@@ -139,6 +139,7 @@ fcac_init(struct fcac *r, bool thread_safe)
 		pthread_mutex_init(&r->lock, NULL);
 		r->thread_safe = true;
 	}
+	r->mem_block_size = 32768;
 	xsyslog(LOG_INFO,
 			"fcac init %s thread safe", (thread_safe ? "with" : "without"));
 	return true;
@@ -373,9 +374,12 @@ fcac_open(struct fcac *r, uint64_t id, struct fcac_ptr *p)
 		}
 		r->next = n;
 		n->r = r;
+		n->id = id;
 
 		if (fd != -1) {
 			r->statistic.hit_fs++;
+			n->type = FCAC_FILE;
+			n->finalized = true;
 		} else {
 			r->statistic.miss++;
 		}
@@ -384,6 +388,7 @@ fcac_open(struct fcac *r, uint64_t id, struct fcac_ptr *p)
 	/* подключение ссылки */
 	memset(p, 0, sizeof(*p));
 	p->n = n;
+	p->r = n->r;
 	p->fd = fd;
 	p->id = n->id;
 
@@ -417,7 +422,7 @@ fcac_close(struct fcac_ptr *p)
 		return false;
 
 	if (p->n) {
-		if (!_lock(p->n->r, p->n)) {
+		if (!_lock(p->r, p->n)) {
 			return false;
 		}
 		/* выход из списка */
@@ -432,7 +437,7 @@ fcac_close(struct fcac_ptr *p)
 		p->next = NULL;
 		p->prev = NULL;
 
-		_unlock(p->n->r, p->n);
+		_unlock(p->r, p->n);
 	}
 	if (p->fd != -1) {
 		if (close(p->fd)) {
@@ -442,9 +447,9 @@ fcac_close(struct fcac_ptr *p)
 		p->fd = -1;
 	}
 
-	if (_lock(p->n->r, NULL)) {
-		p->n->r->statistic.closed_ptr++;
-		_unlock(p->n->r, NULL);
+	if (_lock(p->r, NULL)) {
+		p->r->statistic.closed_ptr++;
+		_unlock(p->r, NULL);
 	}
 	return true;
 }
@@ -474,7 +479,7 @@ fcac_is_ready(struct fcac_ptr *p)
 		return FCAC_CLOSED;
 	}
 
-	if (!_lock(p->n->r, p->n))
+	if (!_lock(p->r, p->n))
 		return FCAC_NO_READY;
 
 	if (!p->n->finalized || p->n->type == FCAC_UNKNOWN) {
@@ -489,7 +494,7 @@ fcac_is_ready(struct fcac_ptr *p)
 		} else if (p->n->type == FCAC_FILE) {
 			p->offset = 0u;
 			char _path[PATH_MAX] = {0};
-			_format_filename(p->n->r->path, _path, sizeof(_path), p->n->id);
+			_format_filename(p->r->path, _path, sizeof(_path), p->n->id);
 			/* открыть файл или дюпнуть дескриптор */
 			if ((p->fd = open(_path, O_RDONLY)) == -1) {
 				rval = FCAC_NO_READY;
@@ -506,7 +511,7 @@ fcac_is_ready(struct fcac_ptr *p)
 			}
 		}
 	}
-	_unlock(p->n->r, p->n);
+	_unlock(p->r, p->n);
 
 	return rval;
 }
@@ -543,7 +548,7 @@ fcac_read(struct fcac_ptr *p, uint8_t *buf, size_t size)
 		/* проверка типа узла и чтение из памяти
 		 * необходимо выставлять локи и прочее
 		 */
-		if (!_lock(p->n->r, p->n))
+		if (!_lock(p->r, p->n))
 			return false;
 
 		if (p->n->type == FCAC_MEMORY) {
@@ -565,7 +570,7 @@ fcac_read(struct fcac_ptr *p, uint8_t *buf, size_t size)
 			}
 		}
 
-		_unlock(p->n->r, p->n);
+		_unlock(p->r, p->n);
 		return _r;
 	}
 }
@@ -575,7 +580,10 @@ fcac_set_ready(struct fcac_ptr *p)
 {
 	bool rval = false;
 
-	if (_lock(p->n->r, p->n)) {
+	if (!p->n)
+		return false;
+
+	if (_lock(p->r, p->n)) {
 		if (p->n->type != FCAC_UNKNOWN) {
 			/* если тип всё ещё FCAC_UNKNOWN,
 			 * то ни какой готовность быть не может
@@ -585,7 +593,7 @@ fcac_set_ready(struct fcac_ptr *p)
 		}
 		if (p->n->type == FCAC_FILE) {
 			char _path[PATH_MAX] = {0};
-			_format_filename(p->n->r->path, _path, sizeof(_path), p->n->id);
+			_format_filename(p->r->path, _path, sizeof(_path), p->n->id);
 			/* закрытие дескрипторов */
 			close(p->n->s.file.fd);
 			p->n->s.file.fd = -1;
@@ -602,7 +610,7 @@ fcac_set_ready(struct fcac_ptr *p)
 			p->n->finalized = true;
 			rval = true;
 		}
-		_unlock(p->n->r, p->n);
+		_unlock(p->r, p->n);
 	}
 	return rval;
 }
@@ -626,8 +634,8 @@ _fcac_to_file(struct fcac_node *n)
 
 	dirname(dirpath);
 
-	if (!mkpath(dirpath, S_IRWXU)) {
-		xsyslog(LOG_WARNING, "fcac error[id#%"PRIu64"]: mkdir(%s) -> %s",
+	if (mkpath(dirpath, S_IRWXU)) {
+		xsyslog(LOG_WARNING, "fcac error[id#%"PRIu64"]: mkpath(%s) -> %s",
 				n->id, dirpath, strerror(errno));
 		return false;
 	}
@@ -705,7 +713,7 @@ fcac_write(struct fcac_ptr *p, uint8_t *buf, size_t size)
 	size_t rval = 0u;
 	bool allow = true;
 
-	if (!_lock(p->n->r, p->n)) {
+	if (!_lock(p->r, p->n)) {
 		return 0u;
 	}
 
@@ -714,26 +722,27 @@ fcac_write(struct fcac_ptr *p, uint8_t *buf, size_t size)
 				"fcac error[id#%"PRIu64":%p]:"
 				" write to finalized structure",
 				p->id, (void*)p);
-		_unlock(p->n->r, p->n);
+		_unlock(p->r, p->n);
 		return 0u;
 	}
 
-	if (_lock(p->n->r, NULL)) {
+	if (_lock(p->r, NULL)) {
 		/* кеширование полезных значений
 		 * при блокировке узла происходит освобождение корня,
 		 * потому нужно ещё раз заблокировать корень
 		 * FIXME: слишком много блокировок
 		 */
-		max_count = p->n->r->mem_count_max;
-		max_size = p->n->r->mem_block_max;
-		block_size = p->n->r->mem_block_size;
-		count = p->n->r->count;
-		_unlock(p->n->r, NULL);
+		max_count = p->r->mem_count_max;
+		max_size = p->r->mem_block_max;
+		block_size = p->r->mem_block_size;
+		count = p->r->count;
+		_unlock(p->r, NULL);
 
 		/* проверка значений */
 		if (p->n->type == FCAC_UNKNOWN) {
 			/* подготовка, выбор типа */
-			if (size <= max_size && count < max_count) {
+			if ((!max_size || size <= max_size)
+					&& (!count || count < max_count)) {
 				p->n->type = FCAC_MEMORY;
 			} else {
 				allow = _fcac_to_file(p->n);
@@ -770,7 +779,12 @@ fcac_write(struct fcac_ptr *p, uint8_t *buf, size_t size)
 				 */
 				_s = ((p->n->s.memory.offset + size) / block_size) + 1;
 				/* и вычисляем размер блока под данные */
-				_s *= block_size;
+				if ((_s *= block_size) > max_size && max_size) {
+					/* если размер, вычесленный блоками больше максимального
+					 * размера, то подрезаем
+					 */
+					_s = max_size;
+				}
 				_t = realloc(p->n->s.memory.buf, _s);
 				if (!_t) {
 					xsyslog(LOG_WARNING,
@@ -788,16 +802,20 @@ fcac_write(struct fcac_ptr *p, uint8_t *buf, size_t size)
 					memcpy(&p->n->s.memory.buf[p->n->s.memory.offset], buf, rval);
 					p->n->s.memory.offset += rval;
 				}
+			} else {
+				rval = size;
+				memcpy(&p->n->s.memory.buf[p->n->s.memory.offset], buf, rval);
+				p->n->s.memory.offset += rval;
 			}
 		}
 	}
-	_unlock(p->n->r, p->n);
+	_unlock(p->r, p->n);
 
 	if (!allow) {
 		/* т.к. нам не разрешили запись, то нужно дропнуть
 		 * узел, ничего сделать дальше не сможем
 		 */
-		_fcac_node_remove(p->n->r, p->n);
+		_fcac_node_remove(p->r, p->n);
 	}
 
 	return rval;
