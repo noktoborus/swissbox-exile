@@ -161,7 +161,7 @@ fcac_set(struct fcac *r, enum fcac_key key, ...)
 			long _size = va_arg(ap, long);
 			r->mem_block_max = (size_t)_size;
 			xsyslog(LOG_INFO,
-					"fcac[config]: set max_mem_size to %ld", _size);
+					"fcac[config]: set max_mem_size to %ld bytes", _size);
 		}
 		break;
 	case FCAC_MAX_MEM_BLOCKS:
@@ -209,7 +209,7 @@ fcac_set(struct fcac *r, enum fcac_key key, ...)
 			/* паранойя: вдруг time_t страшная структура? */
 			memcpy(&r->expire, _time, sizeof(time_t));
 			xsyslog(LOG_INFO,
-					"fcac[config]: set time_expire to %llu",
+					"fcac[config]: set time_expire to %llu seconds",
 					(long long unsigned)_time);
 		}
 		break;
@@ -226,7 +226,7 @@ fcac_set(struct fcac *r, enum fcac_key key, ...)
 			}
 			r->mem_block_size = (size_t)_size;
 			xsyslog(LOG_INFO,
-					"fcac[config]: set mem_block_size to %lu", _size);
+					"fcac[config]: set mem_block_size to %lu bytes", _size);
 		}
 		break;
 	default:
