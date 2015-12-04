@@ -84,6 +84,9 @@ _fcac_node_remove(struct fcac *r, struct fcac_node *n)
 {
 	struct fcac_ptr *p = NULL;
 	struct fcac_ptr *pnext = NULL;
+#if DEEPDEBUG
+	xsyslog(LOG_DEBUG, "fcac remove[id#%"PRIu64"]", n->id);
+#endif
 	if (_lock(r, n)) {
 		for (p = n->ref; p; p = pnext) {
 			pnext = p->next;
@@ -199,7 +202,7 @@ fcac_set(struct fcac *r, enum fcac_key key, ...)
 		break;
 	case FCAC_TIME_EXPIRE:
 		{
-			time_t *_time = va_arg(ap, time_t*);
+			time_t _time = va_arg(ap, time_t);
 			if (!_time) {
 				xsyslog(LOG_WARNING,
 						"fcac error[config]:"
@@ -208,7 +211,7 @@ fcac_set(struct fcac *r, enum fcac_key key, ...)
 				break;
 			}
 			/* паранойя: вдруг time_t страшная структура? */
-			memcpy(&r->expire, _time, sizeof(time_t));
+			memcpy(&r->expire, &_time, sizeof(time_t));
 			xsyslog(LOG_INFO,
 					"fcac[config]: set time_expire to %llu seconds",
 					(long long unsigned)_time);
@@ -360,6 +363,9 @@ fcac_open(struct fcac *r, uint64_t id, struct fcac_ptr *p)
 
 	/* создание нового узла */
 	if (!n) {
+#if DEEPDEBUG
+		xsyslog(LOG_DEBUG, "fcac create[id#%"PRIu64"]", id);
+#endif
 		n = calloc(1, sizeof(*n));
 		if (!n) {
 			xsyslog(LOG_WARNING, "fcac open error: calloc(%d) -> %s",
@@ -425,6 +431,8 @@ fcac_close(struct fcac_ptr *p)
 		if (!_lock(p->r, p->n)) {
 			return false;
 		}
+		/* обновляем время */
+		time(&p->n->last);
 		/* выход из списка */
 		p->n->ref_count--;
 		if (p->n->ref == p) {
@@ -819,5 +827,62 @@ fcac_write(struct fcac_ptr *p, uint8_t *buf, size_t size)
 	}
 
 	return rval;
+}
+
+bool
+fcac_tick(struct fcac *r)
+{
+	struct fcac_node *n = NULL;
+	struct fcac_node *_n = NULL;
+	time_t curtime = 0;
+	bool tofree = false;
+	if (!r) {
+		return false;
+	}
+
+	/* нет смысла получать время, если таймаут не назначен */
+	if (r->expire) {
+		time(&curtime);
+	}
+
+	if (!_lock(r, NULL))
+		return false;
+	/* нужно обойти все узлы и проверить что там с ними */
+	for (n = r->next; n; n = _n) {
+		_n = n->next;
+		tofree = false;
+		/* не нужно делать серьёзный лок, только пробуем */
+		if (!pthread_mutex_trylock(&n->lock)) {
+			if (!n->ref_count) {
+				/* если !r->expire, то разреференный узел освобождаем сразу же
+				 * или освобождаем если время истекло
+				 */
+				if (!r->expire ||
+						(r->expire &&
+						 (time_t)difftime(curtime, n->last) > r->expire)) {
+#if DEEPDEBUG
+					xsyslog(LOG_DEBUG,
+							"fcac tick[id#%"PRIu64"]: expired", n->id);
+#endif
+					tofree = true;
+				}
+			}
+			/* для следующих операций требуется разлочиться */
+			pthread_mutex_unlock(&n->lock);
+			if (tofree) {
+				/* FIXME: слишком много lock/unlock
+				 * для разделения времени использования между тредами
+				 * это может и хорошо, но во всех других случаях
+				 * получается около 6 лишних mutex_lock/mutex_unlock
+				 */
+				_unlock(r, NULL);
+				_fcac_node_remove(r, n);
+				_lock(r, NULL);
+			}
+		}
+	}
+
+	_unlock(r, NULL);
+	return true;
 }
 
