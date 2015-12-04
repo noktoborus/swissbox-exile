@@ -1,6 +1,8 @@
 /* vim: ft=c ff=unix fenc=utf-8
  * file: fcac/fcac.c
  */
+#include <sys/stat.h>
+
 #include "fcac.h"
 #include "junk/xsyslog.h"
 #include <sys/types.h>
@@ -291,6 +293,7 @@ fcac_destroy(struct fcac *r)
 bool
 fcac_open(struct fcac *r, uint64_t id, void *data, struct fcac_ptr *p)
 {
+	int fd = -1;
 	/*
 	 * процедура выполняет только подключение к структуре данных,
 	 * все необходимые инициализации (установка указателя, открытие файла)
@@ -328,12 +331,17 @@ fcac_open(struct fcac *r, uint64_t id, void *data, struct fcac_ptr *p)
 
 	/* поиск на фс */
 	if (!n) {
+		struct stat st = {0};
 		char _path[PATH_MAX] = {0};
 		_format_filename(r->path, _path, sizeof(_path), id);
 
-		/* TODO: доделать финализацию файла (контроль целостности) */
-		/* r->statistic.hit_fs++; */
-
+		if (!stat(_path, &st) && !(st.st_mode & S_IWUSR)) {
+			if ((fd = open(_path, O_RDONLY)) == -1) {
+				xsyslog(LOG_WARNING,
+						"fcac error[id#%"PRIu64"]: open(%s) -> %s",
+						id, _path, strerror(errno));
+			}
+		}
 	}
 
 	/* создание нового узла */
@@ -353,13 +361,17 @@ fcac_open(struct fcac *r, uint64_t id, void *data, struct fcac_ptr *p)
 		r->next = n;
 		n->r = r;
 
-		r->statistic.miss++;
+		if (fd != -1) {
+			r->statistic.hit_fs++;
+		} else {
+			r->statistic.miss++;
+		}
 	}
 
 	/* подключение ссылки */
 	memset(p, 0, sizeof(*p));
 	p->n = n;
-	p->fd = -1;
+	p->fd = fd;
 	p->id = n->id;
 
 	/* вход в список */
@@ -463,34 +475,16 @@ fcac_is_ready(struct fcac_ptr *p)
 			p->offset = 0u;
 		} else if (p->n->type == FCAC_FILE) {
 			p->offset = 0u;
+			char _path[PATH_MAX] = {0};
+			_format_filename(p->n->r->path, _path, sizeof(_path), p->n->id);
 			/* открыть файл или дюпнуть дескриптор */
-			if (p->n->s.file.path) {
-				if ((p->fd = open(p->n->s.file.path, O_RDONLY)) == -1) {
-					rval = FCAC_NO_READY;
-					xsyslog(LOG_WARNING,
-							"fcac error[id#%"PRIu64":%p]:"
-							" open(%s) -> %s",
-							p->id, (void*)p,
-							p->n->s.file.path, strerror(errno));
-				}
-			} else if (p->n->s.file.fd != -1) {
-				/* непредсказуемая часть,
-				 * вероятность появления чудесных ситуациях крайне велика
-				 */
-				if ((p->fd = dup(p->n->s.file.fd)) == -1) {
-					rval = FCAC_NO_READY;
-					xsyslog(LOG_WARNING,
-							"fcac error[id#%"PRIu64":%p]:"
-							" dup(%d) -> %s",
-							p->id, (void*)p,
-							p->n->s.file.fd, strerror(errno));
-				} else {
-					/* бессмысленно делать lseek,
-					 * т.к. offset для всех dup()'нутых
-					 * дескрипторов одинаков
-					 */
-					lseek(p->fd, 0u, SEEK_SET);
-				}
+			if ((p->fd = open(_path, O_RDONLY)) == -1) {
+				rval = FCAC_NO_READY;
+				xsyslog(LOG_WARNING,
+						"fcac error[id#%"PRIu64":%p]:"
+						" open(%s) -> %s",
+						p->id, (void*)p,
+						_path, strerror(errno));
 			} else {
 				xsyslog(LOG_WARNING, "fcac error[id#%"PRIu64":%p]:"
 						" can't attach to `file`",
@@ -577,24 +571,23 @@ fcac_set_ready(struct fcac_ptr *p)
 			rval = true;
 		}
 		if (p->n->type == FCAC_FILE) {
-			/* TODO: финализация файла в кеше */
-			if (p->n->s.file.path) {
-				/* если открыто как файл, то нужно закрыть дескрипторв,
-				 * т.к. все указатели имеют свой
-				 */
-				close(p->n->s.file.fd);
-				p->n->s.file.fd = -1;
-			} else {
+			char _path[PATH_MAX] = {0};
+			_format_filename(p->n->r->path, _path, sizeof(_path), p->n->id);
+			/* закрытие дескрипторов */
+			close(p->n->s.file.fd);
+			p->n->s.file.fd = -1;
+			/* финализация файлов в кеше заключается в удалении флага "u+w" */
+			if (chmod(_path, S_IRUSR)) {
 				xsyslog(LOG_WARNING,
-						"fcac error[id#%"PRIu64"]: file not finnalized",
-						p->n->id);
-
+						"fcac error[id#%"PRIu64":%p]: finalization failed: %s",
+						p->n->id, (void*)p, strerror(errno));
 			}
-			/* если пути к файлу нет, то не стоит закрывать дескриптор
-			 * хотя, путь можно сформировать заного, но мы не пойдём этим
-			 * путём сейчас
+			/* даже если финализация не прошла,
+			 * то файл всё равно записан и можно сейчас продолжать
+			 * читать его
 			 */
-
+			p->n->finalized = true;
+			rval = true;
 		}
 		_unlock(p->n->r, p->n);
 	}
@@ -682,11 +675,6 @@ _fcac_to_file(struct fcac_node *n)
 	}
 	/* инициализация значений */
 	n->type = FCAC_FILE;
-	/* глубоко пофиг, если strdup() вернул NULL,
-	 * тогда при завершении записи не закрываем дескриптор,
-	 * а потом делаем dup() на него
-	 */
-	n->s.file.path = strdup(filepath);
 	n->s.file.offset = offset;
 	n->s.file.fd = fd;
 
@@ -791,6 +779,14 @@ fcac_write(struct fcac_ptr *p, uint8_t *buf, size_t size)
 		}
 	}
 	_unlock(p->n->r, p->n);
+
+	if (!allow) {
+		/* т.к. нам не разрешили запись, то нужно дропнуть
+		 * узел, ничего сделать дальше не сможем
+		 */
+		_fcac_node_remove(p->n->r, p->n);
+	}
+
 	return rval;
 }
 

@@ -215,7 +215,9 @@ size_t fcac_read(struct fcac_ptr *p, uint8_t *buf, size_t size);
 /* назначение элемента завершённым */
 bool fcac_set_ready(struct fcac_ptr *p);
 
-/* запись в узел, запись возможна только перед fcac_set_ready() */
+/* запись в узел, запись возможна только перед fcac_set_ready()
+ * если вернул 0, значит дальнейшая запись невозможна
+ */
 size_t fcac_write(struct fcac_ptr *p, uint8_t *buf, size_t size);
 
 #endif /* _FCAC_FCAC_1447326016_H_ */
