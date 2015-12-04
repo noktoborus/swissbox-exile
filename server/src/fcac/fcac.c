@@ -123,10 +123,10 @@ _fcac_node_remove(struct fcac *r, struct fcac_node *n)
 				default:
 					break;
 			}
-			free(n);
 		}
 		_unlock(r, n);
 	}
+	free(n);
 }
 
 bool
@@ -139,6 +139,8 @@ fcac_init(struct fcac *r, bool thread_safe)
 		pthread_mutex_init(&r->lock, NULL);
 		r->thread_safe = true;
 	}
+	xsyslog(LOG_INFO,
+			"fcac init %s thread safe", (thread_safe ? "with" : "without"));
 	return true;
 }
 
@@ -158,12 +160,16 @@ fcac_set(struct fcac *r, enum fcac_key key, ...)
 		{
 			long _size = va_arg(ap, long);
 			r->mem_block_max = (size_t)_size;
+			xsyslog(LOG_INFO,
+					"fcac[config]: set max_mem_size to %ld", _size);
 		}
 		break;
 	case FCAC_MAX_MEM_BLOCKS:
 		{
 			long _blocks = va_arg(ap, long);
 			r->mem_block_max = (size_t)_blocks;
+			xsyslog(LOG_INFO,
+					"fcac[config]: set max_mem_blocks to %ld", _blocks);
 		}
 		break;
 	case FCAC_PATH:
@@ -172,7 +178,7 @@ fcac_set(struct fcac *r, enum fcac_key key, ...)
 			long _len = va_arg(ap, long);
 			if (_path == NULL || _len <= 0) {
 				xsyslog(LOG_WARNING,
-						"fcac error[config]: invalid path (%p, %lu)",
+						"fcac error[config]: invalid path (ptr=%p, len=%lu)",
 						(void*)_path, _len);
 				break;
 			}
@@ -187,6 +193,7 @@ fcac_set(struct fcac *r, enum fcac_key key, ...)
 			}
 			memcpy(r->path, _path, _len);
 			r->path_len = (size_t)_len;
+			xsyslog(LOG_INFO, "fcac[config]: set path to '%s'", _path);
 		}
 		break;
 	case FCAC_TIME_EXPIRE:
@@ -201,7 +208,9 @@ fcac_set(struct fcac *r, enum fcac_key key, ...)
 			}
 			/* паранойя: вдруг time_t страшная структура? */
 			memcpy(&r->expire, _time, sizeof(time_t));
-
+			xsyslog(LOG_INFO,
+					"fcac[config]: set time_expire to %llu",
+					(long long unsigned)_time);
 		}
 		break;
 	case FCAC_MEM_BLOCK_SIZE:
@@ -216,6 +225,8 @@ fcac_set(struct fcac *r, enum fcac_key key, ...)
 				break;
 			}
 			r->mem_block_size = (size_t)_size;
+			xsyslog(LOG_INFO,
+					"fcac[config]: set mem_block_size to %lu", _size);
 		}
 		break;
 	default:
@@ -255,7 +266,9 @@ fcac_destroy(struct fcac *r)
 	/* чистка списков */
 	{
 		struct fcac_node *_n = NULL;
-		for (_n = r->next; _n; _n = _n->next) {
+		struct fcac_node *_next = NULL;
+		for (_n = r->next; _n; _n = _next) {
+			_next = _n->next;
 			_fcac_node_remove(r, _n);
 		}
 
@@ -291,7 +304,7 @@ fcac_destroy(struct fcac *r)
 /* *** */
 
 bool
-fcac_open(struct fcac *r, uint64_t id, void *data, struct fcac_ptr *p)
+fcac_open(struct fcac *r, uint64_t id, struct fcac_ptr *p)
 {
 	int fd = -1;
 	/*
@@ -375,6 +388,7 @@ fcac_open(struct fcac *r, uint64_t id, void *data, struct fcac_ptr *p)
 	p->id = n->id;
 
 	/* вход в список */
+	n->ref = p;
 	n->ref_count++;
 	p->next = n->ref;
 	if (n->ref->prev) {
@@ -384,7 +398,6 @@ fcac_open(struct fcac *r, uint64_t id, void *data, struct fcac_ptr *p)
 	}
 	if (n->ref->next)
 		n->ref->next->prev = p;
-	n->ref = p;
 
 	n->r->statistic.opened_ptr++;
 	/* выход */

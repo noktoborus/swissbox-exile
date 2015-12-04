@@ -190,7 +190,7 @@ bool fcac_destroy(struct fcac *r);
  * true при успехе,
  * false при неудаче
  */
-bool fcac_open(struct fcac *r, uint64_t id, void *data, struct fcac_ptr *p);
+bool fcac_open(struct fcac *r, uint64_t id, struct fcac_ptr *p);
 /* закрытие узла */
 bool fcac_close(struct fcac_ptr *p);
 
