@@ -84,7 +84,7 @@ _fcac_node_remove(struct fcac *r, struct fcac_node *n)
 {
 	struct fcac_ptr *p = NULL;
 	struct fcac_ptr *pnext = NULL;
-#if DEEPDEBUG
+#if FCAC_DEEPDEBUG
 	xsyslog(LOG_DEBUG, "fcac remove[id#%"PRIu64"]", n->id);
 #endif
 	if (_lock(r, n)) {
@@ -363,7 +363,7 @@ fcac_open(struct fcac *r, uint64_t id, struct fcac_ptr *p)
 
 	/* создание нового узла */
 	if (!n) {
-#if DEEPDEBUG
+#if FCAC_DEEPDEBUG
 		xsyslog(LOG_DEBUG, "fcac create[id#%"PRIu64"]", id);
 #endif
 		n = calloc(1, sizeof(*n));
@@ -752,13 +752,32 @@ fcac_write(struct fcac_ptr *p, uint8_t *buf, size_t size)
 			if ((!max_size || size <= max_size)
 					&& (!count || count < max_count)) {
 				p->n->type = FCAC_MEMORY;
+#if FCAC_DEEPDEBUG
+				xsyslog(LOG_DEBUG,
+						"fcac write[id#%"PRIu64"]: set type to memory",
+						p->id);
+#endif
 			} else {
 				allow = _fcac_to_file(p->n);
+#if FCAC_DEEPDEBUG
+				xsyslog(LOG_DEBUG,
+						"fcac write[id#%"PRIu64"]: set type to file",
+						p->id);
+#endif
 			}
 		} else if (p->n->type == FCAC_MEMORY) {
 			/* проверка на выход за допустимые значения */
 			if (p->n->s.memory.offset + size > max_size) {
 				allow = _fcac_to_file(p->n);
+#if FCAC_DEEPDEBUG
+				xsyslog(LOG_DEBUG,
+						"fcac write[id#%"PRIu64"]: migrate type to file",
+						p->id);
+#endif
+				if (_lock(p->r, NULL)) {
+					p->r->statistic.deserter++;
+					_unlock(p->r, NULL);
+				}
 			}
 		}
 	}
@@ -860,7 +879,7 @@ fcac_tick(struct fcac *r)
 				if (!r->expire ||
 						(r->expire &&
 						 (time_t)difftime(curtime, n->last) > r->expire)) {
-#if DEEPDEBUG
+#if FCAC_DEEPDEBUG
 					xsyslog(LOG_DEBUG,
 							"fcac tick[id#%"PRIu64"]: expired", n->id);
 #endif
