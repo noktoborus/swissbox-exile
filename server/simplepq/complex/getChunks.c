@@ -34,6 +34,7 @@ _spq_getChunks_exec(PGconn *pgc,
 				PQresultErrorMessage(res));
 		syslog(LOG_INFO, errstr);
 		PQclear(res);
+		Q_LOGX(tb, sizeof(len) / sizeof(*len), val, len);
 		return NULL;
 	}
 	return res;

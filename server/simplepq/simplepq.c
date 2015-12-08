@@ -18,6 +18,13 @@
 # define MIN(x, y) ((x) > (y) ? (y) : (x))
 #endif
 
+/* предпологается что везде одинаковые переменные */
+#define Q_LOG(q) \
+	{ if (_spq.log_failed_queries) _spq_log_expand(q, 0, NULL, NULL); }
+#define Q_LOGX(q, n, val, len) \
+	{ if (_spq.log_failed_queries) \
+		_spq_log_expand(q, n, (const char *const*)val, len); }
+
 bool spq_feed_hint(const char *msg, size_t msglen, struct spq_hint *hint);
 
 #include "include/mgm.c"
@@ -53,6 +60,7 @@ spq_create_tables()
 		xsyslog(LOG_ERR, "please inject sql/struct.sql into db");
 		release_conn(&_spq, sc);
 		PQclear(res);
+		Q_LOG(tb);
 		return false;
 	} else {
 		char *version = PQgetvalue(res, 0, 0);
@@ -114,6 +122,7 @@ _spq_getChunkInfo(PGconn *pgc,
 		spq_feed_hint(NULL, 0u, hint);
 		xsyslog(LOG_INFO, "exec getChunkInfo error: %s", _m);
 		PQclear(res);
+		Q_LOGX(tb, sizeof(len) / sizeof(*len), val, len);
 		return false;
 	} else if ((_l = PQgetlength(res, 0, 0)) > 0u) {
 		_m = PQgetvalue(res, 0, 0);
@@ -209,6 +218,7 @@ _spq_getFileMeta(PGconn *pgc, guid_t *rootdir, guid_t *file,
 		xsyslog(LOG_INFO, "getFileMeta exec error: %s",
 			PQresultErrorMessage(res));
 		PQclear(res);
+		Q_LOGX(tb, sizeof(len) / sizeof(*len), val, len);
 		return false;
 	}
 
@@ -348,7 +358,9 @@ _spq_insert_chunk(PGconn *pgc,
 	if (PQresultStatus(res) != PGRES_TUPLES_OK) {
 		xsyslog(LOG_INFO, "exec insert_chunk error: %s",
 				PQresultErrorMessage(res));
+		_spq_log_expand(tb, 8, (const char *const*)val, len);
 		PQclear(res);
+		Q_LOGX(tb, sizeof(len) / sizeof(*len), val, len);
 		return false;
 	}
 
@@ -433,6 +445,7 @@ _spq_link_chunk(PGconn *pgc,
 		xsyslog(LOG_INFO, "exec link_chunk error: %s",
 				PQresultErrorMessage(res));
 		PQclear(res);
+		Q_LOGX(tb, sizeof(len) / sizeof(*len), val, len);
 		return false;
 	}
 
@@ -492,6 +505,7 @@ _spq_get_quota(PGconn *pgc, guid_t *rootdir, struct spq_QuotaInfo *qi,
 		spq_feed_hint(NULL, 0u, hint);
 		xsyslog(LOG_INFO, "exec check_quota error: %s", m);
 		PQclear(res);
+		Q_LOGX(tb, sizeof(len) / sizeof(*len), val, len);
 		return false;
 	} else if ((ml = PQgetlength(res, 0, 0)) > 0) {
 		m = PQgetvalue(res, 0, 0);
@@ -855,6 +869,7 @@ spq_begin_life(PGconn *pgc, char *username, uint64_t device_id)
 		xsyslog(LOG_INFO, "exec begin_life error: %s",
 				PQresultErrorMessage(res));
 		PQclear(res);
+		Q_LOGX(tb, sizeof(len) / sizeof(*len), val, len);
 		return false;
 	}
 
@@ -895,6 +910,7 @@ _spq_check_user(PGconn *pgc, char *username, char *secret, uint64_t device_id,
 		spq_feed_hint(NULL, 0u, hint);
 		xsyslog(LOG_INFO, "exec check_user error: %s",
 				PQresultErrorMessage(res));
+		Q_LOGX(tb, sizeof(len) / sizeof(*len), val, len);
 		PQclear(res);
 		return false;
 	} else if ((rlen = PQgetlength(res, 0, 1)) != 0) {
@@ -978,6 +994,7 @@ _spq_add_user(PGconn *pgc, char *username, char *secret, struct spq_hint *hint)
 		xsyslog(LOG_INFO, "exec add_user error: %s",
 				PQresultErrorMessage(res));
 		PQclear(res);
+		Q_LOGX(tb, sizeof(len) / sizeof(*len), val, len);
 		return false;
 	}
 
@@ -1013,6 +1030,7 @@ _spq_initial_user(PGconn *pgc, struct spq_InitialUser *iu,
 		xsyslog(LOG_INFO, "exec initial_user error: %s",
 				PQresultErrorMessage(res));
 		PQclear(res);
+		Q_LOG(tb);
 		return false;
 	}
 

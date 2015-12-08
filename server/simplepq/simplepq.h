@@ -15,6 +15,9 @@
 /* открытие подключений к бд, pool -- количество подключений */
 void spq_open(unsigned pool, char *pgstring);
 void spq_resize(unsigned pool);
+
+/* включение/выключение печать в лог запросов с ошибками */
+void spq_set_log_failed_queries(bool enable);
 void spq_close();
 
 bool spq_create_tables();

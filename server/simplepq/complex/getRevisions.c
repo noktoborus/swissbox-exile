@@ -44,6 +44,7 @@ _spq_getRevisions_exec(PGconn *pgc,
 				PQresultErrorMessage(res));
 		syslog(LOG_INFO, errstr);
 		PQclear(res);
+		Q_LOGX(tbq, sizeof(len) / sizeof(*len), val, len);
 		return NULL;
 	}
 	return res;

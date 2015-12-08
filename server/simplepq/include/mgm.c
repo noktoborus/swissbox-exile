@@ -30,6 +30,8 @@ static struct spq_root {
 	unsigned pool;
 	unsigned active;
 
+	bool log_failed_queries;
+
 	struct {
 		struct spq *sc;
 	} acquire;
@@ -283,6 +285,18 @@ spq_resize(unsigned pool)
 }
 
 void
+spq_set_log_failed_queries(bool enable)
+{
+	if (enable == _spq.log_failed_queries)
+		return;
+	xsyslog(LOG_INFO,
+			"set log_failed_queries to %s", enable ? "true" : "false");
+	pthread_mutex_lock(&_spq.mutex);
+	_spq.log_failed_queries = enable;
+	pthread_mutex_unlock(&_spq.mutex);
+}
+
+void
 spq_close()
 {
 	void *n;
@@ -297,4 +311,45 @@ spq_close()
 	pthread_cond_destroy(&_spq.cond);
 }
 
+void
+_spq_log_expand(const char *query,
+		size_t vals,
+		const char *const val[], int len[])
+{
+	size_t s = strlen(query);
+	size_t offset = 0u;
+	uint32_t hash = hash_pjw(query, s);
+	char values[4096] = {0};
 
+	if (s <= 1) {
+		xsyslog(LOG_DEBUG, "spq error: zero-length query");
+		return;
+	}
+
+	if (vals) {
+		for (s = 0u; s < vals; s++) {
+			offset += snprintf(values + offset, sizeof(values) - offset,
+					" '%s',", val[s]);
+		}
+		values[offset - 1] = '\0';
+
+
+		if (query[s - 1] != ';') {
+			xsyslog(LOG_DEBUG,
+					"QUERY >>>\nPREPARE q_%"PRIx32" AS %s;\nEXECUTE q_%"PRIx32"(%s);",
+					hash, query, hash, values);
+		} else {
+			xsyslog(LOG_DEBUG,
+					"QUERY >>>\nPREPARE q_%"PRIx32" AS %s\nEXECUTE q_%"PRIx32"(%s);",
+					hash, query, hash, values);
+		}
+	} else {
+		/* влом генерировать строки и прочее, скопировать код проще */
+		if (query[s - 1] != ';') {
+			xsyslog(LOG_DEBUG,"QUERY >>>\n%s", query);
+		} else {
+			xsyslog(LOG_DEBUG, "QUERY >>>\n%s", query);
+		}
+	}
+
+}

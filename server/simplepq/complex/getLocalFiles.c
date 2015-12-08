@@ -65,6 +65,7 @@ _s_exec(PGconn *pgc, struct spq_hint *hint)
 				PQresultErrorMessage(res));
 		syslog(LOG_INFO, errstr);
 		PQclear(res);
+		Q_LOG(tb);
 		return NULL;
 	}
 	return res;

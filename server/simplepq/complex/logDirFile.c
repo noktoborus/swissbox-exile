@@ -31,6 +31,7 @@ _spq_f_logDirFile_exec(PGconn *pgc, guid_t *rootdir, uint64_t checkpoint)
 				PQresultErrorMessage(res));
 		syslog(LOG_INFO, errstr);
 		PQclear(res);
+		Q_LOGX(tb, sizeof(len) / sizeof(*len), val, len);
 		return NULL;
 	}
 

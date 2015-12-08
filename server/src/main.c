@@ -1234,7 +1234,7 @@ cfg_update(struct main *pain)
 
 	/* изменение размера пула подключений */
 	spq_resize((unsigned)pain->options.pg_poolsize);
-
+	spq_set_log_failed_queries((bool)pain->options.log_failed_queries);
 	/* инициализация лога сервера */
 	if (*pain->options.packet_verbose)
 		packet_verbose(pain->options.packet_verbose);
@@ -1285,6 +1285,8 @@ main(int argc, char *argv[])
 			CFG_SIMPLE_STR("bind", &pain.options.bindline),
 			CFG_SIMPLE_STR("pg_connstr", &pain.options.pg_connstr),
 			CFG_SIMPLE_INT("pg_poolsize", &pain.options.pg_poolsize),
+			CFG_SIMPLE_BOOL("log_failed_queries",
+					&pain.options.log_failed_queries),
 			CFG_SIMPLE_STR("redis_chan", &pain.options.redis_chan),
 			CFG_SIMPLE_STR("server_name", &pain.options.name),
 			CFG_SIMPLE_STR("cache_dir", &pain.options.cache_dir),
