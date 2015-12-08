@@ -17,6 +17,8 @@ action_result_driver(struct main *pain, struct almsg_parser *alm, char *action)
 {
 	uint64_t hash = 0lu;
 
+	struct listPtr lp = {0};
+
 	struct listNode *n = NULL;
 	struct bus_result *br = NULL;
 	struct sev_ctx *cev = NULL;
@@ -30,7 +32,9 @@ action_result_driver(struct main *pain, struct almsg_parser *alm, char *action)
 
 	hash = hash_pjw(PSLEN(id));
 
-	if (!(n = list_find(pain->bus_task, hash))) {
+	list_ptr(pain->bus_task, &lp);
+
+	if (!(n = list_find(&lp, hash))) {
 		xsyslog(LOG_WARNING,
 				"bus: action 'result-driver' with invalid id: %"PRIx64,
 				hash);
@@ -43,7 +47,7 @@ action_result_driver(struct main *pain, struct almsg_parser *alm, char *action)
 			/* клиент потерялся раньше, чем пришёл ответ
 			 * штатная ситуация
 			 */
-			xsyslog(LOG_INFO, );
+			xsyslog(LOG_INFO, "хуита");
 
 			return false;
 		}

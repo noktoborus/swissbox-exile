@@ -101,13 +101,15 @@ client_share_checkpoint(struct client *c, guid_t *rootdir, uint64_t checkpoint)
 	uint32_t hash = hash_pjw((void*)rootdir, sizeof(guid_t));
 	struct listNode *rp = NULL;
 	struct rootdir_g *rg = NULL;
+	struct listPtr lp = {0};
 
 	if (!c->cum || !rootdir || !rootdir->not_null)
 		return;
 
 	pthread_mutex_lock(&c->cum->lock);
+	list_ptr(&c->cum->rootdir, &lp);
 	/* проверка наличия информации о директории в нотификациях */
-	rp = list_find(&c->cum->rootdir, hash);
+	rp = list_find(&lp, hash);
 
 	/* если rootdir ещё не в списке, то её нужно добавить */
 	if (!rp) {
@@ -295,12 +297,14 @@ wait_store_t*
 query_id(struct client *c, struct listRoot *list, uint64_t id)
 {
 	struct listNode *ln;
+	struct listPtr lp = {0};
 	wait_store_t *data;
 #if DEEPDEBUG
 	xsyslog(LOG_DEBUG, "client[%"SEV_LOG"] list query_id(%s, %"PRIu64")",
 			c->cev->serial, list_name(c, list), id);
 #endif
-	if (!(ln = list_find(list, id)))
+	list_ptr(list, &lp);
+	if (!(ln = list_find(&lp, id)))
 		return NULL;
 
 	data = (wait_store_t*)ln->data;
@@ -314,7 +318,9 @@ wait_store_t*
 touch_id(struct client *c, struct listRoot *list, uint64_t id)
 {
 	struct listNode *ln;
-	ln = list_find(list, id);
+	struct listPtr lp = {0};
+	list_ptr(list, &lp);
+	ln = list_find(&lp, id);
 #if DEEPDEBUG
 	xsyslog(LOG_DEBUG, "client[%"SEV_LOG"] list touch_id(%s, %"PRIu64") -> %s",
 			c->cev->serial, list_name(c, list), id, ln ? "found" : "not found");
@@ -645,8 +651,10 @@ client_destroy(struct client *c)
 
 	/* убираем себя из списка подключённых */
 	if (c->cum) {
+		struct listPtr _lp = {0};
 		pthread_mutex_lock(&c->cum->lock);
-		list_free_node(list_find(&c->cum->devices, c->device_id), NULL);
+		list_ptr(&c->cum->devices, &_lp);
+		list_free_node(list_find(&_lp, c->device_id), NULL);
 		pthread_mutex_unlock(&c->cum->lock);
 	}
 
@@ -1235,6 +1243,7 @@ client_iterate(struct sev_ctx *cev, bool last, void **p)
 		cev->action |= SEV_ACTION_FASTTEST;
 	} else if (c->cum && c->status.log_active) {
 		struct listNode *_ln;
+		struct listPtr _lp = {0};
 		struct rootdir_g *_rg;
 		uint32_t hash;
 		/* если нет никаких "срочных" действий, можно проверить сообщения
@@ -1251,10 +1260,11 @@ client_iterate(struct sev_ctx *cev, bool last, void **p)
 			if (!c->rootdir.g[i].active)
 				continue;
 			hash = hash_pjw((void*)&c->rootdir.g[i].rootdir, sizeof(guid_t));
+			list_ptr(&c->cum->rootdir, &_lp);
 			/* если не найдена директория в разделяемом списке,
 			 * то можно не волноваться, обновлений в ней не было
 			 */
-			if ((_ln = list_find(&c->cum->rootdir, hash)) != NULL) {
+			if ((_ln = list_find(&_lp, hash)) != NULL) {
 				_rg = _ln->data;
 				/* когда чекпоинт в общей директории моложе
 				 * локального, то пришло время обновиться

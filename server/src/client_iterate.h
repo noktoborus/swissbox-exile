@@ -10,6 +10,7 @@
 #include "junk/utils.h"
 #include "simplepq/simplepq.h"
 #include "squeue/squeue.h"
+#include "fcac/fcac.h"
 
 #include <stdint.h>
 #include <polarssl/sha256.h>
@@ -78,6 +79,12 @@ struct chat_store {
 struct chunk_send {
 	int fd;
 
+	/* если есть эта структура, то использовать её
+	 * TODO: в будущем убрать "локальное хранилище"
+	 * и оставить только кеш
+	 */
+	struct fcac_ptr *fp;
+
 	off_t sent;
 	off_t size;
 
@@ -89,6 +96,27 @@ struct chunk_send {
 	uint32_t chunk_size;
 
 	struct chunk_send *next;
+};
+
+/* подготовка к отправке чанка */
+struct chunk_prepare {
+	struct fcac_ptr *fp;
+
+	/* отметка о последнее событие
+	 * таком, как:
+	 * 1. начало запроса
+	 * 2. ответ драйвера
+	 * 3. готовность к отправке
+	 */
+	time_t last;
+
+	/* id пакета, на который нужно отправить ответ */
+	uint64_t id;
+
+	/* id сессии */
+	uint64_t session_id;
+
+	struct chunk_prepare *next;
 };
 
 #define C_ROOTDIR_ACTIVATE (uint64_t)-1

@@ -494,10 +494,6 @@ _read_ask__from_driver(struct client *c, Fep__ReadAsk *msg,
 	r = bus_query(c->cev, &alm);
 	almsg_destroy(&alm);
 	return r;
-	/*return send_error(c, msg->id, "Not implement", -1);
-	 */
-	/*return true;
-	 */
 }
 
 static inline bool

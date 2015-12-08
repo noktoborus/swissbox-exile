@@ -44,6 +44,8 @@ c_auth_cb(struct client *c, uint64_t id, unsigned int msgtype, void *msg, void *
 	struct spq_hint hint;
 	struct spq_UserInfo user;
 
+	struct listPtr lp = {0};
+
 	/* ответы: Ok, Error, Pending */
 	/* TODO: заглушка */
 	if (msgtype != FEP__TYPE__tAuth) {
@@ -110,7 +112,8 @@ c_auth_cb(struct client *c, uint64_t id, unsigned int msgtype, void *msg, void *
 
 	/* проверка на подключённое устройство с тем же device_id */
 		pthread_mutex_lock(&c->cum->lock);
-		if (!list_find(&c->cum->devices, c->device_id)) {
+		list_ptr(&c->cum->devices, &lp);
+		if (!list_find(&lp, c->device_id)) {
 			/* никаких данных не передаётся
 			 * вообще, список содержит только уникальные значения,
 			 * что проверить уникальность device_id

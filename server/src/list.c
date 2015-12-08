@@ -11,11 +11,13 @@ bool
 list_alloc(struct listRoot *root, uint64_t id, void *data)
 {
 	struct listNode *ln;
+	struct listPtr lp = {0};
 
 	if (!root)
 		return false;
 
-	if (list_find(root, id)) {
+	list_ptr(root, &lp);
+	if (list_find(&lp, id)) {
 #if DEEPDEBUG
 		xsyslog(LOG_DEBUG, "list: attemp to add exists id: %"PRIu64, id);
 #endif
@@ -29,17 +31,17 @@ list_alloc(struct listRoot *root, uint64_t id, void *data)
 		return false;
 	}
 
+	ln->rid = ++root->rid_gen;
 	ln->id = id;
-	if (gettimeofday(&ln->born, NULL) != 0) {
-		xsyslog(LOG_WARNING, "list: gettimeofday() error: %s", strerror(errno));
-		return false;
-	}
-
 
 	if (root->next) {
 		ln->next = root->next;
 		root->next->prev = ln;
+	} else {
+		root->last = ln;
 	}
+	gettimeofday(&root->updated_at, NULL);
+
 	root->count++;
 	root->next = ln;
 	ln->root = root;
@@ -49,21 +51,6 @@ list_alloc(struct listRoot *root, uint64_t id, void *data)
 	return true;
 }
 
-struct listNode *
-list_find(struct listRoot *root, uint64_t id)
-{
-	struct listNode *ln;
-	if (!root || !root->next)
-		return NULL;
-
-	for (ln = root->next; ln; ln = ln->next) {
-		if (ln->id == id)
-			return ln;
-	}
-
-	return NULL;
-}
-
 bool
 list_free_node(struct listNode *node, list_free_cb data_free)
 {
@@ -71,9 +58,13 @@ list_free_node(struct listNode *node, list_free_cb data_free)
 		return false;
 
 	if (node->root) {
+		gettimeofday(&node->root->updated_at, NULL);
 		node->root->count--;
 		if (node->root->next == node) {
 			node->root->next = node->next;
+		}
+		if (node->root->last == node) {
+			node->root->last = node->prev;
 		}
 	}
 
@@ -101,52 +92,95 @@ list_free_root(struct listRoot *root, list_free_cb data_free)
 	return list_free_node(root->next, data_free);
 }
 
-struct listNode *
-list_find_old(struct listRoot *root, time_t sec)
+bool
+list_ptr(struct listRoot *root, struct listPtr *ptr)
 {
-	struct listNode *ln;
-	struct timeval tv;
-	if (gettimeofday(&tv, NULL) != 0) {
-		xsyslog(LOG_WARNING, "list: gettimeofday() error: %s", strerror(errno));
+	if (!ptr)
 		return false;
-	}
+	memset(ptr, 0, sizeof(*ptr));
+	if (!(ptr->r = root))
+		return false;
+	return true;
+}
 
-	if (!root || !root->next)
+static inline struct listNode *
+_list_find(struct listPtr *p, uint64_t id, list_cmp_cb cmp, void *cb_d)
+{
+	struct listNode *rval = NULL;
+	if (!p || !p->r || !p->r->next)
 		return NULL;
 
-	for (ln = root->next; ln; ln = ln->next) {
-		if (ln->born.tv_sec - tv.tv_sec > sec) {
-			return ln;
+	/* поиск с самого начала выполняется при условии что
+	 * p->updated_at != p->r->updated_at
+	 */
+	if (memcmp(&p->updated_at, &p->r->updated_at, sizeof(struct timeval))) {
+		/* копируем значение отметки */
+		memcpy(&p->updated_at, &p->r->updated_at, sizeof(struct timeval));
+		for (rval = p->r->last; rval; rval = rval->prev) {
+			/* в указатели должно быть только положительное значение,
+			 * даже если оно не корректное
+			 */
+			p->n = rval;
+			/* отсеивание по rid имеет смысл только
+			 * в том случае, если выполняется поиск не по id, а по
+			 * значению
+			 *
+			 * чем дальше от корня - тем младше значения
+			 * и нам нужно пропустить последнее найденное
+			 */
+			if (p->rid >= p->n->rid) {
+				continue;
+			}
+			/* сдвигаем идентификатор пройденных узлов
+			 *
+			 * идентификатор нужен для того, что бы можно было найти
+			 * последний узел в случае изменения списка
+			 */
+			p->rid = p->n->rid;
+			/* сравнение */
+			if (cmp) {
+				if (cmp(rval->data, rval->id, cb_d)) {
+					break;
+				}
+			} else if (p->n->id == id) {
+				break;
+			}
+		}
+	} else if (p->n) {
+		/*
+		 * поиск имеет смысл продолжать только если
+		 * есть указатель на узел
+		 * В жизни такой ситуации не должно возникнуть
+		 * если метка совпадает, то и указатель на узел должен
+		 * быть действительным всегда
+		 *
+		 * начинаем сразу со следующего узла
+		 */
+		for (rval = p->n->prev; rval; rval = rval->prev) {
+			p->n = rval;
+			p->rid = rval->rid;
+			if (cmp) {
+				if (cmp(rval->data, rval->id, cb_d)) {
+					break;
+				}
+			} else if (p->n->id == id) {
+				/* при выходе из цикла получаем валидный указатель */
+				break;
+			}
 		}
 	}
-	return NULL;
+	return rval;
 }
 
 struct listNode *
-list_find_val(struct listRoot *root, list_cmp_cb cmp, void *cb_d)
+list_find(struct listPtr *p, uint64_t id)
 {
-	struct listNode *ln;
-	if (!root || !root->next)
-		return NULL;
-
-	for (ln = root->next; ln; ln = ln->next) {
-		if (cmp(ln->data, ln->id, cb_d))
-			return ln;
-	}
-
-	return NULL;
+	return _list_find(p, id, NULL, NULL);
 }
 
-bool
-list_reborn_node(struct listNode *node)
+struct listNode *
+list_find_val(struct listPtr *p, list_cmp_cb cmp, void *cb_d)
 {
-	if (!node)
-		return false;
-
-	if (gettimeofday(&node->born, NULL) != 0) {
-		xsyslog(LOG_WARNING, "list: gettimeofday() error: %s", strerror(errno));
-		return false;
-	}
-	return true;
+	return _list_find(p, 0u, cmp, cb_d);
 }
 
