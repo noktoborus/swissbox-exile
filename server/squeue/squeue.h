@@ -33,6 +33,9 @@ struct squeue_cursor {
 
 
 bool squeue_init(struct squeue *q);
+/* в случае наличия подписок разрушить очередь нельзя
+ *
+ */
 bool squeue_destroy(struct squeue *q);
 
 bool squeue_subscribe(struct squeue *q, struct squeue_cursor *c);
@@ -44,6 +47,17 @@ bool squeue_send(struct squeue *q, void *data, void(*data_free)(void*));
 /* добавление сообщения в очередь подписанным участником */
 bool squeue_put(struct squeue_cursor *c, void *data, void(*data_free)(void*));
 
+/* освобождение данных происходит
+ * внутри библиотеки при вызове squeue_put() и squeue_send()
+ * а так же при squeue_destroy().
+ *
+ * выборка для удаления происходит по следующему алгоритму:
+ * 1. удаление происходит только когда количество подписчиков совпадает
+ *  с количеством прочитавших
+ * 2. при получении _следующей_ структуры, предыдущая помечается как прочитанная
+ *
+ * FIXME: возможна ошибка при squeue_unsubscribe(), когда не прочитавших == 1
+ */
 void *squeue_query(struct squeue_cursor *c);
 
 /* получение количества подписчиков по корню и из курсора */
