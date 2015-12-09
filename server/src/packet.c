@@ -352,7 +352,7 @@ packet2syslog(const char *head,
 			Fep__FileUpdate *_m = (void*)msg;
 			_l = snprintf(result, _e,
 					"id=%"PRIu64", rootdir_guid=%s, file_guid=%s",
-					_m->id, _m->rootdir_guid, _m->directory_guid);
+					_m->id, _m->rootdir_guid, _m->file_guid);
 
 			_value_or_null(_m, result, "%"PRIu64, checkpoint, _l, _e);
 			_value_or_nullS(_m, result, directory_guid, _l, _e);
