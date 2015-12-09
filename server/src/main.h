@@ -64,6 +64,7 @@ struct sev_ctx
 	} send;
 
 	struct main *pain;
+	struct sev_main *sev;
 
 	uint8_t action;
 	pthread_mutex_t utex;
@@ -93,6 +94,7 @@ struct sev_main
 	char *host;
 	char *port;
 
+	struct main *pain;
 	struct sev_ctx *client;
 
 	struct sev_main *prev;
@@ -131,6 +133,8 @@ struct main
 	/* работа с курлом */
 	struct curlev cuev;
 
+	/* синхронизатор для работы со списками */
+	pthread_mutex_t sev_lock;
 	/* server list */
 	struct sev_main *sev;
 

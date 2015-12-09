@@ -92,8 +92,19 @@ client_thread(void *ctx)
 }
 
 struct sev_ctx *
-client_free(struct sev_ctx *cev)
+client_free(struct sev_ctx *cev, bool nolock)
 {
+	struct sev_ctx *ocev = NULL;
+	struct sev_main *sev = NULL;
+
+	if (!cev)
+		return NULL;
+
+	if (!nolock)
+		pthread_mutex_lock(&cev->pain->sev_lock);
+
+	sev = cev->sev;
+
 	xsyslog(LOG_INFO, "client[%"SEV_LOG"] free(fd#%d)", cev->serial, cev->fd);
 
 	/* send event */
@@ -153,35 +164,38 @@ client_free(struct sev_ctx *cev)
 		pthread_mutex_destroy(&cev->send.lock);
 	}
 	/* освобождение структуры клиента */
-	{
-		struct sev_ctx *ocev = NULL;
 
-		if (cev->next) {
-			cev->next->prev = cev->prev;
-			ocev = cev->next;
-		}
-
-		if (cev->prev) {
-			cev->prev->next = cev->next;
-			if (!ocev)
-				ocev = cev->prev;
-		}
-
-		xsyslog(LOG_DEBUG, "client free(%p):%"PRIu64
-				" [prev: %p:%"PRIu64", next: %p:%"PRIu64"]"
-				", return(%p):%"PRIu64,
-				(void*)cev, cev->serial,
-				(void*)cev->prev, (cev->prev ? cev->prev->serial : 0lu),
-				(void*)cev->next, (cev->next ? cev->next->serial : 0lu),
-				(void*)ocev, (ocev ? ocev->serial : 0lu));
-
-		free(cev);
-		return ocev;
+	if (cev->next) {
+		cev->next->prev = cev->prev;
+		ocev = cev->next;
 	}
+
+	if (cev->prev) {
+		cev->prev->next = cev->next;
+		if (!ocev)
+			ocev = cev->prev;
+	}
+
+	if (sev && sev->client == cev) {
+		sev->client = ocev;
+	}
+
+	xsyslog(LOG_DEBUG, "client free(%p):%"PRIu64
+			" [prev: %p:%"PRIu64", next: %p:%"PRIu64"]"
+			", return(%p):%"PRIu64,
+			(void*)cev, cev->serial,
+			(void*)cev->prev, (cev->prev ? cev->prev->serial : 0lu),
+			(void*)cev->next, (cev->next ? cev->next->serial : 0lu),
+			(void*)ocev, (ocev ? ocev->serial : 0lu));
+
+	if (!nolock)
+		pthread_mutex_unlock(&cev->pain->sev_lock);
+	free(cev);
+	return ocev;
 }
 
 static inline struct sev_ctx *
-client_alloc(struct ev_loop *loop, int fd, struct sev_ctx *next)
+client_alloc(struct ev_loop *loop, int fd, struct sev_ctx *next, struct sev_main *sev)
 {
 	struct main *pain = (struct main*)ev_userdata(loop);
 	struct sev_ctx *cev;
@@ -203,6 +217,7 @@ client_alloc(struct ev_loop *loop, int fd, struct sev_ctx *next)
 	 */
 	cev->fd = -1;
 	cev->pain = pain;
+	cev->sev = sev;
 	cev->async.cev = cev;
 	ev_async_init((struct ev_async*)&cev->async, alarm_cb);
 	ev_async_start(loop, (struct ev_async*)&cev->async);
@@ -222,7 +237,7 @@ client_alloc(struct ev_loop *loop, int fd, struct sev_ctx *next)
 		xsyslog(LOG_WARNING, "client[%"SEV_LOG"] init(fd#%d) "
 				"alloc recv/send buffer failed",
 				cev->serial, fd);
-		client_free(cev);
+		client_free(cev, true);
 		return NULL;
 	}
 	pthread_mutex_init(&cev->recv.lock, NULL);
@@ -240,13 +255,13 @@ client_alloc(struct ev_loop *loop, int fd, struct sev_ctx *next)
 				cev->serial, cev->fd, strerror(errno));
 		memset(&cev->thread, 0, sizeof(cev->thread));
 		pthread_mutex_unlock(&cev->utex);
-		client_free(cev);
-		cev = NULL;
+		client_free(cev, true);
 		return NULL;
 	} else {
 		xsyslog(LOG_INFO, "client[%"SEV_LOG"] init(fd#%d) new thread[%p]",
 				cev->serial, fd, (void*)cev->thread);
 
+		pthread_mutex_lock(&pain->sev_lock);
 		/* интеграция в список */
 		if (next) {
 			cev->next = next;
@@ -266,6 +281,7 @@ client_alloc(struct ev_loop *loop, int fd, struct sev_ctx *next)
 		/* инициализация вторичных значений */
 		cev->fd = fd;
 		cev->evloop = loop;
+		pthread_mutex_unlock(&pain->sev_lock);
 	}
 	pthread_mutex_unlock(&cev->utex);
 	return cev;
@@ -419,7 +435,7 @@ server_cb(struct ev_loop *loop, ev_io *w, int revents)
 		saddr_char(xaddr, sizeof(xaddr), sa.ss_family, (struct sockaddr*)&sa);
 		xsyslog(LOG_INFO, "accept(%s) -> fd#%d", xaddr, sock);
 
-		ptx = client_alloc(loop, sock, sev->client);
+		ptx = client_alloc(loop, sock, sev->client, sev);
 		if (!ptx) {
 			xsyslog(LOG_WARNING, "accept(%s, fd#%d) allocation failed",
 					xaddr, sock);
@@ -522,11 +538,14 @@ server_alloc(struct main *pain, char *address)
 		}
 	}
 
+	pthread_mutex_lock(&pain->sev_lock);
 	/* внесение в общий список */
 	if (pain->sev)
 		pain->sev->prev = sev;
 	sev->next = pain->sev;
 	pain->sev = sev;
+	sev->pain = pain;
+	pthread_mutex_unlock(&pain->sev_lock);
 
 	xsyslog(LOG_INFO, "server init (%p) -> add entry point '%s'",
 			(void*)sev, address);
@@ -535,9 +554,13 @@ server_alloc(struct main *pain, char *address)
 
 /* return previous struct or next or NULL if no more,
  * must be called from main thread */
-struct sev_main *
+bool
 server_free(struct ev_loop *loop, struct sev_main *sev)
 {
+	struct main *pain = (struct main*)ev_userdata(loop);
+	if (!sev)
+		return false;
+
 	xsyslog(LOG_INFO, "server free(%p) -> fd#%d", (void*)sev, sev->fd);
 	if (sev->fd != -1) {
 		ev_io_stop(loop, &sev->evio);
@@ -551,28 +574,32 @@ server_free(struct ev_loop *loop, struct sev_main *sev)
 		sev->port = NULL;
 	}
 	/* чистка клиентов */
-	while (sev->client)
-		sev->client = client_free(sev->client);
+	while (client_free(sev->client, false)) {};
 	/* финализация, выбираем следующую ноду и освобождаем текущую */
 	{
-		struct sev_main *osev = NULL;
+		pthread_mutex_lock(&pain->sev_lock);
 		if (sev->prev) {
 			sev->prev->next = sev->next;
-			osev = sev->prev;
 		}
 		if (sev->next) {
 			sev->next->prev = sev->prev;
-			if (!osev)
-				osev = sev->next;
 		}
-		if (osev)
-			xsyslog(LOG_DEBUG, "server free(%p) -> next node: %p",
-					(void*)sev, (void*)osev);
-		else
-			xsyslog(LOG_DEBUG, "server free(%p) -> last node",
+
+		if (pain->sev == sev) {
+			pain->sev = (sev->prev ? sev->prev : sev->next);
+		}
+
+		if (pain->sev) {
+			xsyslog(LOG_DEBUG, "server free(%p) [prev: %p, next: %p]",
+					(void*)sev, (void*)sev->prev, (void*)sev->next);
+		} else {
+			xsyslog(LOG_DEBUG, "server free(%p) last node",
 					(void*)sev);
+		}
+
+		pthread_mutex_unlock(&pain->sev_lock);
 		free(sev);
-		return osev;
+		return (pain->sev != NULL);
 	}
 }
 
@@ -1048,19 +1075,15 @@ timeout_cb(struct ev_loop *loop, ev_timer *w, int revents)
 						cev_it->serial, cev_it->serial, (void*)cev_it->prev);
 			 */
 			/* обход списка */
+			pthread_mutex_lock(&pain->sev_lock);
 			for(; cev_it; cev_it = _cev_next) {
+				_cev_next = cev_it->next;
 				/* клиент готов к отчистке */
 				if (cev_it->isfree) {
-					/* структура первая в списке */
-					if (cev_it == sev_it->client) {
-						_cev_next = (sev_it->client = client_free(cev_it));
-					} else {
-						_cev_next = client_free(cev_it);
-					}
-				} else {
-					_cev_next = cev_it->next;
+					client_free(cev_it, true);
 				}
 			}
+			pthread_mutex_unlock(&pain->sev_lock);
 		}
 	}
 }
@@ -1070,21 +1093,23 @@ cev_by_serial(struct main *pain, size_t serial)
 {
 	struct sev_main *sev = NULL;
 	struct sev_ctx *cev = NULL;
+	pthread_mutex_lock(&pain->sev_lock);
 	/* TODO */
 	for (sev = pain->sev; sev; sev = sev->next) {
 		for (cev = sev->client; cev; cev = cev->next) {
 			if (cev->serial == serial) {
 				if (cev->isfree) {
-					/* прекращаем цикл если клиент помечен для отчистки
-					 *
+					/* обнуляем указатель, если структура помечена
+					 * как освобождённая
 					 */
-					break;
+					cev = NULL;
 				}
-				return cev;
+				break;
 			}
 		}
 	}
-	return NULL;
+	pthread_mutex_unlock(&pain->sev_lock);
+	return cev;
 }
 
 const char *const
@@ -1340,6 +1365,8 @@ main(int argc, char *argv[])
 				pain.rs[i].self = i;
 				pain.rs[i].pain = &pain;
 			}
+			/*  */
+			pthread_mutex_init(&pain.sev_lock, NULL);
 			/* мультисокет */
 			{
 				char *_x = strdup(pain.options.bindline);
@@ -1361,8 +1388,7 @@ main(int argc, char *argv[])
 				/* выход происходит при остановке всех evio в лупе */
 				ev_run(loop, 0);
 				/* чистка серверных сокетов */
-				while (pain.sev)
-					pain.sev = server_free(loop, pain.sev);
+				while (server_free(loop, pain.sev));
 			} else {
 				_r = false;
 			}
@@ -1376,6 +1402,7 @@ main(int argc, char *argv[])
 			}
 			pthread_mutex_destroy(&pain.rs_lock);
 			pthread_cond_destroy(&pain.rs_wait);
+			pthread_mutex_destroy(&pain.sev_lock);
 			/* деинициализация curl */
 			cuev_destroy(&pain.cuev);
 			/* чистка клиентских сокетов */
