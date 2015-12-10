@@ -1144,23 +1144,30 @@ _client_iterate_handle(struct client *c)
 	return true;
 }
 
+void *
+client_begin(struct sev_ctx *cev)
+{
+	struct client *c = client_alloc(cev);
+	if (c) {
+		c->cev->recv_timeout = 2;
+	}
+	return (void*)c;
+}
+
+void
+client_end(struct sev_ctx *cev, void *p)
+{
+	client_destroy((struct client*)p);
+}
+
 /* вовзращает положительный результат, если требуется прервать io */
 bool
-client_iterate(struct sev_ctx *cev, bool last, void **p)
+client_iterate(struct sev_ctx *cev, void *p)
 {
-	struct client *c = (struct client *)*p;
+	struct client *c = (struct client *)p;
 	/* подчищаем, если вдруг последний раз запускаемся */
-	if (last) {
-		client_destroy(c);
-		*p = NULL;
-		return true;
-	} else if (p && !c) {
-		/* инициализация */
-		c = client_alloc(cev);
-		if (!(*p = (void*)c))
-			return true;
-		c->cev->recv_timeout = 2;
-	} else if (!p) {
+
+	if (!p) {
 		xsyslog(LOG_WARNING,
 				"client[%"SEV_LOG"] field for structure not passed",
 				cev->serial);
@@ -1240,7 +1247,9 @@ client_iterate(struct sev_ctx *cev, bool last, void **p)
 	 * если есть файлы в очереди или необработанная дата
 	 */
 	if (c->cout || c->rout || c->blen) {
+		pthread_mutex_lock(&cev->utex);
 		cev->action |= SEV_ACTION_FASTTEST;
+		pthread_mutex_unlock(&cev->utex);
 	} else if (c->cum && c->status.log_active) {
 		struct listNode *_ln;
 		struct listPtr _lp = {0};
@@ -1287,4 +1296,9 @@ client_iterate(struct sev_ctx *cev, bool last, void **p)
 	return true;
 }
 
+void
+client_bus_input(struct sev_ctx *cev, void *p)
+{
+	/* TODO */
+}
 

@@ -33,7 +33,6 @@
 
 static unsigned int sev_ctx_seq = 0u;
 
-bool client_iterate(struct sev_ctx *, bool, void **);
 bool redis_process(struct redis_c *rds, const char *data, size_t size);
 
 void alarm_cb(struct ev_loop *loop, ev_async *w, int revents);
@@ -55,8 +54,9 @@ client_thread(void *ctx)
 	pthread_setname_np(pthread_self(), thread_name);
 #endif
 	pthread_mutex_unlock(&cev->utex);
+	p = client_begin(cev);
 	while (true) {
-		if (!client_iterate(cev, false, &p)) {
+		if (!client_iterate(cev, p)) {
 			xsyslog(LOG_DEBUG, "client[%"SEV_LOG"] thread[%p] leave thread",
 					cev->serial, (void*)cev->thread);
 			break;
@@ -70,6 +70,13 @@ client_thread(void *ctx)
 			cev->action &= ~SEV_ACTION_FASTTEST;
 		} else if (cev->action & SEV_ACTION_DATA) {
 			/* если образовались данные нужно побыстрей их прокинуть дальше */
+		} else if (cev->action & SEV_ACTION_INPUT) {
+			/* в очереди появились данные, их можно дёрнуть,
+			 * но только тогда, когда не обрабатывается других очередей
+			 */
+			cev->action &= ~SEV_ACTION_INPUT;
+			/* TODO */
+			client_bus_input(cev, p);
 		} else {
 		/* шоп не жрало цпу, делаем слипы до евента */
 			clock_gettime(CLOCK_REALTIME, &tv);
@@ -86,7 +93,7 @@ client_thread(void *ctx)
 		}
 		pthread_mutex_unlock(&cev->utex);
 	}
-	client_iterate(cev, true, &p);
+	client_end(cev, p);
 	cev->isfree = true;
 	return NULL;
 }

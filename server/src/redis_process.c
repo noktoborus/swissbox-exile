@@ -49,14 +49,10 @@ action_result_driver(struct main *pain, struct almsg_parser *alm, char *action)
 			 */
 			xsyslog(LOG_INFO, "хуита");
 
-			return false;
+		} else {
+			/* сообщаем клиенту что ответ был получен */
+			/* TODO */
 		}
-		/* TODO */
-	}
-
-	/* ищём клиента в списке и впихиваем ему результат */
-	{
-
 	}
 
 	list_free_node(n, free);

@@ -9,6 +9,7 @@
 #include "junk/xsyslog.h"
 #include "junk/almsg.h"
 #include "proto/fep.pb-c.h"
+#include "squeue/squeue.h"
 
 #include <hiredis/hiredis.h>
 #include <hiredis/adapters/libev.h>
@@ -35,11 +36,19 @@ struct evptr {
 
 #define SEV_LOG "06"PRIuPTR
 
+/* в буфере отправки есть данные */
 #define SEV_ACTION_READ 1
+/* буфер чтения свободен */
 #define SEV_ACTION_WRITE 2
+/* событие на выход из треда */
 #define SEV_ACTION_EXIT 4
+/* проверки событий без ожидания действия */
 #define SEV_ACTION_FASTTEST 8
+/* данные на входе */
 #define SEV_ACTION_DATA 16
+/* изменение в очереди шины */
+#define SEV_ACTION_INPUT 32
+
 struct sev_ctx
 {
 	/* io */
@@ -70,6 +79,11 @@ struct sev_ctx
 	pthread_mutex_t utex;
 	pthread_cond_t ond;
 	pthread_t thread;
+
+	/* оче
+	 * событие на пополнение: SEV_ACTION_INPUT
+	 */
+	struct squeue bus_inqueue;
 
 	time_t recv_timeout;
 	time_t send_timeout;
@@ -169,6 +183,7 @@ struct main
 struct bus_result {
 	struct sev_ctx *cev;
 	size_t cev_serial;
+	void *data;
 };
 
 typedef enum direction
@@ -206,6 +221,22 @@ void almsg2redis(struct main *pain, const char *cmd, const char *chan,
 
 /* информации о версии */
 const char *const sev_version_string();
+
+
+/* вход для аллокации клиентской структуры
+ * результат этой процедуры будет передаваться в аргументе void *p
+ */
+void *client_begin(struct sev_ctx *cev);
+
+/* основная точка входа клиента */
+bool client_iterate(struct sev_ctx *cev, void *p);
+
+/* освобождение памяти под клиентские структуры */
+void client_end(struct sev_ctx *cev, void *p);
+
+/* точка входа для обработки очереди */
+void client_bus_input(struct sev_ctx *cev, void *p);
+
 
 #endif /* _MAIN_1422961154_H_ */
 
