@@ -81,6 +81,7 @@ as3_auth(char *path, char *name, char *secret, uint64_t device_id)
 	curl_easy_setopt(curl, CURLOPT_POSTFIELDS, xjson);
 	curl_easy_setopt(curl, CURLOPT_HTTPHEADER, x_header);
 	curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, curl_silent);
+	curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0l);
 
 	if ((res = curl_easy_perform(curl)) != CURLE_OK) {
 		xsyslog(LOG_WARNING, "curl perform failed: %s\n",
