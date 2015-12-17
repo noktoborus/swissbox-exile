@@ -389,7 +389,7 @@ _handle_ping(struct client *c, unsigned type, Fep__Ping *ping)
 	pong.sec = ping->sec;
 	pong.usec = ping->usec;
 	pong.peer_sec = tv.tv_sec;
-	pong.peer_usec = tv.tv_sec;
+	pong.peer_usec = tv.tv_usec;
 
 	if (!c->timed) {
 		if (ping->sec > tv.tv_sec + 300) {
