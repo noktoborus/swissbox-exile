@@ -243,8 +243,9 @@ packet2syslog(const char *head,
 	case FEP__TYPE__tAuth:
 		{
 			Fep__Auth *_m = (void*)msg;
-			snprintf(result, _e,
-					"id=%"PRIu64", device_id=%"PRIX64", domain=%s, authType=%s",
+			_l = snprintf(result, _e,
+					"id=%"PRIu64", device_id=%"PRIX64", domain=%s, authType=%s"
+					", authToken=%s, password=%s, key=%s",
 					_m->id, _m->device_id, _m->domain,
 					(_m->authtype == FEP__REQ_AUTH_TYPE__tHash
 					 ? "Hash" :
@@ -253,8 +254,12 @@ packet2syslog(const char *head,
 					  (_m->authtype == FEP__REQ_AUTH_TYPE__tUserToken
 					   ? "UserToken" :
 					   (_m->authtype == FEP__REQ_AUTH_TYPE__tKey
-						? "Key": "Unknown"))))
+						? "Key": "Unknown")))),
+					(_m->authtoken ? "yes" : "no"),
+					(_m->password ? "yes" : "no"),
+					(_m->has_key ? "yes" : "no")
 					);
+			_value_or_nullS(_m, result, username, _l, _e);
 			break;
 		}
 	case FEP__TYPE__tWriteAsk:
