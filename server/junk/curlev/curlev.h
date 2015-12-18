@@ -36,6 +36,9 @@ struct curlex {
 bool cuev_init(struct curlev *cuev, struct ev_loop *loop);
 void cuev_destroy(struct curlev *cuev);
 
+/*
+ * при окончании получения данных cb вызывается с data=NULL, size=0ul
+ */
 bool cuev_emit(struct curlev *cuev, char *url, struct curl_slist *headers,
 	curlev_cb_t cb, void *cb_data);
 

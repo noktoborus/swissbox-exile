@@ -11,15 +11,25 @@
 
 #include "curlev.h"
 
+static size_t
+cb(void *data, size_t size, void *priv)
+{
+	xsyslog(LOG_DEBUG, "### got data[%p] in %"PRIuPTR" bytes (%"PRIuPTR")",
+			(void*)data, size, (size_t)priv);
+	return size;
+}
+
 static void
 runner_cb(struct ev_loop *loop, struct ev_timer *w, int revents)
 {
+	static size_t c = 0;
 	char *url = "http://ya.ru";
 	struct curlev *cuev = ev_userdata(loop);
 	/* генератор урлов для получения данных */
 	xsyslog(LOG_INFO, "get url: %s", url);
 
-	cuev_emit(cuev, url, NULL, NULL, NULL);
+	c++;
+	cuev_emit(cuev, url, NULL, cb, (void*)c);
 }
 
 int

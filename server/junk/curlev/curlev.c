@@ -46,10 +46,14 @@ _ev_event_curl_cb(struct ev_loop *loop, struct ev_io *w, int revents)
 			if (_msg->msg == CURLMSG_DONE) {
 				_easy = _msg->easy_handle;
 				/* освбождение всякого мусора */
-				curl_multi_remove_handle(cuev->multi, _easy);
-				if (curl_easy_getinfo(_easy, CURLINFO_PRIVATE, &_ex) && _ex) {
+				if (!curl_easy_getinfo(_easy, CURLINFO_PRIVATE, &_ex) && _ex) {
+					if (_ex->cb) {
+						/* финализация записи */
+						_ex->cb(NULL, 0ul, _ex->cb_data);
+					}
 					free(_ex);
 				}
+				curl_multi_remove_handle(cuev->multi, _easy);
 				curl_easy_cleanup(_easy);
 			}
 		} /* while */
@@ -177,7 +181,7 @@ cuev_emit(struct curlev *cuev, char *url, struct curl_slist *headers,
 	curl_easy_setopt(easy, CURLOPT_VERBOSE, 0L);
 
 	curl_easy_setopt(easy, CURLOPT_SSL_VERIFYPEER, 0L);
-
+	curl_easy_setopt(easy, CURLOPT_FOLLOWLOCATION, 1L);
 	curl_easy_setopt(easy, CURLOPT_WRITEFUNCTION, _curl_write_cb);
 	if (cb) {
 		ex = calloc(1, sizeof(*ex));
@@ -187,6 +191,8 @@ cuev_emit(struct curlev *cuev, char *url, struct curl_slist *headers,
 			curl_easy_cleanup(easy);
 			return false;
 		}
+		ex->cb = cb;
+		ex->cb_data = cb_data;
 		curl_easy_setopt(easy, CURLOPT_WRITEDATA, ex);
 		curl_easy_setopt(easy, CURLOPT_PRIVATE, ex);
 	} else {
