@@ -467,6 +467,7 @@ static inline bool
 _read_ask__from_driver(struct client *c, Fep__ReadAsk *msg,
 		struct getChunkInfo *ci)
 {
+	char buf[96] = {0};
 	/*
 	 * 1. проверяем наличие в кеше
 	 * 2. пишем в канал что хотим информацию по файлу
@@ -485,13 +486,15 @@ _read_ask__from_driver(struct client *c, Fep__ReadAsk *msg,
 	bd->msgid = msg->id;
 	bd->client_serial = c->cev->serial;
 
+	snprintf(buf, sizeof(buf), "%"PRIu64, ci->group);
+
 	almsg_insert(&alm, PSLEN_S("action"), PSLEN_S("query-driver"));
 	/*almsg_insert(&alm, PSLEN_S("query"), PSLEN_S("read-data"));*/
 	almsg_append(&alm, PSLEN_S("owner"), PSLEN(c->name));
 	almsg_append(&alm, PSLEN_S("address"), PSLEN(ci->address));
 	almsg_append(&alm, PSLEN_S("driver"), PSLEN(ci->driver));
 
-	r = bus_query(c->cev, &alm);
+	r = bus_query(c->cev, &alm, bd);
 	almsg_destroy(&alm);
 	return r;
 }

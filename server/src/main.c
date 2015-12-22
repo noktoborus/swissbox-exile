@@ -362,10 +362,10 @@ sev_send(void *ctx, const unsigned char *buf, size_t size)
 		memcpy(&cev->send.buf[cev->send.len], buf, len);
 		cev->send.len += len;
 		if (!(((struct ev_io*)&cev->io)->events & EV_WRITE)) {
-			/*pthread_mutex_lock(&cev->utex);*/
+			pthread_mutex_lock(&cev->utex);
 			cev->action |= SEV_ACTION_WRITE;
-			/*pthread_mutex_unlock(&cev->utex);*/
 			ev_async_send(cev->evloop, (struct ev_async*)&cev->async);
+			pthread_mutex_unlock(&cev->utex);
 		}
 	}
 	pthread_mutex_unlock(&cev->send.lock);
@@ -413,10 +413,10 @@ sev_recv(void *ctx, unsigned char *buf, size_t size)
 	if (len == 0u) {
 		/* буфер пустой, нужно попросить ещё, если мы не в очереди */
 		if (!(cev->io.e.io.events & EV_READ)) {
-			/*pthread_mutex_lock(&cev->utex);*/
+			pthread_mutex_lock(&cev->utex);
 			cev->action |= SEV_ACTION_READ;
-			/*pthread_mutex_unlock(&cev->utex);*/
 			ev_async_send(cev->evloop, (struct ev_async*)&cev->async);
+			pthread_mutex_unlock(&cev->utex);
 		}
 	}
 	pthread_mutex_unlock(&cev->recv.lock);
@@ -921,8 +921,8 @@ redis_t(struct main *pain, const char *cmd, const char *ch, const char *data, si
  * или лучше семафорить, т.к. изменение списка должно производиться
  * тогда, когда не производится действий над подключениями
  */
-bool
-bus_query(struct sev_ctx *cev, struct almsg_parser *a)
+uint64_t
+bus_query(struct sev_ctx *cev, struct almsg_parser *a, void *data)
 {
 	struct bus_result *br;
 	char *p = NULL;
@@ -943,14 +943,30 @@ bus_query(struct sev_ctx *cev, struct almsg_parser *a)
 	/*almsg_insert(a, PSLEN_S("action"), PSLEN_S("query"));*/
 
 	if (!(br = calloc(1, sizeof(*br)))
-			|| !list_alloc(cev->pain->bus_task, hash, (void*)br)) {
+			|| !list_alloc(&cev->pain->bus_task, hash, (void*)br)) {
 		if (br)
 			free(br);
-		xsyslog(LOG_WARNING, "bus_query: queue allocation failed");
+		xsyslog(LOG_WARNING, "bus_query error: queue allocation failed");
 		return false;
 	}
 	br->cev = cev;
 	br->cev_serial = cev->serial;
+	br->cev_bus_id = ++cev->bus_idgen;
+	br->data = data;
+
+	if (!pthread_mutex_lock(&cev->utex)) {
+		if (!list_alloc(&cev->bus_wanted, br->cev_bus_id, br)) {
+			/* ну не добавили и хрен с ней, на самом деле, запрос всё равно
+			 * может пройти, а в некоторых случаях он нужен сам по себе,
+			 * без ответа но известить нужно.
+			 */
+			xsyslog(LOG_WARNING,
+					"bus_query warning: can't add pointer into queue");
+		}
+		pthread_mutex_unlock(&cev->utex);
+	} else {
+		xsyslog(LOG_WARNING, "bus_query warning: cev lock failed");
+	}
 
 	/* отправка сообщения в redis */
 	almsg_format_buf(a, &p, &l);
@@ -962,6 +978,25 @@ bus_query(struct sev_ctx *cev, struct almsg_parser *a)
 				almsg_count(a, NULL, 0u));
 	}
 	return true;
+}
+
+bool
+bus_cancel(struct sev_ctx *cev, uint64_t id)
+{
+	struct listNode *n = NULL;
+	struct listPtr p = {0};
+	bool rval = false;
+
+	list_ptr(&cev->bus_wanted, &p);
+	if (!pthread_mutex_lock(&cev->utex)) {
+		if ((n = list_find(&p, id))) {
+			list_free_node(n, NULL);
+			rval = true;
+		}
+		pthread_mutex_unlock(&cev->utex);
+	}
+	return rval;
+
 }
 
 void
@@ -1093,6 +1128,43 @@ timeout_cb(struct ev_loop *loop, ev_timer *w, int revents)
 			pthread_mutex_unlock(&pain->sev_lock);
 		}
 	}
+}
+
+static void
+bus_inq_free(struct bus_inq_message *b) {
+	/*
+	switch(b->type) {
+	default:
+		break;
+	}
+	*/
+	free(b);
+}
+
+bool
+cev_bus_result(struct sev_ctx *cev, uint64_t bus_id, struct bus_inq_message *b)
+{
+	struct listPtr p = {0};
+	struct listNode *n = {0};
+	bool rval = false;
+	if (!pthread_mutex_lock(&cev->utex)) {
+		list_ptr(&cev->bus_wanted, &p);
+		if ((n = list_find(&p, bus_id)) != NULL) {
+			/* если не получилось отправить сообщение,
+			 * то результат всё равно будет положительным
+			 */
+			rval = true;
+			/* сразу освбождаем */
+			list_free_node(n, NULL);
+			/* кладём сообщение в очередь */
+			if (b) {
+				squeue_send(&cev->bus_inqueue,
+						b, (void(*)(void*))bus_inq_free);
+			}
+		}
+		pthread_mutex_unlock(&cev->utex);
+	}
+	return rval;
 }
 
 struct sev_ctx *

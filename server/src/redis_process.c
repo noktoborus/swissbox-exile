@@ -7,10 +7,11 @@
 #include "simplepq/simplepq.h"
 
 #include "main.h"
+#include "callback.h"
 #include "junk/utils.h"
 #include "junk/xsyslog.h"
 #include "junk/almsg.h"
-
+#include "fcac/fcac.h"
 
 static bool
 action_result_driver(struct main *pain, struct almsg_parser *alm, char *action)
@@ -23,6 +24,8 @@ action_result_driver(struct main *pain, struct almsg_parser *alm, char *action)
 	struct bus_result *br = NULL;
 	struct sev_ctx *cev = NULL;
 
+	struct bus_inq_message *busi = NULL;
+
 	const char *id = almsg_get(alm, PSLEN_S("id"), ALMSG_ALL);
 
 	if (!id) {
@@ -32,26 +35,47 @@ action_result_driver(struct main *pain, struct almsg_parser *alm, char *action)
 
 	hash = hash_pjw(PSLEN(id));
 
-	list_ptr(pain->bus_task, &lp);
+	list_ptr(&pain->bus_task, &lp);
 
 	if (!(n = list_find(&lp, hash))) {
 		xsyslog(LOG_WARNING,
-				"bus: action 'result-driver' with invalid id: %"PRIx64,
+				"bus warning: action 'result-driver' with invalid id: %"PRIx64,
 				hash);
 		return false;
 	}
-	/* хуита всё, запрос к драйверу должен делать менеджер кеша */
+	/* */
 	if ((br = n->data) != NULL) {
 		if (!(cev = cev_by_serial(pain, br->cev_serial))) {
-			list_free_node(n, free);
 			/* клиент потерялся раньше, чем пришёл ответ
 			 * штатная ситуация
 			 */
-			xsyslog(LOG_INFO, "хуита");
+			xsyslog(LOG_INFO, "bus warning: client ");
 
 		} else {
+			busi = calloc(1, sizeof(*busi));
+			if (!busi) {
+				xsyslog(LOG_WARNING,
+						"bus error: calloc(%"PRIuPTR") failed: %s",
+						sizeof(*busi), strerror(errno));
+			}
+			busi->type = BUSINQ_DRIVER;
+			/* указатель может стать инвалидным только по воле клиентского
+			 * потока, в случае его выхода (тогда данные по указателю никому
+			 * не интересны) и в случае истечения времени ожидания
+			 * TODO: что делать по времени истечения?
+			 */
+			busi->data = br->data;
+			busi->s.driver.success = true;
 			/* сообщаем клиенту что ответ был получен */
-			/* TODO */
+			cev_bus_result(cev, br->cev_bus_id, busi);
+			/* загрузка файла в кеш */
+			cuev_emit(&pain->cuev, /* url */"http://ya.ru", /* headers */ NULL,
+					(curlev_cb_t)cb_store_chunk, br);
+			/* теперь процедура по освобождению памяти от bus_result на плечах
+			 * калбека
+			 */
+			list_free_node(n, NULL);
+			return false;
 		}
 	}
 

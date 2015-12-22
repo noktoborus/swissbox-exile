@@ -85,6 +85,14 @@ struct sev_ctx
 	 */
 	struct squeue bus_inqueue;
 
+	/* список id запросов к шине, если при получении ответа в шине
+	 * желаемого id нет в списке, значит запрос считается невалидным
+	 * содержит в себе указатель на pain->bus_task[n]
+	 */
+	struct listRoot bus_wanted;
+	/* генератор id для шины */
+	uint64_t bus_idgen;
+
 	time_t recv_timeout;
 	time_t send_timeout;
 
@@ -155,7 +163,7 @@ struct main
 	/* автобусные задачи
 	 * структура: (id, client_ptr)
 	 */
-	struct listRoot *bus_task;
+	struct listRoot bus_task;
 
 	/* конфигурашка и прочее */
 	cfg_t *cfg;
@@ -180,10 +188,44 @@ struct main
 
 };
 
+/* сообщение-ответ для клиента */
+enum bus_inq_type {
+	/* ответ драйвера */
+	BUSINQ_DRIVER = 1,
+	BUSINQ_SAMPLE = 10
+};
+
+struct bus_inq_message {
+	/* TODO */
+	enum bus_inq_type type;
+	void *data;
+	union {
+		struct {
+			/* отправка driver
+			 * происходит два раза:
+			 * с success = True, loaded = False
+			 * success = True, loaded = True
+			 * в случае неудачи success == false
+			 */
+			/* запрос был успешен */
+			bool success;
+			/* загружен ли файл */
+			bool loaded;
+		} driver;
+		struct {
+			char a;
+		} sample;
+	} s;
+};
+
 struct bus_result {
+	/* указатель на клиентский тред */
 	struct sev_ctx *cev;
 	size_t cev_serial;
+	uint64_t cev_bus_id;
+	/* данные для треда клиента */
 	void *data;
+	/* */
 };
 
 typedef enum direction
@@ -209,11 +251,20 @@ int sev_recv(void *ctx, unsigned char *buf, size_t len);
  */
 bool sev_perhaps(void *ctx, int action);
 
+/* отправка сообщения по шине дальше клиенту */
+bool cev_bus_result(struct sev_ctx *cev,
+		uint64_t bus_id, struct bus_inq_message *b);
+
 /* возвращает структуру клиента по его serial или NULL, если не найден */
 struct sev_ctx *cev_by_serial(struct main *pain, size_t serial);
 
-/* */
-bool bus_query(struct sev_ctx *cev, struct almsg_parser *a);
+/* запрос к шине, возвращает номер запроса в очереди
+ * если вернуло 0, значит запрос неудался
+ */
+uint64_t bus_query(struct sev_ctx *cev, struct almsg_parser *a, void *data);
+/* отмена запроса к шине, указывается номер запроса */
+bool bus_cancel(struct sev_ctx *cev, uint64_t id);
+
 bool redis_t(struct main *pain, const char *cmd, const char *ch,
 		const char *data, size_t size);
 void almsg2redis(struct main *pain, const char *cmd, const char *chan,
