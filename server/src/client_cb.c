@@ -103,6 +103,7 @@ c_auth_cb(struct client *c, uint64_t id, unsigned int msgtype, void *msg, void *
 	c->state++;
 	c->status.auth_ok = true;
 	c->device_id = amsg->device_id;
+	strcpy(c->name, amsg->username);
 	/* регистрация в списке и подписка на сообщения */
 	if (!(c->cum = client_cum_create(hash_pjw(c->name, strlen(c->name))))) {
 		send_error(c, id, "Internal error 135", 0);
@@ -140,7 +141,6 @@ c_auth_cb(struct client *c, uint64_t id, unsigned int msgtype, void *msg, void *
 		}
 		pthread_mutex_unlock(&c->cum->lock);
 
-	strcpy(c->name, amsg->username);
 	xsyslog(LOG_INFO, "client[%"SEV_LOG"] authorized as %s, device=%"PRIX64,
 			c->cev->serial, c->name, c->device_id);
 	if (!client_load(c)) {
