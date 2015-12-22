@@ -10,9 +10,11 @@
 static inline int
 _pthread_mutex_lock(pthread_mutex_t *m, const char *file, int line) {
 	int r;
-	xsyslog(LOG_DEBUG, "[%s:%d] mutex lock %p", file, line, (void*)m);
+	xsyslog(LOG_DEBUG, "[%s:%d] (thread %lu) mutex lock %p",
+			file, line, (unsigned long)pthread_self(), (void*)m);
 	r = pthread_mutex_lock(m);
-	xsyslog(LOG_DEBUG, "[%s:%d] mutex lock %p -> %d", file, line, (void*)m, r);
+	xsyslog(LOG_DEBUG, "[%s:%d] (thread %lu) mutex lock %p -> %d",
+			file, line, (unsigned long)pthread_self(), (void*)m, r);
 	return r;
 }
 
@@ -20,7 +22,8 @@ static inline int
 _pthread_mutex_trylock(pthread_mutex_t *m, const char *file, int line) {
 	int r;
 	r = pthread_mutex_trylock(m);
-	xsyslog(LOG_DEBUG, "[%s:%d] mutex trylock %p -> %d", file, line, (void*)m, r);
+	xsyslog(LOG_DEBUG, "[%s:%d] (thread %lu) mutex trylock %p -> %d",
+			file, line, (unsigned long)pthread_self(), (void*)m, r);
 	return r;
 }
 
@@ -28,16 +31,19 @@ static inline int
 _pthread_mutex_unlock(pthread_mutex_t *m, const char *file, int line) {
 	int r;
 	r = pthread_mutex_unlock(m);
-	xsyslog(LOG_DEBUG, "[%s:%d] mutex unlock %p -> %d", file, line, (void*)m, r);
+	xsyslog(LOG_DEBUG, "[%s:%d] (thread %lu) mutex unlock %p -> %d",
+			file, line, (unsigned long)pthread_self(), (void*)m, r);
 	return r;
 }
 
 static inline int
 _pthread_cond_wait(pthread_cond_t *c, pthread_mutex_t *m, const char *file, int line) {
 	int r;
-	xsyslog(LOG_DEBUG, "[%s:%d] mutex cond_wait %p", file, line, (void*)m);
+	xsyslog(LOG_DEBUG, "[%s:%d] (thread %lu) mutex cond_wait %p",
+			file, line, (unsigned long)pthread_self(), (void*)m);
 	r = pthread_cond_wait(c, m);
-	xsyslog(LOG_DEBUG, "[%s:%d] mutex cond_wait %p -> %d", file, line, (void*)m, r);
+	xsyslog(LOG_DEBUG, "[%s:%d] (thread %lu) mutex cond_wait %p -> %d",
+			file, line, (unsigned long)pthread_self(), (void*)m, r);
 	return r;
 }
 
@@ -46,7 +52,8 @@ _pthread_mutex_init(pthread_mutex_t *m, const pthread_mutexattr_t *a, const char
 {
 	int r;
 	r = pthread_mutex_init(m, a);
-	xsyslog(LOG_DEBUG, "[%s:%d] mutex init %p -> %d", file, line, (void*)m, r);
+	xsyslog(LOG_DEBUG, "[%s:%d] (thread %lu) mutex init %p -> %d",
+			file, line, (unsigned long)pthread_self(), (void*)m, r);
 	return r;
 }
 
@@ -55,7 +62,8 @@ _pthread_mutex_destroy(pthread_mutex_t *m, const char *file, int line)
 {
 	int r;
 	r = pthread_mutex_destroy(m);
-	xsyslog(LOG_DEBUG, "[%s:%d] mutex destroy %p -> %d", file, line, (void*)m, r);
+	xsyslog(LOG_DEBUG, "[%s:%d] (thread %lu) mutex destroy %p -> %d",
+			file, line, (unsigned long)pthread_self(), (void*)m, r);
 	return r;
 }
 
