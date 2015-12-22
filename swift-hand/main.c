@@ -182,6 +182,7 @@ query_address(struct main *pain, struct almsg_parser *ap)
 	snprintf(buf, sizeof(buf), (*resource == '/' ? "%s%s" : "%s/%s"),
 			pain->w.c.service, resource);
 	almsg_insert(&rap, PSLEN_S("url"), PSLEN(buf));
+	almsg_insert(&rap, PSLEN_S("loc_id"), PSLEN(buf));
 
 	almsg_insert(&rap, PSLEN_S("action"), PSLEN_S("result-driver"));
 	almsg_insert(&rap, PSLEN_S("from"), PSLEN(pain->options.name));

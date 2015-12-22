@@ -130,8 +130,14 @@ client_free(struct sev_ctx *cev, bool nolock)
 				cev->serial, cev->fd, (void*)cev->thread);
 	}
 
-	pthread_cond_destroy(&cev->ond);
-	pthread_mutex_destroy(&cev->utex);
+	if (pthread_cond_destroy(&cev->ond)) {
+		xsyslog(LOG_DEBUG, "client[%"SEV_LOG"] warning: destroy cond: %s",
+			   cev->serial, strerror(errno));
+	}
+	if (pthread_mutex_destroy(&cev->utex)) {
+		xsyslog(LOG_DEBUG, "client[%"SEV_LOG"] warning: destroy mutex: %s",
+			   cev->serial, strerror(errno));
+	}
 
 	ev_async_stop(cev->evloop, (struct ev_async*)&cev->async);
 	ev_io_stop(cev->evloop, (struct ev_io*)&cev->io);
@@ -224,6 +230,7 @@ client_alloc(struct ev_loop *loop, int fd, struct sev_ctx *next, struct sev_main
 	 */
 	cev->fd = -1;
 	cev->pain = pain;
+	cev->ev_lock = &pain->ev_lock;
 	cev->sev = sev;
 	cev->async.cev = cev;
 	ev_async_init((struct ev_async*)&cev->async, alarm_cb);
@@ -362,10 +369,10 @@ sev_send(void *ctx, const unsigned char *buf, size_t size)
 		memcpy(&cev->send.buf[cev->send.len], buf, len);
 		cev->send.len += len;
 		if (!(((struct ev_io*)&cev->io)->events & EV_WRITE)) {
-			pthread_mutex_lock(&cev->utex);
+			pthread_mutex_lock(cev->ev_lock);
 			cev->action |= SEV_ACTION_WRITE;
 			ev_async_send(cev->evloop, (struct ev_async*)&cev->async);
-			pthread_mutex_unlock(&cev->utex);
+			pthread_mutex_unlock(cev->ev_lock);
 		}
 	}
 	pthread_mutex_unlock(&cev->send.lock);
@@ -413,10 +420,10 @@ sev_recv(void *ctx, unsigned char *buf, size_t size)
 	if (len == 0u) {
 		/* буфер пустой, нужно попросить ещё, если мы не в очереди */
 		if (!(cev->io.e.io.events & EV_READ)) {
-			pthread_mutex_lock(&cev->utex);
+			pthread_mutex_lock(cev->ev_lock);
 			cev->action |= SEV_ACTION_READ;
 			ev_async_send(cev->evloop, (struct ev_async*)&cev->async);
-			pthread_mutex_unlock(&cev->utex);
+			pthread_mutex_unlock(cev->ev_lock);
 		}
 	}
 	pthread_mutex_unlock(&cev->recv.lock);
@@ -1434,6 +1441,7 @@ main(int argc, char *argv[])
 			/* таймер на чистку всяких устаревших структур и прочего */
 			ev_timer_init(&pain.watcher, timeout_cb, 1., 10.);
 			ev_timer_start(loop, &pain.watcher);
+			pthread_mutex_init(&pain.ev_lock, NULL);
 			/* инициализация curl */
 			cuev_init(&pain.cuev, loop);
 			/* инициализация структур редиса */
@@ -1479,6 +1487,7 @@ main(int argc, char *argv[])
 					pthread_mutex_destroy(&pain.rs[i].x);
 				}
 			}
+			pthread_mutex_destroy(&pain.ev_lock);
 			pthread_mutex_destroy(&pain.rs_lock);
 			pthread_cond_destroy(&pain.rs_wait);
 			pthread_mutex_destroy(&pain.sev_lock);

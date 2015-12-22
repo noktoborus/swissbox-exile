@@ -56,6 +56,9 @@ struct sev_ctx
 	struct evptr io;
 	struct evptr async;
 
+	/* ссылка на main->ev_lock */
+	pthread_mutex_t *ev_lock;
+
 	struct { /* буфер чтения */
 		pthread_mutex_t lock;
 		uint8_t *buf;
@@ -143,6 +146,11 @@ struct main
 	ev_signal sigpipe;
 	ev_timer watcher;
 	ev_async alarm;
+
+	/* helgrind предпологает что обращение к сигналированию
+	 * из тредов может быть опасным
+	 */
+	pthread_mutex_t ev_lock;
 
 	/* подключение к редису
 	 * нулевое подключение используется для подписок (SUBSCRIBE)
