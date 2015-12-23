@@ -119,7 +119,10 @@ enum Type {
 	tState = 26;
 	tQueryDevices = 27;
 	tResultDevice = 28;
-	t_max = 29; /* максимальное значение,
+	tStoreSave = 29;
+	tStoreLoad = 30;
+	tStoreValue = 31;
+	t_max = 32; /* максимальное значение,
 				   для удобства составления массивов */
 }
 
