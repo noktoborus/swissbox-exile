@@ -591,6 +591,38 @@ message ResultDevice {
 	required string last_auth_time = 25;
 }
 
+/*
+   помещает небольшой объём данных (несколько кбайт)
+   в приватное хранилище пользователя
+   Ответ: Ok, Error */
+message StoreSave {
+	required uint64 id = 1 [default = 1];
+
+	/* true, если хранить нужно в общем хранилище пользователя
+	   false, если хранить нужно в приватном хранилище устройства
+	   */
+	required bool shared = 5 [default = false];
+
+	required bytes store = 10;
+}
+
+/*
+   запрос информации из хранилища
+   Ответ: StoreValue, Error */
+message StoreLoad {
+	required uint64 id = 1 [default = 1];
+
+	/* нужна ли нам приватная информация или только публичная */
+	required bool shared = 5 [default = false];
+}
+
+/* значение из хранилища */
+message StoreValue {
+	required uint64 id = 1 [default = 1];
+
+	required bytes store = 10;
+}
+
 /* TODO:
    3. метадата к файлам (время создания, изменения, доступа?)
  */
