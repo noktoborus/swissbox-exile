@@ -345,7 +345,7 @@ generate_sid(struct client *c)
 
 #include "src/client/include/send.c"
 #include "src/client/include/handle.c"
-static struct handle handle[] =
+static struct handle handle[FEP__TYPE__t_max] =
 {
 	{0u, "Invalid", _handle_invalid, NULL, NULL}, /* 0 */
 	TYPICAL_HANDLE_S(FEP__TYPE__tPing, "Ping", ping), /* 1 */
@@ -384,6 +384,9 @@ static struct handle handle[] =
 	INVALID_P_HANDLE_S(FEP__TYPE__tState, "State", state), /* 26 */
 	TYPICAL_HANDLE_S(FEP__TYPE__tQueryDevices, "QueryDevices", query_devices), /* 27 */
 	INVALID_P_HANDLE_S(FEP__TYPE__tResultDevice, "ResultDevice", result_device), /* 28 */
+	INVALID_P_HANDLE_S(FEP__TYPE__tResultDevice, "StoreSave", store_load), /* 29 */
+	INVALID_P_HANDLE_S(FEP__TYPE__tResultDevice, "StoreLoad", store_save), /* 30 */
+	INVALID_P_HANDLE_S(FEP__TYPE__tResultDevice, "StoreValue", store_value), /* 31 */
 };
 
 const char*

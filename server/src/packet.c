@@ -87,6 +87,9 @@ static struct packet_info {
 	{.name = "State"},
 	{.name = "QueryDevices"},
 	{.name = "ResultDevice"},
+	{.name = "StoreSave"},
+	{.name = "StoreLoad"},
+	{.name = "StoreValue"},
 };
 
 static inline void
@@ -531,6 +534,27 @@ packet2syslog(const char *head,
 				_m->dev_no, _m->dev_max, _m->device_id,
 				(_m->is_online ? "true" : "false"),
 				_m->last_auth_time);
+			break;
+		}
+	case FEP__TYPE__tStoreSave:
+		{
+			Fep__StoreSave *_m = (void*)msg;
+			snprintf(result, _e, "id=%"PRIu64", shared=%s, store.len=%"PRIu64,
+					_m->id, (_m->shared ? "true" : "false"), _m->store.len);
+			break;
+		}
+	case FEP__TYPE__tStoreLoad:
+		{
+			Fep__StoreLoad *_m = (void*)msg;
+			snprintf(result, _e, "id=%"PRIu64", shared=%s",
+					_m->id, (_m->shared ? "true" : "false"));
+			break;
+		}
+	case FEP__TYPE__tStoreValue:
+		{
+			Fep__StoreValue *_m = (void*)msg;
+			snprintf(result, _e, "id=%"PRIu64", store.len=%"PRIu64,
+					_m->id, _m->store.len);
 			break;
 		}
 	default:
