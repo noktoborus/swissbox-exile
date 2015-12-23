@@ -42,19 +42,14 @@ struct evptr {
 #define SEV_ACTION_WRITE 2
 /* событие на выход из треда */
 #define SEV_ACTION_EXIT 4
-/* проверки событий без ожидания действия */
-#define SEV_ACTION_FASTTEST 8
-/* данные на входе */
-#define SEV_ACTION_DATA 16
-/* изменение в очереди шины */
-#define SEV_ACTION_INPUT 32
 
 struct sev_ctx
 {
 	/* io */
-	struct ev_loop *evloop;
-	struct evptr io;
-	struct evptr async;
+	struct ev_loop *loop;
+	struct ev_io io;
+	struct ev_async async;
+	struct ev_timer timer;
 
 	/* ссылка на main->ev_lock */
 	pthread_mutex_t *ev_lock;
@@ -79,9 +74,11 @@ struct sev_ctx
 	struct sev_main *sev;
 
 	uint8_t action;
-	pthread_mutex_t utex;
-	pthread_cond_t ond;
+	pthread_mutex_t cev_lock;
 	pthread_t thread;
+
+	/* указатель на приватные данные потока */
+	void *p;
 
 	/* оче
 	 * событие на пополнение: SEV_ACTION_INPUT
@@ -251,13 +248,18 @@ typedef enum direction
  * вовзращает 0, если время ожидания ответа было достигнуто
  * и -1 если произошла ошибка при чтении
  */
-int sev_send(void *ctx, const unsigned char *buf, size_t len);
-int sev_recv(void *ctx, unsigned char *buf, size_t len);
+int sev_send(struct sev_ctx *cev, const unsigned char *buf, size_t len);
+int sev_recv(struct sev_ctx *cev, unsigned char *buf, size_t len);
 /*
  * проверка возможности совершения действия
  * SEV_ACTION_READ или SEV_ACTION_WRITE
  */
-bool sev_perhaps(void *ctx, int action);
+bool sev_perhaps(struct sev_ctx *cev, int action);
+/* пропуск ожидания событий
+ * например, для быстрой чтения из сокетов без ущерба
+ * для обработки другиъ событий
+ */
+bool sev_continue(struct sev_ctx *cev);
 
 /* отправка сообщения по шине дальше клиенту */
 bool cev_bus_result(struct sev_ctx *cev,

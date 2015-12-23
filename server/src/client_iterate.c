@@ -1160,6 +1160,50 @@ client_end(struct sev_ctx *cev, void *p)
 	client_destroy((struct client*)p);
 }
 
+static bool
+send_hello(struct sev_ctx *cev, struct client *c)
+{
+	struct spq_InitialUser _ui;
+	struct spq_hint _hint;
+	uint8_t _guid_net[16];
+	wait_store_t *s;
+	Fep__ReqAuth reqAuth = FEP__REQ_AUTH__INIT;
+
+	memset(&_ui, 0u, sizeof(_ui));
+	memset(&_hint, 0u, sizeof(_hint));
+	if (!spq_initial_user(&_ui, &_hint)) {
+		if (*_hint.message) {
+			send_error(c, 0, _hint.message, -1);
+		} else send_error(c, 0, "Internal error 1199", -1);
+		return false;
+	}
+	guid2net(&_ui.mark, _guid_net);
+	reqAuth.id = generate_id(c);
+	reqAuth.text = (char*)sev_version_string();
+	reqAuth.epoch_guid.data = _guid_net;
+	reqAuth.epoch_guid.len = sizeof(_guid_net);
+
+	if (send_message(c->cev, FEP__TYPE__tReqAuth, &reqAuth)) {
+		c->state++;
+
+		if ((s = calloc(1, sizeof (wait_store_t))) != NULL)
+			s->cb = (c_cb_t)c_auth_cb;
+
+		if (!s || !wait_id(c, &c->mid, reqAuth.id, s)) {
+			if (s) free(s);
+			xsyslog(LOG_WARNING,
+					"client[%"SEV_LOG"] can't set filter for id %"PRIu64,
+					cev->serial, reqAuth.id);
+		}
+	} else {
+		xsyslog(LOG_WARNING,
+				"client[%"SEV_LOG"] no hello with memory fail: %s",
+				cev->serial, strerror(errno));
+		return false;
+	}
+	return true;
+}
+
 /* вовзращает положительный результат, если требуется прервать io */
 bool
 client_iterate(struct sev_ctx *cev, void *p)
@@ -1177,48 +1221,13 @@ client_iterate(struct sev_ctx *cev, void *p)
 	 * если отправить что-либо нет возможности
 	 * то пропускаем цикл
 	 */
-	if (!sev_perhaps(c->cev, SEV_ACTION_WRITE)) {
+	if (!sev_perhaps(cev, SEV_ACTION_WRITE)) {
 		return true;
 	}
 	/* send helolo */
 	if (c->state == CEV_FIRST) {
-		struct spq_InitialUser _ui;
-		struct spq_hint _hint;
-		uint8_t _guid_net[16];
-		wait_store_t *s;
-		Fep__ReqAuth reqAuth = FEP__REQ_AUTH__INIT;
-
-		memset(&_ui, 0u, sizeof(_ui));
-		memset(&_hint, 0u, sizeof(_hint));
-		if (!spq_initial_user(&_ui, &_hint)) {
-			if (*_hint.message) {
-				send_error(c, 0, _hint.message, -1);
-			} else send_error(c, 0, "Internal error 1199", -1);
+		if (!send_hello(cev, p))
 			return false;
-		}
-		guid2net(&_ui.mark, _guid_net);
-		reqAuth.id = generate_id(c);
-		reqAuth.text = (char*)sev_version_string();
-		reqAuth.epoch_guid.data = _guid_net;
-		reqAuth.epoch_guid.len = sizeof(_guid_net);
-
-		if (send_message(c->cev, FEP__TYPE__tReqAuth, &reqAuth)) {
-			c->state++;
-
-			if ((s = calloc(1, sizeof (wait_store_t))) != NULL)
-				s->cb = (c_cb_t)c_auth_cb;
-
-			if (!s || !wait_id(c, &c->mid, reqAuth.id, s)) {
-				if (s) free(s);
-				xsyslog(LOG_WARNING,
-						"client[%"SEV_LOG"] can't set filter for id %"PRIu64,
-						cev->serial, reqAuth.id);
-			}
-		} else {
-			xsyslog(LOG_WARNING,
-					"client[%"SEV_LOG"] no hello with memory fail: %s",
-					cev->serial, strerror(errno));
-		}
 	}
 
 	/* в первую помощь нужно отправить короткие сообщения из базы
@@ -1243,13 +1252,12 @@ client_iterate(struct sev_ctx *cev, void *p)
 		return false;
 	}
 
-	/* нужно выставить флаг быстрого пропуска,
+	/*
 	 * если есть файлы в очереди или необработанная дата
+	 * то быстренько пропускаем таймауты
 	 */
-	if (c->cout || c->rout || c->blen) {
-		pthread_mutex_lock(&cev->utex);
-		cev->action |= SEV_ACTION_FASTTEST;
-		pthread_mutex_unlock(&cev->utex);
+	if (c->cout || c->rout || c->blen || sev_perhaps(cev, SEV_ACTION_READ)) {
+		sev_continue(cev);
 	} else if (c->cum && c->status.log_active) {
 		struct listNode *_ln;
 		struct listPtr _lp = {0};
