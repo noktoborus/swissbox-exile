@@ -17,7 +17,7 @@ DECLARE
 	_exc_str text;
 BEGIN
 	/* версия структуры */
-	SELECT INTO _struct_version_value '7';
+	SELECT INTO _struct_version_value '8';
 
 	/* проверка pgcrypto, на всякий случай
 	// уже не нужно, для примера
@@ -85,6 +85,7 @@ CREATE TABLE IF NOT EXISTS "user"
 	created timestamp with time zone NOT NULL DEFAULT now(),
 	username varchar(1024) NOT NULL CHECK(char_length(username) > 0),
 	secret varchar(96) NOT NULL,
+	store bytea NOT NULL DEFAULT E'',
 	UNIQUE(username)
 );
 
@@ -97,6 +98,7 @@ CREATE TABLE IF NOT EXISTS device
 	reg_time timestamp with time zone NOT NULL DEFAULT now(),
 	last_time timestamp with time zone NOT NULL DEFAULT now(),
 	device bigint NOT NULL,
+	store bytea NOT NULL DEFAULT E'',
 	UNIQUE(device, user_id)
 );
 
@@ -2007,6 +2009,98 @@ BEGIN
 		INSERT INTO options ("key", value_u)
 			VALUES ('life_mark', r_mark);
 	END IF;
+	return next;
+END $$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION store_save(
+	_store bytea, _share boolean, _offset integer, _length integer,
+	_drop_ _drop_ default 'drop')
+	RETURNS TABLE
+	(
+		r_error text
+	) AS $$
+DECLARE
+	_r record;
+BEGIN
+	IF _offset == 0 AND _length != 0 THEN
+		_offset = 1;
+	END IF;
+	SELECT INTO _r	*
+	FROM life_data();
+
+	IF NOT _share THEN
+		IF _offset THEN
+			UPDATE device
+			SET store = overlay(store placing _store from _offset for _length)
+			WHERE device.id = r_device_id;
+		ELSE
+			UPDATE device
+			SET store = _store
+			WHERE device.id = r_device_id;
+		END IF;
+	ELSE
+		IF _offset THEN
+			UPDATE "user"
+			SET store = overlay(store placing _store from _offset for _length)
+			WHERE "user".id = r_user_id;
+		ELSE
+			UPDATE "user"
+			SET store = _store
+			WHERE "user".id = r_user_id;
+		END IF;
+	END IF;
+
+	return next;
+END $$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION store_load(
+	_store bytea, _share boolean, _offset integer, _length integer,
+	_drop_ _drop_ default 'drop')
+	RETURNS TABLE
+	(
+		r_error text,
+		r_store bytea,
+		r_length integer
+	) AS $$
+DECLARE
+	_r record;
+BEGIN
+	IF NOT _share THEN
+		IF _length THEN
+			SELECT
+			INTO _r
+				substring(store from _offset for _length) AS x_store,
+				octet_length(store) AS x_length
+			FROM device, life_data()
+			WHERE device.id = r_device_id;
+		ELSE
+			SELECT
+			INTO _r
+				substring(store from _offset) AS x_store,
+				octet_length(store) AS x_length
+			FROM device, life_data()
+			WHERE device.id = r_device_id;
+		END IF;
+	ELSE
+		IF _length THEN
+			SELECT
+			INTO _r
+				substring(store from _offset for _length) AS x_store,
+				octet_length(store) AS x_length
+			FROM "user", life_data()
+			WHERE "user".id = r_user_id;
+		ELSE
+			SELECT
+			INTO _r
+				substring(store from _offset) AS x_store,
+				octet_length(store) AS x_length
+			FROM "user", life_data()
+			WHERE "user".id = r_user_id;
+		END IF;
+	END IF;
+
+	r_length := _r.x_length;
+	r_store := _r.x_store;
 	return next;
 END $$ LANGUAGE plpgsql;
 
