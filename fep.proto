@@ -606,6 +606,9 @@ message StoreSave {
 	   */
 	required bool shared = 5 [default = false];
 
+	/*
+		наибольший размер хранимых данных - 16777186 байт
+	*/
 	required bytes store = 10;
 
 	/* указываются, если хочется записать не весь кусок,
