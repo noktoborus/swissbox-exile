@@ -607,6 +607,28 @@ message StoreSave {
 	required bool shared = 5 [default = false];
 
 	required bytes store = 10;
+
+	/* указываются, если хочется записать не весь кусок,
+		а только часть со смещением offset и длиной length в байтах
+	
+		если length не указан, то до конца хранимой строки
+		если offset не указан, то от начала хранимой строки
+		примеры:
+			исходные данные (hex): 000000
+			записываемые (hex): 11
+
+			offset=0,	length=0:	11
+			offset=0,	length=2:	1100
+			offset=1,	length=0:	11000000
+			offset=100,	length=0:	00000011
+			offset=3,	length=1:	000011
+
+			записанное по слишком большому offset встанет в конец,
+			увеличив длинну только на размер новых данных
+
+	   */
+	optional uint32 offset = 20;
+	optional uint32 length = 21;
 }
 
 /*
@@ -617,6 +639,10 @@ message StoreLoad {
 
 	/* нужна ли нам приватная информация или только публичная */
 	required bool shared = 5 [default = false];
+
+	/* см. StoreSave.offset */
+	optional uint32 offset = 20;
+	optional uint32 length = 21;
 }
 
 /* значение из хранилища */
@@ -624,6 +650,9 @@ message StoreValue {
 	required uint64 id = 1 [default = 1];
 
 	required bytes store = 10;
+
+	/* общая длина данных в хранилище */
+	required uint32 size = 20;
 }
 
 /* TODO:

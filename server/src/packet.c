@@ -539,22 +539,28 @@ packet2syslog(const char *head,
 	case FEP__TYPE__tStoreSave:
 		{
 			Fep__StoreSave *_m = (void*)msg;
-			snprintf(result, _e, "id=%"PRIu64", shared=%s, store.len=%"PRIu64,
+			_l = snprintf(result, _e,
+					"id=%"PRIu64", shared=%s, store.len=%"PRIu64,
 					_m->id, (_m->shared ? "true" : "false"), _m->store.len);
+			_value_or_null(_m, result, "%"PRIu32, offset, _l, _e);
+			_value_or_null(_m, result, "%"PRIu32, length, _l, _e);
 			break;
 		}
 	case FEP__TYPE__tStoreLoad:
 		{
 			Fep__StoreLoad *_m = (void*)msg;
-			snprintf(result, _e, "id=%"PRIu64", shared=%s",
+			_l = snprintf(result, _e, "id=%"PRIu64", shared=%s",
 					_m->id, (_m->shared ? "true" : "false"));
+			_value_or_null(_m, result, "%"PRIu32, offset, _l, _e);
+			_value_or_null(_m, result, "%"PRIu32, length, _l, _e);
 			break;
 		}
 	case FEP__TYPE__tStoreValue:
 		{
 			Fep__StoreValue *_m = (void*)msg;
-			snprintf(result, _e, "id=%"PRIu64", store.len=%"PRIu64,
-					_m->id, _m->store.len);
+			snprintf(result, _e,
+					"id=%"PRIu64", store.len=%"PRIu64", size=%"PRIu32,
+					_m->id, _m->store.len, _m->size);
 			break;
 		}
 	default:
