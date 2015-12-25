@@ -1070,4 +1070,5 @@ spq_initial_user(struct spq_InitialUser *iu, struct spq_hint *hint)
 #include "complex/logDirFile.c"
 #include "complex/getLocalFiles.c"
 #include "complex/getDevices.c"
+#include "complex/store.c"
 

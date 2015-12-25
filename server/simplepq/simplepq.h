@@ -256,6 +256,30 @@ bool spq_getFileMeta(char *username, uint64_t device_id,
 		struct spq_FileMeta *fmeta, struct spq_hint *hint);
 void spq_getFileMeta_free(struct spq_FileMeta *fmeta);
 
+bool spq_store_save(char *username, uint64_t device_id,
+		bool share, uint32_t offset, uint32_t length,
+		uint8_t *data, uint32_t data_len,
+		struct spq_hint *hint);
+
+struct spq_StoreData {
+	bool empty;
+
+	uint8_t *store;
+	uint32_t store_len;
+
+	uint32_t length;
+
+	void *p;
+	void *res;
+};
+
+bool spq_store_load(char *username, uint64_t device_id,
+		bool share, uint32_t offset, uint32_t length,
+		struct spq_StoreData *sd,
+		struct spq_hint *hint);
+
+void spq_store_load_free(struct spq_StoreData *sd);
+
 /* проверка наличия пользователя в бд */
 struct spq_UserInfo {
 	/* авторизован ли пользователь или нужно обращаться к next_server */

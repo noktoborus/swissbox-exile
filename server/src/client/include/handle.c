@@ -1106,3 +1106,53 @@ _handle_xfer(struct client *c, unsigned type, Fep__Xfer *xfer)
 	return send_error(c, xfer->id, errmsg, -1);
 }
 
+bool
+_handle_store_save(struct client *c, unsigned type, Fep__StoreSave *msg)
+{
+	struct spq_hint hint;
+	memset(&hint, 0, sizeof(hint));
+
+	if (!spq_store_save(c->name, c->device_id,
+				msg->shared, msg->offset, msg->length,
+				msg->store.data, msg->store.len,
+				&hint)) {
+		if (hint.level != SPQ_OK) {
+			if (*hint.message)
+				return send_error(c, msg->id, hint.message, -1);
+			return send_error(c, msg->id, "Internal error 1140", -1);
+		}
+	}
+	return send_ok(c, msg->id, C_OK_SIMPLE, NULL);
+}
+
+bool
+_handle_store_load(struct client *c, unsigned type, Fep__StoreLoad *msg)
+{
+	Fep__StoreValue rmsg;
+	struct spq_hint hint;
+	struct spq_StoreData sd;
+	bool rval = true;
+	memset(&hint, 0, sizeof(hint));
+	memset(&sd, 0, sizeof(sd));
+	memset(&rmsg, 0, sizeof(rmsg));
+
+	if (!spq_store_load(c->name, c->device_id,
+				msg->shared, msg->offset, msg->length,
+				&sd, &hint)) {
+		if (hint.level != SPQ_OK) {
+			if (*hint.message)
+				return send_error(c, msg->id, hint.message, -1);
+			return send_error(c, msg->id, "Internal error 1148", -1);
+		}
+	}
+
+	rmsg.size = sd.length;
+	rmsg.store.data = sd.store;
+	rmsg.store.len = sd.store_len;
+
+	rval = send_message(c->cev, FEP__TYPE__tStoreValue, &rmsg);
+
+	spq_store_load_free(&sd);
+	return rval;
+}
+

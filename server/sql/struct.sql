@@ -2054,7 +2054,7 @@ BEGIN
 END $$ LANGUAGE plpgsql;
 
 CREATE OR REPLACE FUNCTION store_load(
-	_store bytea, _share boolean, _offset integer, _length integer,
+	_share boolean, _offset integer, _length integer,
 	_drop_ _drop_ default 'drop')
 	RETURNS TABLE
 	(
