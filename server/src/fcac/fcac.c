@@ -79,6 +79,20 @@ _format_filename(const char *base, char *dst, size_t dstlen, uint64_t id)
 	return (size_t)rval;
 }
 
+static inline void
+_fcac_node_unlink(struct fcac *r, struct fcac_node *n)
+{
+	if (r->next == n) {
+		r->next = (n->next ? n->next : n->prev);
+	}
+	if (n->next) {
+		n->next->prev = n->prev;
+	}
+	if (n->prev) {
+		n->prev->next = n->next;
+	}
+}
+
 static void
 _fcac_node_remove(struct fcac *r, struct fcac_node *n)
 {
@@ -88,6 +102,7 @@ _fcac_node_remove(struct fcac *r, struct fcac_node *n)
 	xsyslog(LOG_DEBUG, "fcac remove[id#%"PRIu64"]", n->id);
 #endif
 	if (_lock(r, n)) {
+		/* делаем все ссылки (fcac_ptr*) инвалидными */
 		for (p = n->ref; p; p = pnext) {
 			pnext = p->next;
 			p->n = NULL;
@@ -103,15 +118,7 @@ _fcac_node_remove(struct fcac *r, struct fcac_node *n)
 		}
 		/* что бы вынуть узел из списка, нужно заблокировать корень */
 		if (_lock(r, NULL)) {
-			if (r->next == n) {
-				r->next = (n->next ? n->next : n->prev);
-			}
-			if (n->next) {
-				n->next->prev = n->prev;
-			}
-			if (n->prev) {
-				n->prev->next = n->next;
-			}
+			_fcac_node_unlink(r, n);
 			_unlock(r, NULL);
 			/* вычистка данных и освобождение памяти */
 			switch(n->type) {
@@ -905,3 +912,57 @@ fcac_tick(struct fcac *r)
 	return true;
 }
 
+#if 0
+bool
+fcac_claw(struct fcac *r, struct fcac_ptr *p, uint64_t id)
+{
+	struct fcac_node *n = NULL;
+	struct fcac *or = NULL;
+
+	/* старый корень */
+	or = p->r;
+
+	if (or == r) {
+		if (p->id == id) {
+			/* пытается перенести к самому себе -- выполнено? */
+			return true;
+		}
+		/* если id не совпадает, то нужно или его менять или давать отлуп */
+		return false;
+	}
+
+	/* блокируем корень-приёмник */
+	if (!_lock(r, NULL)) {
+		return false;
+	}
+
+	/* 1. удостоверяемся что нет такого id в списке */
+	for (n = r->next; n; n = n->next) {
+		if (n->id == id) {
+			xsyslog(LOG_WARNING,
+					"fcac warning[id#%"PRIu64"]: "
+					"already exists at migration (from id#%"PRIu64")",
+					id, p->id);
+
+			_unlock(r, NULL);
+			return false;
+		}
+	}
+
+
+	/* 2. отцепить от старого корня */
+	if (!_lock(or, NULL))
+		return false;
+	_fcac_node_unlink(or, p->n);
+	p->n->r = NULL;
+	_unlock(or, NULL);
+
+	/* 3. прицепить к новому корню */
+	if (!_lock(or
+
+	/* 4. передёрнуть все ссылки */
+
+
+	return true;
+}
+#endif

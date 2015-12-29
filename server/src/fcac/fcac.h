@@ -199,6 +199,14 @@ bool fcac_open(struct fcac *r, uint64_t id, struct fcac_ptr *p);
 /* закрытие узла */
 bool fcac_close(struct fcac_ptr *p);
 
+#if 0
+/* переносит структуру в корень *r из другого менеджера *p
+ * меняя id на указанный
+ *
+ */
+bool fcac_claw(struct fcac *r, struct fcac_ptr *p, uint64_t id);
+#endif
+
 /* *** чтение */
 
 /* проверка готовности на чтения узла кеша */
