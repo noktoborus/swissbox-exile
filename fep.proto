@@ -122,17 +122,18 @@ enum Type {
 	tStoreSave = 29;
 	tStoreLoad = 30;
 	tStoreValue = 31;
-	t_max = 32; /* максимальное значение,
+	tSatisfied = 32;
+	t_max = 33; /* максимальное значение,
 				   для удобства составления массивов */
 }
 
-/*
-
+/* Направление: S->C, C->S
  Время в Ping/Pong указывается от начала эры Unix
  C: Ping
  S: Pong
  клиент указывает в Ping время генерации сообщения,
  а сервер время обработки
+ ответ: Ping, Error
 */
 message Pong {
 	required uint64 id = 1;
@@ -144,6 +145,9 @@ message Pong {
 	required uint32 peer_usec = 5;
 }
 
+/* Направление: S->C, C->S
+   ответ на Pong
+   */
 message Ping {
 	required uint64 id = 1;
 	/* секунды и микросекунды */
@@ -158,7 +162,8 @@ enum ReqAuthType {
 	tKey = 3;
 }
 
-/* предложение сервера авторизироваться:
+/* Направление: S->C
+   предложение сервера авторизироваться:
  * ожидаемые ответы: Auth */
 message ReqAuth {
 	required uint64 id = 1;
@@ -171,7 +176,8 @@ message ReqAuth {
 	optional string text = 5;
 }
 
-/* запрос клиента авторизации
+/* Направление: C->S
+ *  запрос клиента авторизации
  * ожидаемые ответы: Ok, Error,
  * Pending: информационное сообщение, авторизация принята,
  * 		но проверку выполнить прямо сейчас не получится
@@ -195,6 +201,20 @@ message Auth {
 	в поле requestType указывается тип сообщения
 	на которое генерируется ответ
  */
+
+/* Направление: S->C
+	сообщение типа "Error", но не совсем
+	указывает на то, что запрашиваемая операция уже была выполнена
+	к примеру, чанк уже был загружен ранее (ответ на WriteAsk)
+   */
+message Satisfied {
+	required uint64 id = 1 [default = 0];
+
+	optional string message = 10;
+}
+
+/* Направление: S->C
+   */
 message Error {
 	required uint64 id = 1 [default = 0];
 	optional string message = 3;
@@ -206,13 +226,16 @@ message Error {
 	optional uint32 remain = 4;
 }
 
+/* Направление: S->C
+   */
 message Ok {
 	required uint64 id = 1;
 	/* сообщение как предупреждение */
 	optional string message = 10;
 }
 
-/* подобный запрос уже выполняется
+/* Направление: S->C
+ подобный запрос уже выполняется
  или используется в качестве альтернативы пингу сервером к клиенту
  указывает на то, что запрос принят к обработке,
  но быть выполненым сейчас не может, дальнейшие распоряжения прийдут позже
@@ -223,7 +246,7 @@ message Pending {
 	optional string debug = 999;
 }
 
-/*
+/* Направление: C->S, S->C
 	Переименование, удаление файлов
 	Ответы:
 		OkUpdate, Error, Pending
@@ -257,12 +280,13 @@ message FileUpdate {
 }
 
 
-/*
+/* Направление: C->S
  Присылается после отправки всех чанков
  ревизии файла
  Ответы:
 	OkUpdate: Всё нормально, можно продолжать
 	Error: отмена
+	Pending
  */
 message FileMeta {
 	required uint64 id = 1 [default = 0];
@@ -284,11 +308,13 @@ message FileMeta {
 	optional string parent_revision_guid = 87;
 }
 
-/*
+/* Направление: C->S
  * Запрос разрешения на запись
  * ответы:
  *  Error: неудача
  *  OkWrite: запись разрешена
+ *  Satisfied: Запись уже была произведена
+ *	Pending: запрос не забыт (но конкретный ответ будет позже)
 */
 message WriteAsk {
 	required uint64 id = 1 [default = 0];
@@ -309,6 +335,9 @@ message WriteAsk {
 
 }
 
+/* Направление: S->C
+	Положительный ответ на запрос записи
+   */
 message OkWrite {
 	required uint64 id = 1 [default = 0];
 
@@ -321,8 +350,9 @@ message OkWrite {
 
 }
 
-/*
+/* Направление: S->C, C->S
    Предложение сервера или клиента завершить сессию
+   Ответ: -, Error
 */
 message End {
 	required uint64 id = 1 [default = 0];
@@ -336,7 +366,8 @@ message End {
 	optional uint32 packets = 4;
 }
 
-/* ответ на запрос чтения */
+/* Направление: S->C
+   ответ на запрос чтения */
 message OkRead {
 	required uint64 id = 1 [default = 0];
 	
@@ -346,10 +377,11 @@ message OkRead {
 	required uint32 offset = 6;
 }
 
-/* 
+/* Направление: C->S, S->C
  	Передача куска чанка.
 	Если ошибок во время записи не произошло, подтверждение не отсылается.
 	Иначе возвращается Error
+	Ответ: -, Error
  */
 message xfer {
 	required uint64 id = 1 [default = 0];
@@ -362,11 +394,12 @@ message xfer {
 
 /* чтение */
 
-/*
+/* Направление: C->S
  запрос на чтение,
  возможные ответы:
  Error: невозможно начать передау
  Write: передача
+ Pending: запрос не забыт (но конкретный ответ будет позже)
 */
 message ReadAsk {
 	required uint64 id = 1 [default = 0];
@@ -376,6 +409,10 @@ message ReadAsk {
 	required string chunk_guid = 5;
 }
 
+/* Направление: S->C
+	запрос ревизий
+	Ответы: Ok, Pending, Error
+   */
 message QueryRevisions {
 	required uint64 id = 1 [default = 0];
 
@@ -387,6 +424,8 @@ message QueryRevisions {
 	required uint32 depth = 5 [default = 3];
 }
 
+/* Направление: S->C
+   реакция на QueryRevisions */
 message ResultRevision {
 	required uint64 id = 1 [default = 0];
 
@@ -400,9 +439,10 @@ message ResultRevision {
 	optional string parent_revision_guid = 10;
 }
 
-/* запрос чанков для ревизии revision_guid
+/* Направление: C->S
+   запрос чанков для ревизии revision_guid
  Ответы:
- 	FileMeta, Error
+ 	FileMeta, Error, Pending
  */
 message QueryChunks {
 	required uint64 id = 1 [default = 1];
@@ -414,7 +454,8 @@ message QueryChunks {
 	required string revision_guid = 5;
 }
 
-/* ответ на QueryChunks */
+/* Направление: S->C
+   реакция на QueryChunks */
 message ResultChunk {
 	required uint64 id = 1 [default = 1];
 
@@ -428,7 +469,11 @@ message ResultChunk {
 	required bytes chunk_hash = 10;
 }
 
-/* используется для переноса чанка из другой ревизии в указанную */
+/* Направление: C->S
+  используется для переноса чанка из другой ревизии в указанную
+  Ответы:
+  Ok, Error, Satisfied, Pending
+ */
 message RenameChunk {
 	required uint64 id = 1 [default = 0];
 	required string rootdir_guid = 2;
@@ -444,8 +489,11 @@ message RenameChunk {
  * в случае отсутсвия поля id ответ не требуется
  */
 
-/*
+/* Направление: C->S, S->C
 	сообщение о озменениях в структуре каталогов
+ 	конкретно это сообщение пересылается S->C и C->S
+	ответы:
+	OkUpdate, Error, Pending
  */
 message DirectoryUpdate {
 	required uint64 id = 1;
@@ -469,17 +517,11 @@ message DirectoryUpdate {
 	optional uint32 max = 203;
 }
 
-/* TODO:
-   3. добавить обратку коллизий
-   2. нотификация
-   1. Мета (директории, хеши, всё такое)
- */
-
-/*
+/* Направление: C->S
 	Хотет синка
 	нотификационное сообщение, в ответ Ok или Error
 	после чего пачками приходят сообщения Directory и FileUpdate
-	ответы: Ok, Error
+	ответы: Ok, Error, Pending
    */
 message WantSync {
 	required uint64 id = 1 [default = 0];
@@ -497,7 +539,7 @@ message WantSync {
 	required uint32 session_id = 10;
 }
 
-/*
+/* Направление: S->C
 	положительный ответ для FileUpdate и DirectoryUpdate
   */
 message OkUpdate {
@@ -510,7 +552,7 @@ message OkUpdate {
 }
 
 
-/* от сервера к клиенту
+/* Направление: S->C
 	извещение о обновлении состояния Rootdir
   */
 message RootdirUpdate {
@@ -526,12 +568,13 @@ message RootdirUpdate {
 	optional uint32 max = 203;
 }
 
-/* сообщение от клиента другим клиентам (в рамках одной учётной записи)
+/* Направление: C->S, S->C
+   сообщение от клиента другим клиентам (в рамках одной учётной записи)
 	если device_to не указан, то сообщение
 	доставляется всем подключённым клиентам
 
 	Возможные ответы:
-	Ok, Error
+	Ok, Error, Pending
 	*/
 message Chat {
 	required uint64 id = 1 [default = 0];
@@ -551,7 +594,7 @@ message Chat {
 	required bytes message = 50;
 }
 
-/*
+/* Направление: S->C
 	сообщение отправляется сервером клиенту после авторизации
 	или изменении каких-то значений
  */
@@ -570,7 +613,8 @@ message State {
 
 }
 
-/* запрос списка устройств
+/* Нарпавление: C->S
+   запрос списка устройств
 	Ответы: Ok, Error
    */
 message QueryDevices {
@@ -579,6 +623,10 @@ message QueryDevices {
 	required uint32 session_id = 2;
 }
 
+/* Направление: S->C
+   реакция на сообщение QueryDevices
+
+   */
 message ResultDevice {
 	required uint64 id = 1 [default = 1];
 	required uint32 session_id = 2;
@@ -594,7 +642,7 @@ message ResultDevice {
 	required string last_auth_time = 25;
 }
 
-/*
+/* Направление: C->S
    помещает небольшой объём данных (несколько кбайт)
    в приватное хранилище пользователя
    Ответ: Ok, Error */
@@ -634,7 +682,7 @@ message StoreSave {
 	optional uint32 length = 21;
 }
 
-/*
+/* Направление: C->S
    запрос информации из хранилища
    Ответ: StoreValue, Error */
 message StoreLoad {
@@ -648,7 +696,8 @@ message StoreLoad {
 	optional uint32 length = 21;
 }
 
-/* значение из хранилища */
+/* Направление: S->C
+   значение из хранилища */
 message StoreValue {
 	required uint64 id = 1 [default = 1];
 
