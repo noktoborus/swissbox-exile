@@ -71,6 +71,7 @@ def _recv_message(s, expected = None):
     plen = struct.unpack("!I", "\0" + b[2:5])[0]
     if not ptypen in FEP.Type.values():
         write_std("# unknown packet type " + str(ptypen) + "\n")
+        s.recv(plen)
         return None
     ptype = FEP.Type.keys()[ptypen - 1]
     rawmsg = s.recv(plen)
@@ -719,22 +720,21 @@ def proto(s, user, secret, devid, cmd = None):
                 write_std("# try to cmd `sync` or `mkdir` (rootdir: %s, directory: %s)\n" %(X_rootdir, X_directory))
                 continue
             _d = mkdir(s, X_rootdir, X_prefix + "t")
-            sendFile(s, X_rootdir, _d, "/home/transmission/download/Home.2015.BDRip-AVC.Dub.1.45Gb...stalkerok.new-team.mkv",devid)
-            ## вгружаем всё в текущей директории, кроме директорий и файлов с "."
-            #for _n in [x for x in os.walk('.') if not x[0].startswith('./user')]:
-            #    # создаём директорию
-            #    _d = mkdir(s, X_rootdir, X_prefix + _n[0])
-            #    if not _d:
-            #        r = False
-            #        break
-            #    for _f in _n[2]:
-            #        _f = _n[0] + '/' + _f
-            #        if not sendFile(s, X_rootdir, _d, _f, devid):
-            #            _d = None
-            #            r = False
-            #            break
-            #    if not _d or not r:
-            #        break
+            # вгружаем всё в текущей директории, кроме директорий и файлов с "."
+            for _n in [x for x in os.walk('.') if not x[0].startswith('./user')]:
+                # создаём директорию
+                _d = mkdir(s, X_rootdir, X_prefix + _n[0])
+                if not _d:
+                    r = False
+                    break
+                for _f in _n[2]:
+                    _f = _n[0] + '/' + _f
+                    if not sendFile(s, X_rootdir, _d, _f, devid):
+                        _d = None
+                        r = False
+                        break
+                if not _d or not r:
+                    break
 
             continue
         if c == "read":
