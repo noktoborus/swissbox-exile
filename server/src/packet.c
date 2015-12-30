@@ -90,6 +90,7 @@ static struct packet_info {
 	{.name = "StoreSave"},
 	{.name = "StoreLoad"},
 	{.name = "StoreValue"},
+	{.name = "Satisfied"}
 };
 
 static inline void
@@ -561,6 +562,13 @@ packet2syslog(const char *head,
 			snprintf(result, _e,
 					"id=%"PRIu64", store.len=%"PRIu64", size=%"PRIu32,
 					_m->id, _m->store.len, _m->size);
+			break;
+		}
+	case FEP__TYPE__tSatisfied:
+		{
+			Fep__Satisfied *_m = (void*)msg;
+			_l = snprintf(result, _e, "id=%"PRIu64, _m->id);
+			_value_or_nullS(_m, result, message, _l, _e);
 			break;
 		}
 	default:
