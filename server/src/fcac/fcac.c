@@ -139,6 +139,93 @@ _fcac_node_remove(struct fcac *r, struct fcac_node *n)
 	free(n);
 }
 
+/* перевод в тип file */
+static bool
+_fcac_to_file(struct fcac_node *n)
+{
+	char filepath[PATH_MAX];
+	char dirpath[sizeof(filepath)];
+	int fd = -1;
+	size_t offset = 0u;
+
+	if (n->type == FCAC_FILE) {
+		/* вроде как желание уже исполнено, уже файл */
+		return true;
+	}
+
+	_format_filename(n->r->path, filepath, sizeof(filepath), n->id);
+	memcpy(dirpath, filepath, sizeof(dirpath));
+
+	dirname(dirpath);
+
+	if (mkpath(dirpath, S_IRWXU)) {
+		xsyslog(LOG_WARNING, "fcac error[id#%"PRIu64"]: mkpath(%s) -> %s",
+				n->id, dirpath, strerror(errno));
+		return false;
+	}
+
+	fd = open(filepath, O_CREAT | O_TRUNC | O_RDWR, S_IRUSR | S_IWUSR);
+	if (fd == -1) {
+		xsyslog(LOG_WARNING, "fcac error[id#%"PRIu64"]: open(%s) -> %s",
+				n->id, filepath, strerror(errno));
+		return false;
+	}
+
+	if (n->type == FCAC_MEMORY && n->s.memory.offset) {
+		/* если оно в памяти, то нужно перетащить на диск */
+		ssize_t _wr;
+		if ((_wr = write(fd, n->s.memory.buf, n->s.memory.offset)) == -1) {
+			xsyslog(LOG_WARNING,
+					"fcac error[id#%"PRIu64"]:"
+					" migration write(%"PRIuPTR") -> %s",
+					n->id,
+					n->s.memory.offset, strerror(errno));
+			close(fd);
+			unlink(filepath);
+			return false;
+		}
+
+		offset += _wr;
+		if (_wr != n->s.memory.offset) {
+			/* на всякий случай делаем две попытки произвести запись,
+			 * возвращаем ошибку, в случае неудачи
+			 */
+			size_t __s;
+			xsyslog(LOG_WARNING,
+					"fcac error[id#%"PRIu64"]:"
+					" writed %"PRIdPTR", expected %"PRIuPTR", retry",
+					n->id, _wr, n->s.memory.offset);
+			__s = n->s.memory.offset - _wr;
+			if ((_wr = write(fd, n->s.memory.buf + _wr, __s)) == -1) {
+				xsyslog(LOG_WARNING,
+						"fcac error[id#%"PRIu64"]:"
+						" migration write(%"PRIuPTR") -> %s",
+						n->id, __s, strerror(errno));
+				close(fd);
+				unlink(filepath);
+				return false;
+			}
+			/* FIXME: по нормальному это нужно как-то разнести по libev loop */
+			offset += _wr;
+			if (_wr != __s) {
+				xsyslog(LOG_WARNING,
+						"fcac error[id#%"PRIu64"]:"
+						" writed %"PRIdPTR", expected %"PRIuPTR", exit",
+						n->id, _wr, n->s.memory.offset);
+				unlink(filepath);
+				return false;
+			}
+		}
+		free(n->s.memory.buf);
+	}
+	/* инициализация значений */
+	n->type = FCAC_FILE;
+	n->s.file.offset = offset;
+	n->s.file.fd = fd;
+
+	return true;
+}
+
 bool
 fcac_init(struct fcac *r, bool thread_safe)
 {
@@ -315,7 +402,7 @@ fcac_destroy(struct fcac *r)
 /* *** */
 
 bool
-fcac_open(struct fcac *r, uint64_t id, struct fcac_ptr *p)
+fcac_open(struct fcac *r, uint64_t id, struct fcac_ptr *p, enum fcac_options o)
 {
 	int fd = -1;
 	/*
@@ -328,6 +415,27 @@ fcac_open(struct fcac *r, uint64_t id, struct fcac_ptr *p)
 	 * 3. создать новый узел
 	 */
 	struct fcac_node *n = NULL;
+
+	if (o & FCAC_PREFERRED_FILE && o & FCAC_PREFERRED_MEMORY) {
+		xsyslog(LOG_WARNING,
+				"fcac error: "
+				"open with PREFERRED_FILE && PREFERRED_MEMORY not allowed");
+		return false;
+	}
+
+	if (o & FCAC_AFTER_FILE && o & FCAC_AFTER_MEMORY) {
+		xsyslog(LOG_WARNING,
+				"fcac error: "
+				"open with AFTER_FILE && AFTER_MEMORY not allowed");
+		return false;
+	}
+
+	/* feature */
+	if (o & FCAC_PREFERRED_MEMORY || o & FCAC_AFTER_MEMORY) {
+		xsyslog(LOG_WARNING,
+				"fcac warning: "
+				"PREFERRED_MEMORY && AFTER_MEMORY not supported now");
+	}
 
 	/* одна большая блокировка, что бы не плодить кучу мелких
 	 * но подумать о сегментировании блокировок
@@ -388,6 +496,7 @@ fcac_open(struct fcac *r, uint64_t id, struct fcac_ptr *p)
 		r->next = n;
 		n->r = r;
 		n->id = id;
+		n->options = o;
 
 		if (fd != -1) {
 			r->statistic.hit_fs++;
@@ -406,16 +515,17 @@ fcac_open(struct fcac *r, uint64_t id, struct fcac_ptr *p)
 	p->id = n->id;
 
 	/* вход в список */
-	n->ref = p;
 	n->ref_count++;
-	p->next = n->ref;
-	if (n->ref->prev) {
-		/* FIXME: не должно быть узлов левее начала? */
-		n->ref->prev->next = p;
-		p->prev = n->ref->prev;
+	if ((p->next = n->ref)) {
+		if (n->ref->prev) {
+			/* FIXME: не должно быть узлов левее начала? */
+			n->ref->prev->next = p;
+			p->prev = n->ref->prev;
+		}
+		if (n->ref->next)
+			n->ref->next->prev = p;
 	}
-	if (n->ref->next)
-		n->ref->next->prev = p;
+	n->ref = p;
 
 	n->r->statistic.opened_ptr++;
 	/* выход */
@@ -518,11 +628,6 @@ fcac_is_ready(struct fcac_ptr *p)
 						" open(%s) -> %s",
 						p->id, (void*)p,
 						_path, strerror(errno));
-			} else {
-				xsyslog(LOG_WARNING, "fcac error[id#%"PRIu64":%p]:"
-						" can't attach to `file`",
-						p->id, (void*)p);
-				rval = FCAC_NO_READY;
 			}
 		}
 	}
@@ -606,6 +711,10 @@ fcac_set_ready(struct fcac_ptr *p)
 			p->n->finalized = true;
 			rval = true;
 		}
+		if (p->n->type == FCAC_MEMORY && p->n->options & FCAC_AFTER_FILE) {
+			if (!_fcac_to_file(p->n))
+				return false;
+		}
 		if (p->n->type == FCAC_FILE) {
 			char _path[PATH_MAX] = {0};
 			_format_filename(p->r->path, _path, sizeof(_path), p->n->id);
@@ -628,93 +737,6 @@ fcac_set_ready(struct fcac_ptr *p)
 		_unlock(p->r, p->n);
 	}
 	return rval;
-}
-
-/* перевод в тип file */
-static bool
-_fcac_to_file(struct fcac_node *n)
-{
-	char filepath[PATH_MAX];
-	char dirpath[sizeof(filepath)];
-	int fd = -1;
-	size_t offset = 0u;
-
-	if (n->type == FCAC_FILE) {
-		/* вроде как желание уже исполнено, уже файл */
-		return true;
-	}
-
-	_format_filename(n->r->path, filepath, sizeof(filepath), n->id);
-	memcpy(dirpath, filepath, sizeof(dirpath));
-
-	dirname(dirpath);
-
-	if (mkpath(dirpath, S_IRWXU)) {
-		xsyslog(LOG_WARNING, "fcac error[id#%"PRIu64"]: mkpath(%s) -> %s",
-				n->id, dirpath, strerror(errno));
-		return false;
-	}
-
-	fd = open(filepath, O_CREAT | O_TRUNC | O_RDWR, S_IRUSR | S_IWUSR);
-	if (fd == -1) {
-		xsyslog(LOG_WARNING, "fcac error[id#%"PRIu64"]: open(%s) -> %s",
-				n->id, filepath, strerror(errno));
-		return false;
-	}
-
-	if (n->type == FCAC_MEMORY && n->s.memory.offset) {
-		/* если оно в памяти, то нужно перетащить на диск */
-		ssize_t _wr;
-		if ((_wr = write(fd, n->s.memory.buf, n->s.memory.offset)) == -1) {
-			xsyslog(LOG_WARNING,
-					"fcac error[id#%"PRIu64"]:"
-					" migration write(%"PRIuPTR") -> %s",
-					n->id,
-					n->s.memory.offset, strerror(errno));
-			close(fd);
-			unlink(filepath);
-			return false;
-		}
-
-		offset += _wr;
-		if (_wr != n->s.memory.offset) {
-			/* на всякий случай делаем две попытки произвести запись,
-			 * возвращаем ошибку, в случае неудачи
-			 */
-			size_t __s;
-			xsyslog(LOG_WARNING,
-					"fcac error[id#%"PRIu64"]:"
-					" writed %"PRIdPTR", expected %"PRIuPTR", retry",
-					n->id, _wr, n->s.memory.offset);
-			__s = n->s.memory.offset - _wr;
-			if ((_wr = write(fd, n->s.memory.buf + _wr, __s)) == -1) {
-				xsyslog(LOG_WARNING,
-						"fcac error[id#%"PRIu64"]:"
-						" migration write(%"PRIuPTR") -> %s",
-						n->id, __s, strerror(errno));
-				close(fd);
-				unlink(filepath);
-				return false;
-			}
-			/* FIXME: по нормальному это нужно как-то разнести по libev loop */
-			offset += _wr;
-			if (_wr != __s) {
-				xsyslog(LOG_WARNING,
-						"fcac error[id#%"PRIu64"]:"
-						" writed %"PRIdPTR", expected %"PRIuPTR", exit",
-						n->id, _wr, n->s.memory.offset);
-				unlink(filepath);
-				return false;
-			}
-		}
-		free(n->s.memory.buf);
-	}
-	/* инициализация значений */
-	n->type = FCAC_FILE;
-	n->s.file.offset = offset;
-	n->s.file.fd = fd;
-
-	return true;
 }
 
 size_t
@@ -756,7 +778,8 @@ fcac_write(struct fcac_ptr *p, uint8_t *buf, size_t size)
 		/* проверка значений */
 		if (p->n->type == FCAC_UNKNOWN) {
 			/* подготовка, выбор типа */
-			if ((!max_size || size <= max_size)
+			if (!(p->n->options & FCAC_PREFERRED_FILE)
+					&& (!max_size || size <= max_size)
 					&& (!count || count < max_count)) {
 				p->n->type = FCAC_MEMORY;
 #if FCAC_DEEPDEBUG
@@ -910,6 +933,17 @@ fcac_tick(struct fcac *r)
 
 	_unlock(r, NULL);
 	return true;
+}
+
+bool
+fcac_opened(struct fcac_ptr *p)
+{
+	if (p) {
+		if (p->fd != -1 || p->n || p->next || p->prev)
+			return true;
+	}
+
+	return false;
 }
 
 #if 0

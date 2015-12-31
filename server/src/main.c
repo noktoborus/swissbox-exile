@@ -1404,6 +1404,7 @@ main(int argc, char *argv[])
 				pain.rs[i].pain = &pain;
 			}
 			/*  */
+			fcac_init(&pain.fcac, true);
 			pthread_mutex_init(&pain.sev_lock, NULL);
 			/* мультисокет */
 			{
@@ -1442,6 +1443,8 @@ main(int argc, char *argv[])
 			pthread_mutex_destroy(&pain.rs_lock);
 			pthread_cond_destroy(&pain.rs_wait);
 			pthread_mutex_destroy(&pain.sev_lock);
+			/* */
+			fcac_destroy(&pain.fcac);
 			/* деинициализация curl */
 			cuev_destroy(&pain.cuev);
 			/* чистка клиентских сокетов */

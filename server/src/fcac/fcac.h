@@ -13,6 +13,23 @@
 
 /* запрос к кешу только по id файла (location_id в bd) */
 
+enum fcac_type {
+	FCAC_UNKNOWN = 0,
+	FCAC_MEMORY = 1,
+	FCAC_FILE = 2
+};
+
+enum fcac_options {
+	/* сохранять сначала как FILE */
+	FCAC_PREFERRED_FILE = 1,
+	/* сохранять сначала как MEMORY */
+	FCAC_PREFERRED_MEMORY = 2,
+	/* мигрировать в FILE после записи */
+	FCAC_AFTER_FILE = 4,
+	/* мигрировать в MEMORY после записи */
+	FCAC_AFTER_MEMORY = 6
+};
+
 /* ключи для fcac_set() */
 enum fcac_key {
 	/* ключ */
@@ -57,12 +74,6 @@ enum fcac_key {
 	FCAC_MEM_BLOCK_SIZE = 5
 };
 
-enum fcac_type {
-	FCAC_UNKNOWN = 0,
-	FCAC_MEMORY = 1,
-	FCAC_FILE = 2
-};
-
 struct fcac_ptr {
 	struct fcac_node *n;
 	struct fcac *r;
@@ -80,6 +91,8 @@ struct fcac_ptr {
 struct fcac_node {
 	enum fcac_type type;
 	bool finalized;
+
+	enum fcac_options options;
 
 	time_t last;
 
@@ -158,7 +171,7 @@ struct fcac {
 /*
  * последовательность следующая:
  * 1. открытие элемента: fcac_open()
- * 2. проверка готовности: fcac_ready()
+ * 2. проверка готовности: fcac_is_ready()
  * 3. чтение элемента: fcac_read()
  * 4. закрытие узла: fcac_close()
  */
@@ -195,7 +208,13 @@ bool fcac_destroy(struct fcac *r);
  * true при успехе,
  * false при неудаче
  */
-bool fcac_open(struct fcac *r, uint64_t id, struct fcac_ptr *p);
+bool fcac_open(struct fcac *r, uint64_t id, struct fcac_ptr *p,
+		enum fcac_options o);
+/* true если указатель валидный
+ * false если указатель не валидный
+ */
+bool fcac_opened(struct fcac_ptr *p);
+
 /* закрытие узла */
 bool fcac_close(struct fcac_ptr *p);
 

@@ -14,10 +14,9 @@ CREATE OR REPLACE FUNCTION fepserver_installed()
 	RETURNS text AS $$
 DECLARE
 	_struct_version_value text;
-	_exc_str text;
 BEGIN
 	/* версия структуры */
-	SELECT INTO _struct_version_value '8';
+	SELECT INTO _struct_version_value '9';
 
 	/* проверка pgcrypto, на всякий случай
 	// уже не нужно, для примера
@@ -46,6 +45,7 @@ END $$ LANGUAGE plpgsql IMMUTABLE;
 DROP TABLE IF EXISTS file_temp CASCADE;
 DROP TABLE IF EXISTS file_meta CASCADE;
 DROP TABLE IF EXISTS file_chunk CASCADE;
+DROP TABLE IF EXISTS file_chunk_prepare CASCADE;
 DROP TABLE IF EXISTS file_revision CASCADE;
 DROP TABLE IF EXISTS options CASCADE;
 DROP TABLE IF EXISTS file CASCADE;
@@ -71,6 +71,7 @@ DROP SEQUENCE IF EXISTS file_meta_seq CASCADE;
 DROP SEQUENCE IF EXISTS event_checkpoint_seq CASCADE;
 DROP SEQUENCE IF EXISTS file_chunk_group_seq CASCADE;
 DROP SEQUENCE IF EXISTS options_seq CASCADE;
+DROP SEQUENCE IF EXISTS file_chunk_prepare_seq CASCADE;
 
 DROP TYPE IF EXISTS _drop_ CASCADE;
 DROP TYPE IF EXISTS event_type CASCADE;
@@ -356,8 +357,25 @@ CREATE TABLE IF NOT EXISTS file_chunk
 	UNIQUE(file_id, chunk)
 );
 
-/* триггеры и процедурки */
+-- таблица для хранения предварительных записей о чанках
+-- для неё требуется
+-- уникальный набор chunk_hash, chunk_size и rootdir_id
+CREATE SEQUENCE file_chunk_prepare_seq;
+CREATE TABLE IF NOT EXISTS file_chunk_prepare
+(
+	id bigint DEFAULT nextval('file_chunk_prepare_seq') PRIMARY KEY,
 
+	hash character varying(256) NOT NULL,
+	size integer NOT NULL,
+
+	rootdir_id bigint NOT NULL REFERENCES rootdir(id),
+	location_group bigint NOT NULL DEFAULT nextval('file_chunk_group_seq'),
+
+	UNIQUE(rootdir_id, size, hash)
+);
+
+/* триггеры и процедурки */
+ 
 -- чистка event при удалении из file_meta и file_revision
 CREATE OR REPLACE FUNCTION file_delete()
 	RETURNS trigger AS $$
@@ -1134,13 +1152,27 @@ BEGIN
 	END IF;
 
 	-- 4. подбор location_group
-	SELECT location_group
-	INTO _location_group
-	FROM file_chunk
-	WHERE file_chunk.hash = _chunk_hash AND
-		file_chunk.size = _chunk_size AND
-		file_chunk.rootdir_id = _ur.r;
 
+	-- выборка location_group из _prepare (если есть)
+	with _xrow AS (
+		DELETE FROM file_chunk_prepare
+		WHERE rootdir_id = _ur.r AND
+			size = _chunk_size AND
+			hash = _chunk_hash
+		RETURNING *
+	) SELECT location_group INTO _location_group FROM _xrow LIMIT 1;
+
+	-- если нет, то пытаемся найти подобное в списке чанков
+	IF _location_group IS NULL THEN
+		SELECT location_group
+		INTO _location_group
+		FROM file_chunk
+		WHERE file_chunk.hash = _chunk_hash AND
+			file_chunk.size = _chunk_size AND
+			file_chunk.rootdir_id = _ur.r;
+	END IF;
+
+	-- если совсем нет, то генерируем свой
 	IF _location_group IS NULL THEN
 		SELECT nextval('file_chunk_group_seq') INTO _location_group;
 	END IF;
@@ -1464,6 +1496,73 @@ BEGIN
 	r_pubkey := _r.pubkey;
 	r_chunks := _rev.chunks;
 	r_stored_chunks := _rev.stored_chunks;
+	return next;
+END $$ LANGUAGE plpgsql;
+
+-- возвращает ошибку, если чанк уже есть
+-- возвращает номер группы, если прошло успешно
+CREATE OR REPLACE FUNCTION chunk_prepare(
+	_rootdir rootdir.rootdir%TYPE,
+	_chunk_hash file_chunk.hash%TYPE,
+	_chunk_size file_chunk.size%TYPE,
+	_drop_ _drop_ DEFAULT 'drop')
+	RETURNS TABLE
+	(
+		r_error text,
+		r_location_group file_chunk.location_group%TYPE
+	)
+	AS $$
+DECLARE
+	_r record;
+	_n file_chunk.location_group%TYPE;
+BEGIN
+	SELECT
+		r_rootdir_id
+	INTO _r
+	FROM life_data(_rootdir);
+
+	-- проверка на наличие чанка
+	-- FIXME: проверка в _prepare не выполняется
+	IF (SELECT COUNT(*)
+		FROM file_chunk
+		WHERE rootdir_id = _r.r_rootdir_id AND
+			size = _chunk_size AND
+			hash = _chunk_hash LIMIT 1) != 0 THEN
+
+		r_error := concat('2:chunk already exists in rootdir: ', _rootdir,
+		', hash: ', _chunk_hash, ', size: ', _chunk_size);
+		return next;
+		return;
+	END IF;
+
+
+	-- если запись присутсвует, то это не должно вызвать ошибку
+	-- ошибка прийдёт после того, как кто-то захочет финализировать
+	-- запись (например, если запись велась с разных серверов)
+
+	SELECT location_group
+	INTO _n
+	FROM file_chunk_prepare
+	WHERE rootdir_id = _r.r_rootdir_id AND
+		size = _chunk_size AND
+		hash = _chunk_hash LIMIT 1;
+
+	IF _n IS NULL THEN
+		with _ro AS (
+			INSERT
+			INTO file_chunk_prepare (hash, size, rootdir_id) 
+			VALUES (_chunk_hash, _chunk_size, _r.r_rootdir_id)
+			RETURNING location_group
+		) SELECT _ro.location_group AS lc_group INTO _n FROM _ro;
+	END IF;
+
+	IF _n IS NULL THEN
+		r_error := '1:unknown error';
+		return next;
+		return;
+	END IF;
+
+	r_location_group = _n;
 	return next;
 END $$ LANGUAGE plpgsql;
 

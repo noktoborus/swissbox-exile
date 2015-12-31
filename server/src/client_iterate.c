@@ -84,9 +84,9 @@ sid_free(wait_store_t *ws)
 		if (wx->wf) {
 			wx->wf->ref--;
 		}
-		if (wx->fd != -1) {
-			xsyslog(LOG_DEBUG, "destroy xfer fd#%d", wx->fd);
-			close(wx->fd);
+		if (fcac_opened(&wx->p)) {
+			xsyslog(LOG_DEBUG, "destroy xfer fd#%"PRIu64, wx->p.id);
+			fcac_close(&wx->p);
 		}
 #if !POLARSSL_LESS_138
 		sha256_free(&wx->sha256);
@@ -384,9 +384,10 @@ static struct handle handle[FEP__TYPE__t_max] =
 	INVALID_P_HANDLE_S(FEP__TYPE__tState, "State", state), /* 26 */
 	TYPICAL_HANDLE_S(FEP__TYPE__tQueryDevices, "QueryDevices", query_devices), /* 27 */
 	INVALID_P_HANDLE_S(FEP__TYPE__tResultDevice, "ResultDevice", result_device), /* 28 */
-	TYPICAL_HANDLE_S(FEP__TYPE__tResultDevice, "StoreSave", store_load), /* 29 */
-	TYPICAL_HANDLE_S(FEP__TYPE__tResultDevice, "StoreLoad", store_save), /* 30 */
-	INVALID_P_HANDLE_S(FEP__TYPE__tResultDevice, "StoreValue", store_value), /* 31 */
+	TYPICAL_HANDLE_S(FEP__TYPE__tStoreSave, "StoreSave", store_load), /* 29 */
+	TYPICAL_HANDLE_S(FEP__TYPE__tStoreLoad, "StoreLoad", store_save), /* 30 */
+	INVALID_P_HANDLE_S(FEP__TYPE__tStoreValue, "StoreValue", store_value), /* 31 */
+	INVALID_P_HANDLE_S(FEP__TYPE__tSatisfied, "Satisfied", satisfied), /* 32 */
 };
 
 const char*

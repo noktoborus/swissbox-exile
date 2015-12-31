@@ -317,9 +317,9 @@ _handle_end(struct client *c, unsigned type, Fep__End *end)
 		return send_error(c, end->id, "Internal error 1928", -1);
 	}
 #if DEEPDEBUG
-	xsyslog(LOG_DEBUG, "client[%"SEV_LOG"] close fd#%d, id %"PRIu32" "
+	xsyslog(LOG_DEBUG, "client[%"SEV_LOG"] close fd#%"PRIu64", id %"PRIu32" "
 			"file meta hash: %"PRIu64,
-			c->cev->serial, wx->fd, end->session_id, wf->id);
+			c->cev->serial, wx->p.id, end->session_id, wf->id);
 #endif
 	/* размеры не совпали */
 	if (wx->filling != wx->size) {
@@ -341,10 +341,13 @@ _handle_end(struct client *c, unsigned type, Fep__End *end)
 			snprintf(errmsg, sizeof(errmsg),
 					"invalid chunk hash: %s, expect: %s",
 					sha256_hex, chunk_hash);
+		} else if (!fcac_set_ready(&wx->p)) {
+			snprintf(errmsg, sizeof(errmsg), "Internal error 1137");
 		/* чанк пришёл, теперь нужно попробовать обновить информацию в бд */
-		} else if (!spq_insert_chunk(c->name, c->device_id, &wf->rootdir, &wf->file,
-					&wf->revision, &wx->chunk_guid, chunk_hash,
-					wx->size, wx->offset, wx->path, &hint)) {
+		} else if (!spq_insert_chunk(c->name, c->device_id,
+					&wf->rootdir, &wf->file, &wf->revision,
+					&wx->chunk_guid, chunk_hash,
+					wx->size, wx->offset, "xxx", &hint)) {
 			/* запись чанка не удалась */
 			if (*hint.message)
 				snprintf(errmsg, sizeof(errmsg), hint.message);
@@ -364,7 +367,6 @@ _handle_end(struct client *c, unsigned type, Fep__End *end)
 	} else {
 		/* чанк не нужен, клиент перетащит его заного */
 		wf->chunks_fail++;
-		unlink(wx->path);
 		/* чиститься нужно после unlink
 		 * потому что в sid_free вычещается и ws->dat
 		 */
@@ -611,16 +613,21 @@ _handle_read_ask(struct client *c, unsigned type, Fep__ReadAsk *msg)
 bool
 _handle_write_ask(struct client *c, unsigned type, Fep__WriteAsk *msg)
 {
+	/* FIXME: говнище, переработать */
 	char *errmsg = NULL;
-	char path[PATH_MAX];
 	struct wait_store *ws;
-	struct wait_xfer wx;
+	struct wait_xfer *wx;
 
 	guid_t rootdir;
 	guid_t file;
 	guid_t chunk;
 
-	uint64_t hash;
+	struct getChunkInfo _ci = {0};
+	struct spq_hint _hint;
+	char chunk_hash[PATH_MAX];
+
+	uint64_t hash = 0;
+	uint64_t chunk_id = 0;
 	struct wait_store *fid_ws;
 	struct wait_file *wf;
 	Fep__OkWrite wrok = FEP__OK_WRITE__INIT;
@@ -672,40 +679,22 @@ _handle_write_ask(struct client *c, unsigned type, Fep__WriteAsk *msg)
 		}
 	}
 
-	/* путь: <root_guid>/<file_guid>/<chunk_guid> */
-	snprintf(path, PATH_MAX, "%s/%s", c->options.home, msg->rootdir_guid);
-	/* открытие дескриптора файла и создание структуры для ожидания данных */
-	if (mkdir(path, S_IRWXU) == -1 && errno != EEXIST) {
-		errmsg = "Internal error: cache not available";
-		xsyslog(LOG_WARNING, "client[%"SEV_LOG"] can't create path %s as cachedir: %s",
-				c->cev->serial, path, strerror(errno));
-	} else {
-		/* FIXME: на данный момент не понимаю как именно нужно сохранять
-			файл и связывать его с бд, возможны нехорошие варианты,
-			когда несколько клиентов начнут писать в один файл
-		*/
-		struct stat st;
-		char chunk_hash[PATH_MAX];
-		bin2hex(msg->chunk_hash.data, msg->chunk_hash.len,
-				chunk_hash, sizeof(chunk_hash));
-		snprintf(path, PATH_MAX, "%s/%s/%s",
-				c->options.home, msg->rootdir_guid, chunk_hash);
+	bin2hex(msg->chunk_hash.data, msg->chunk_hash.len, PSIZE(chunk_hash));
+	/* получение id чанка и запись в кеш */
+	memset(&_ci, 0u, sizeof(_ci));
+	memset(&_hint, 0u, sizeof(_hint));
 
-		if (stat(path, &st) == -1 && errno != ENOENT) {
-			errmsg = "Internal error: prepare space failed";
-			xsyslog(LOG_WARNING, "client[%"SEV_LOG"] stat(%s) error: %s",
-					c->cev->serial, path, strerror(errno));
-		} else if (errno != ENOENT) {
-			if (unlink(path)) {
-				xsyslog(LOG_WARNING, "client[%"SEV_LOG"] can't unlink %s: %s",
-						c->cev->serial, path, strerror(errno));
-			}
-		}
+	/*
+	 * TODO: если _prepare() вернул адрес и драйвер, то отослать satisfied
+	 */
+	if (!spq_chunk_prepare(c->name, c->device_id, &rootdir,
+			chunk_hash, msg->size, &_ci, &_hint)) {
+		if (*_hint.message)
+			return send_error(c, msg->id, _hint.message, -1);
+		return send_error(c, msg->id, "Internal error 1175", -1);
 	}
-
-
-	if (errmsg)
-		return send_error(c, msg->id, errmsg, -1);
+	chunk_id = _ci.group;
+	spq_getChunkInfo_free(&_ci);
 
 	{
 		/* в этом блоке структура wx только настраивается,
@@ -719,53 +708,59 @@ _handle_write_ask(struct client *c, unsigned type, Fep__WriteAsk *msg)
 					+ sizeof(struct wait_file));
 			fid_ws->data = fid_ws + 1;
 		}
-		memset(&wx, 0, sizeof(struct wait_xfer));
 		ws = calloc(1, sizeof(struct wait_store) + sizeof(struct wait_xfer));
-		/* открытие/создание файла */
-		wx.size = msg->size;
-		wx.fd = open(path, O_CREAT | O_TRUNC | O_RDWR, S_IRWXU);
-		if (wx.fd == -1 || !ws || !fid_ws) {
-			errmsg = "Internal error: cache not available";
+		if (!ws || !fid_ws) {
+			errmsg = "";
+		} else {
+			wx = (ws->data = ws + 1);
+			/* открытие/создание файла */
+			wx->size = msg->size;
+			if (chunk_id == 0) {
+				xsyslog(LOG_WARNING, "XXX");
+			}
+			if (!fcac_open(&c->cev->pain->fcac,
+						chunk_id, &wx->p, FCAC_PREFERRED_FILE)) {
+				errmsg = "Internal error: cache not available";
+			}
+
+			string2guid(msg->chunk_guid, strlen(msg->chunk_guid),
+					&wx->chunk_guid);
+			/* ссылаемся на wait_file и увеличиваем счётчик */
+			wx->wf = fid_ws->data;
+			wx->wf->ref++;
+			wx->hash_len = msg->chunk_hash.len;
+			memcpy(wx->hash, (void*)msg->chunk_hash.data, msg->chunk_hash.len);
+			wx->offset = msg->offset;
 		}
-		memcpy(wx.path, path, PATH_MAX);
-		string2guid(msg->chunk_guid, strlen(msg->chunk_guid), &wx.chunk_guid);
-		/* ссылаемся на wait_file и увеличиваем счётчик */
-		wx.wf = fid_ws->data;
-		wx.wf->ref++;
-		wx.hash_len = msg->chunk_hash.len;
-		memcpy(wx.hash, (void*)msg->chunk_hash.data, msg->chunk_hash.len);
-		wx.offset = msg->offset;
 		/* логический костыль */
 		if (fid_in)
 			fid_ws = NULL;
 	}
 
 	if (errmsg) {
+		fcac_close(&wx->p);
 		if (ws)
 			free(ws);
-		if (wx.fd != -1)
-			close(wx.fd);
 		if (fid_ws)
 			free(fid_ws);
-		xsyslog(LOG_WARNING, "client[%"SEV_LOG"] open(%s) failed: %s",
-				c->cev->serial, path, strerror(errno));
+		xsyslog(LOG_WARNING,
+				"client[%"SEV_LOG"] open(%"PRIu64") failed: %s",
+				c->cev->serial, chunk_id, strerror(errno));
 		return send_error(c, msg->id, errmsg, -1);
 	}
 	/* инициализируем polarssl */
 #if !POLARSSL_LESS_138
-	sha256_init(&wx.sha256);
+	sha256_init(&wx->sha256);
 #endif
-	sha256_starts(&wx.sha256, 0);
+	sha256_starts(&wx->sha256, 0);
 
 	/* пакуем структуры */
 	wrok.id = msg->id;
 	wrok.session_id = generate_sid(c);
 
-	ws->data = ws + 1;
-	memcpy(ws->data, &wx, sizeof(struct wait_xfer));
 #if DEEPDEBUG
-	xsyslog(LOG_DEBUG, "client[%"SEV_LOG"] fd#%d for %s [%"PRIu32"]",
-			c->cev->serial, wx.fd, wx.path, wrok.session_id);
+	xsyslog(LOG_DEBUG, "client[%"SEV_LOG"] fd#%"PRIu64" for [%"PRIu32"]",
+			c->cev->serial, wx->p.id, wrok.session_id);
 #endif
 	/* инициализаци полей wait_file */
 	wait_id(c, &c->sid, wrok.session_id, ws);
@@ -1063,6 +1058,7 @@ _handle_xfer(struct client *c, unsigned type, Fep__Xfer *xfer)
 	struct wait_store *ws;
 	struct wait_xfer *wx;
 	char *errmsg = NULL;
+	enum fcac_ready ready = 0;
 
 	ws = touch_id(c, &c->sid, xfer->session_id);
 	if (!ws) {
@@ -1074,30 +1070,32 @@ _handle_xfer(struct client *c, unsigned type, Fep__Xfer *xfer)
 	}
 	wx = ws->data;
 
-	if (xfer->data.len + xfer->offset > wx->size) {
+	/* FIXME: сойдёт и так, но всё же нужно слать Satisfied по WriteAsk */
+	ready = fcac_is_ready(&wx->p);
+	if (ready == FCAC_CLOSED) {
+		errmsg = "Cache closed, try again";
+	} else if (xfer->data.len + xfer->offset > wx->size) {
 		errmsg = "Owerdose input data";
-	} else if (lseek(wx->fd, (off_t)xfer->offset, SEEK_SET) == (off_t)-1) {
-		errmsg = "Can't set offset";
-	} else if (write(wx->fd, xfer->data.data, xfer->data.len) != xfer->data.len) {
+	} else if ((ready != FCAC_READY &&
+		fcac_write(&wx->p, xfer->data.data, xfer->data.len) !=
+			xfer->data.len)) {
 		errmsg = "Write fail";
 	} else {
+		/* потенциально проблемное место при ready == FCAC_READY */
 		wx->filling += xfer->data.len;
 		sha256_update(&wx->sha256, xfer->data.data, xfer->data.len);
 		return true;
 	}
 #if DEEPDEBUG
 	if (errmsg) {
-		xsyslog(LOG_DEBUG, "client[%"SEV_LOG"] got xfer fd#%d error: %s",
-				c->cev->serial, wx->fd, strerror(errno));
+		xsyslog(LOG_DEBUG, "client[%"SEV_LOG"] got xfer fd#%"PRIu64" error: %s",
+				c->cev->serial, wx->p.id, strerror(errno));
 	} else {
-		xsyslog(LOG_DEBUG, "client[%"SEV_LOG"] destroy xfer fd#%d because error",
-				c->cev->serial, wx->fd);
+		xsyslog(LOG_DEBUG,
+				"client[%"SEV_LOG"] destroy xfer fd#%"PRIu64" because error",
+				c->cev->serial, wx->p.id);
 	}
 #endif
-	/*
-	 * закрываем всякие ресурсы и уменьшаем счётчик ссылок
-	 */
-	unlink(wx->path);
 	/* освобождение памяти в последнюю очередь,
 	 * т.к. wx и ws выделяются в последнюю очередь
 	 */

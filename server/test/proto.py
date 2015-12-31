@@ -344,12 +344,16 @@ def sendFile(s, rootdir, directory, path, devid):
         chunk_offset += wmsg.size
         send_message(s, wmsg)
         # в ответе должно прийти session_id для передачи
-        rmsg = recv_message(s, ["Error", "OkWrite"])
+        rmsg = recv_message(s, ["Error", "OkWrite", "Satisfied"])
         if rmsg.__class__.__name__ == "Error":
             write_std("send file error: %s\n" %rmsg.message)
             file_descr.seek(0)
             _ok = False
             break
+        elif rmsg.__class__.__name__ == "Satisfied":
+            _i += 1
+            write_std("skip chunk no=%s\n" %(_i))
+            continue
         elif rmsg.__class__.__name__ == "OkWrite":
             # отправка чанков цельными кусками (по одному xfer)
             _i += 1

@@ -301,6 +301,19 @@ struct spq_UserInfo {
 bool spq_check_user(char *username, char *secret, uint64_t device_id,
 		struct spq_UserInfo *user, struct spq_hint *hint);
 
+/*
+ * получение информаци по чанку (чанкам? по их chunk_hash)
+ *
+ * getChunkInfo заполняется кроме поля group
+ *  поля address и driver заполняются только при наличие чанка на сервере
+ * освобождать структуру с помощью spq_getChunkInfo_free() требуется
+ */
+bool
+spq_chunk_prepare(char *username, uint64_t device_id,
+		guid_t *rootdir,
+		char *chunk_hash, uint32_t chunk_size,
+		struct getChunkInfo *o,
+		struct spq_hint *hint);
 
 struct spq_QuotaInfo {
 	uint64_t used;

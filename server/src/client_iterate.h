@@ -245,6 +245,8 @@ bool sendlog_error(struct client *c, uint64_t id, char *message, int remain);
 bool send_ok(struct client *c, uint64_t id, uint64_t checkpoint, char *message);
 /* всё нормально, только ждите */
 bool send_pending(struct client *c, uint64_t id);
+/* запрос уже выполнен */
+bool send_satisfied(struct client *c, uint64_t id);
 
 /* шлёт пинг, ждёт ответа, сообщает в лог о нём... */
 bool send_ping(struct client *c);
@@ -267,8 +269,7 @@ typedef struct wait_store
 } wait_store_t;
 
 struct wait_xfer {
-	int fd;
-	char path[PATH_MAX + 1];
+	struct fcac_ptr p;
 	uint32_t offset;
 	uint64_t size; /* полный размер чанка */
 	uint64_t filling; /* сколько данных было записано */

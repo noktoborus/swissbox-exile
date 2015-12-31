@@ -358,7 +358,6 @@ _spq_insert_chunk(PGconn *pgc,
 	if (PQresultStatus(res) != PGRES_TUPLES_OK) {
 		xsyslog(LOG_INFO, "exec insert_chunk error: %s",
 				PQresultErrorMessage(res));
-		_spq_log_expand(tb, 8, (const char *const*)val, len);
 		PQclear(res);
 		Q_LOGX(tb, sizeof(len) / sizeof(*len), val, len);
 		return false;
@@ -1060,6 +1059,86 @@ spq_initial_user(struct spq_InitialUser *iu, struct spq_hint *hint)
 	struct spq *c;
 	if ((c = acquire_conn(&_spq)) != NULL) {
 		r = _spq_initial_user(c->conn, iu, hint);
+		release_conn(&_spq, c);
+	}
+	return r;
+}
+
+bool
+_spq_chunk_prepare(PGconn *pg,
+		guid_t *rootdir,
+		char *chunk_hash, uint32_t chunk_size,
+		struct getChunkInfo *o,
+		struct spq_hint *hint)
+{
+	PGresult *res;
+	const char tb[] =
+		"SELECT * FROM chunk_prepare($1::UUID, $2::varchar, $3::integer)";
+
+	char *val[3];
+	int len[3];
+
+	char _rootdir[GUID_MAX + 1];
+	char _chunk_size[12];
+
+	char *_m = NULL;
+	int _l = 0;
+
+	len[0] = guid2string(rootdir, _rootdir, sizeof(_rootdir));
+	len[1] = strlen(chunk_hash);
+	len[2] = snprintf(_chunk_size, sizeof(_chunk_size), "%"PRIu32, chunk_size);
+
+	val[0] = _rootdir;
+	val[1] = chunk_hash;
+	val[2] = _chunk_size;
+
+	res = PQexecParams(pg, tb, 3, NULL, (const char *const*)val, len, NULL, 0);
+
+	if (PQresultStatus(res) != PGRES_TUPLES_OK) {
+		xsyslog(LOG_INFO, "exec chunk_prepare error: %s",
+				PQresultErrorMessage(res));
+		PQclear(res);
+		Q_LOGX(tb, sizeof(len) / sizeof(*len), val, len);
+		return false;
+	} else if ((_l = PQgetlength(res, 0, 0)) > 0u) {
+		_m = PQgetvalue(res, 0, 0);
+		spq_feed_hint(_m, _l, hint);
+		xsyslog(LOG_INFO, "exec chunk_prepare warning: %s", _m);
+	}
+
+
+	if ((_l = PQgetlength(res, 0, 1)) > 0) {
+		o->address = strdup(PQgetvalue(res, 0, 1));
+	}
+
+	if ((_l = PQgetlength(res, 0, 2)) > 0) {
+		o->driver = strdup(PQgetvalue(res, 0, 2));
+	}
+
+	o->size = chunk_size;
+
+	if ((_l = PQgetlength(res, 0, 3)) > 0) {
+		o->group = strtoull(PQgetvalue(res, 0, 4), NULL, 10);
+	}
+
+	PQclear(res);
+
+	return true;
+}
+
+bool
+spq_chunk_prepare(char *username, uint64_t device_id,
+		guid_t *rootdir,
+		char *chunk_hash, uint32_t chunk_size,
+		struct getChunkInfo *o,
+		struct spq_hint *hint)
+{
+	bool r = false;
+	struct spq *c;
+	if ((c = acquire_conn(&_spq)) != NULL) {
+		r = spq_begin_life(c->conn, username, device_id) &&
+			_spq_chunk_prepare(c->conn, rootdir,
+				chunk_hash, chunk_size, o, hint);
 		release_conn(&_spq, c);
 	}
 	return r;

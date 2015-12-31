@@ -20,6 +20,8 @@
 #include <stdbool.h>
 #include <pthread.h>
 
+#include "fcac/fcac.h"
+
 #define SPQ_DEFAULT_POOLSIZE 3
 
 struct evptr {
@@ -169,6 +171,9 @@ struct main
 	 * структура: (id, client_ptr)
 	 */
 	struct listRoot bus_task;
+
+	/* файловый кеш */
+	struct fcac fcac;
 
 	/* конфигурашка и прочее */
 	cfg_t *cfg;
