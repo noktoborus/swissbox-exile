@@ -172,6 +172,8 @@ struct client {
 	uint32_t gensid;
 	enum cev_state state;
 
+	/* всякие очереди для экономии ресурсов */
+
 	struct {
 		struct rootdir_g *g;
 		size_t c;

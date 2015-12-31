@@ -643,6 +643,7 @@ fcac_read(struct fcac_ptr *p, uint8_t *buf, size_t size)
 	/* файловый дескриптор как приватный ресурс
 	 * с чтением из памяти сложнее, должен ссылаться
 	 */
+	bool remove = false;
 
 	if (p->fd != -1) {
 		/* если файловый дескриптор уже готовый, то игнорируем всё,
@@ -658,6 +659,8 @@ fcac_read(struct fcac_ptr *p, uint8_t *buf, size_t size)
 					p->fd, strerror(errno));
 			close(p->fd);
 			p->fd = -1;
+			/* дропаем порченую ноду */
+			_fcac_node_remove(p->r, p->n);
 			return 0;
 		} else {
 			p->offset += (size_t)_r;
@@ -688,9 +691,30 @@ fcac_read(struct fcac_ptr *p, uint8_t *buf, size_t size)
 				memcpy(buf, p->n->s.memory.buf + p->offset, _r);
 				p->offset += _r;
 			}
+		} else if (p->n->type == FCAC_FILE) {
+			/* попали сюда с p->fd == -1, нужно переоткрыть */
+			char _path[PATH_MAX] = {0};
+			if ((p->fd = open(_path, O_RDONLY)) != -1) {
+				/* попытка чтения номер два */
+				_r = fcac_read(p, buf, size);
+			} else {
+				/* несчастье, удаляем ноду, закрываемся */
+				xsyslog(LOG_WARNING,
+						"fcac error[id#%"PRIu64":%p]:"
+						" write reopen failed: %s",
+						p->id, (void*)p, strerror(errno));
+				remove = true;
+
+			}
+
 		}
 
 		_unlock(p->r, p->n);
+		 /* предпологаем что ошибка чтения будет происходить по всему
+		  * приложению и закрываем чтение другим указателям
+		 */
+		if (remove)
+			_fcac_node_remove(p->r, p->n);
 		return _r;
 	}
 }
@@ -815,16 +839,31 @@ fcac_write(struct fcac_ptr *p, uint8_t *buf, size_t size)
 	if (allow) {
 		/* инициализация записи прошла, осталось произвести запись */
 		if (p->n->type == FCAC_FILE) {
-			/* с файлом всё просто */
-			ssize_t _wr = 0;
-			if ((_wr = write(p->n->s.file.fd, buf, size)) == -1) {
-				xsyslog(LOG_WARNING,
-						"fcac error[id#%"PRIu64":%p]:"
-						" write(%"PRIuPTR") -> %s",
-						p->id, (void*)p, size, strerror(errno));
-			} else {
-				rval = (size_t)_wr;
-				p->n->s.file.offset += rval;
+			/* если дескриптор закрыли, то его нужно вновь открыть */
+			if (p->n->s.file.fd == -1) {
+				char filepath[PATH_MAX];
+				_format_filename(p->r->path, filepath, sizeof(filepath), p->id);
+				if ((p->n->s.file.fd = open(filepath, O_RDWR | O_APPEND)) == -1) {
+					xsyslog(LOG_WARNING,
+						"fcac error[id#%"PRIu64"]: write reopen failed: %s",
+						p->id, strerror(errno));
+					allow = false;
+				}
+				/* на всякий случай меняем положение курсора */
+				lseek(p->n->s.file.fd, p->n->s.file.offset, SEEK_SET);
+			}
+			if (allow) {
+				/* с файлом всё просто */
+				ssize_t _wr = 0;
+				if ((_wr = write(p->n->s.file.fd, buf, size)) == -1) {
+					xsyslog(LOG_WARNING,
+							"fcac error[id#%"PRIu64":%p]:"
+							" write(%"PRIuPTR") -> %s",
+							p->id, (void*)p, size, strerror(errno));
+				} else {
+					rval = (size_t)_wr;
+					p->n->s.file.offset += rval;
+				}
 			}
 		} else if (p->n->type == FCAC_MEMORY) {
 			/* для памяти нужно выделить кусок и положить туда */
