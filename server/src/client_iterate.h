@@ -77,13 +77,7 @@ struct chat_store {
 
 #define C_NOSESSID ((uint32_t)-1)
 struct chunk_send {
-	int fd;
-
-	/* если есть эта структура, то использовать её
-	 * TODO: в будущем убрать "локальное хранилище"
-	 * и оставить только кеш
-	 */
-	struct fcac_ptr *fp;
+	struct fcac_ptr p;
 
 	off_t sent;
 	off_t size;
@@ -94,6 +88,9 @@ struct chunk_send {
 	/* позиция чанка в файле и размер чанка */
 	uint32_t file_offset;
 	uint32_t chunk_size;
+
+	/* true если структуру нужно разобрать */
+	bool corrupt;
 
 	struct chunk_send *next;
 };

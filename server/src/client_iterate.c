@@ -55,8 +55,8 @@ cout_free(struct client *c)
 {
 	struct chunk_send *p;
 	if ((p = c->cout) != NULL) {
-		if (p->fd != -1) {
-			close(p->fd);
+		if (fcac_opened(&p->p)) {
+			fcac_close(&p->p);
 		}
 		c->cout = c->cout->next;
 		free(p);
@@ -974,23 +974,30 @@ _client_iterate_chunk(struct client *c)
 		}
 	}
 	/* если прочитали всё что можно -- шлём End и деаллочимся */
-	if (c->cout->sent == c->cout->size) {
+	if (c->cout->sent == c->cout->size || c->cout->corrupt) {
 		uint32_t _sessid = c->cout->session_id;
 		uint32_t _packets = c->cout->packets;
+		bool _corrupt = c->cout->corrupt;
 		cout_free(c);
-		return send_end(c, _sessid, _packets);
+		if (!send_end(c, _sessid, _packets))
+			return false;
+		if (_corrupt)
+			return send_error(c, 0, "Unknown error while read chunk", -1);
+		else
+			return true;
 	} else {
 		/* чтение файла */
 		readsz = MIN(c->cout_bfsz, c->cout->size - c->cout->sent);
-		transed = read(c->cout->fd, c->cout_buffer, readsz);
+		transed = fcac_read(&c->cout->p, (uint8_t*)c->cout_buffer, readsz);
 		if (transed <= 0) {
 			if (transed == -1) {
-				xsyslog(LOG_INFO, "client[%"SEV_LOG"] read failed: %s",
+				xsyslog(LOG_INFO, "client[%"SEV_LOG"] read error: %s",
 						c->cev->serial, strerror(errno));
 			} else {
 				xsyslog(LOG_INFO, "client[%"SEV_LOG"] read wtf: %s",
 						c->cev->serial, strerror(errno));
 			}
+			c->cout->corrupt = true;
 		} else {
 			Fep__Xfer xfer_msg = FEP__XFER__INIT;
 			/* отправка чанкодаты */

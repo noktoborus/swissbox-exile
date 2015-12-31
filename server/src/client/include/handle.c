@@ -510,28 +510,19 @@ _read_ask__from_cache(struct client *c, Fep__ReadAsk *msg,
 	 * 2. генерируем структуру
 	 * 3. уходим
 	 */
-	struct stat st;
 	struct chunk_send *chs;
-	int fd;
-
-	/* информация о файле (нужно узнать размер) */
-	if (stat(ci->address, &st) == -1) {
-		return send_error(c, msg->id, "Internal error 123", -1);
-	}
-
-	/* открытие файла */
-	if ((fd = open(ci->address, O_RDONLY)) == -1) {
-		return send_error(c, msg->id, "Internal error 122", -1);
-	}
 
 	if (!(chs = calloc(1, sizeof(struct chunk_send)))) {
-		close(fd);
 		return send_error(c, msg->id, "Internal error 121", -1);
 	}
 
-	chs->fd = fd;
+	if (!fcac_open(&c->cev->pain->fcac, ci->group, &chs->p, 0)) {
+		free(chs);
+		return send_error(c, msg->id, "Internal error 1149", -1);
+	}
+
 	chs->session_id = generate_sid(c);
-	chs->size = st.st_size;
+	chs->size = ci->size;
 	chs->next = c->cout;
 	chs->chunk_size = chs->size;
 	chs->file_offset = ci->offset;
@@ -544,7 +535,7 @@ _read_ask__from_cache(struct client *c, Fep__ReadAsk *msg,
 		Fep__OkRead rdok = FEP__OK_READ__INIT;
 		rdok.id = msg->id;
 		rdok.session_id = chs->session_id;
-		rdok.size = st.st_size;
+		rdok.size = ci->size;
 		rdok.offset = ci->offset;
 
 		return send_message(c->cev, FEP__TYPE__tOkRead, &rdok);

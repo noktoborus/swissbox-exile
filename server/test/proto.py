@@ -725,7 +725,7 @@ def proto(s, user, secret, devid, cmd = None):
                 continue
             _d = mkdir(s, X_rootdir, X_prefix + "t")
             # вгружаем всё в текущей директории, кроме директорий и файлов с "."
-            for _n in [x for x in os.walk('.') if not x[0].startswith('./user')]:
+            for _n in [x for x in os.walk('.') if not x[0].startswith('./fcac_data')]:
                 # создаём директорию
                 _d = mkdir(s, X_rootdir, X_prefix + _n[0])
                 if not _d:
