@@ -1509,11 +1509,14 @@ CREATE OR REPLACE FUNCTION chunk_prepare(
 	RETURNS TABLE
 	(
 		r_error text,
+		r_address file_chunk.address%TYPE,
+		r_driver file_chunk.driver%TYPE,
 		r_location_group file_chunk.location_group%TYPE
 	)
 	AS $$
 DECLARE
 	_r record;
+	_e record;
 	_n file_chunk.location_group%TYPE;
 BEGIN
 	SELECT
@@ -1521,20 +1524,22 @@ BEGIN
 	INTO _r
 	FROM life_data(_rootdir);
 
-	-- проверка на наличие чанка
-	-- FIXME: проверка в _prepare не выполняется
-	IF (SELECT COUNT(*)
-		FROM file_chunk
-		WHERE rootdir_id = _r.r_rootdir_id AND
-			size = _chunk_size AND
-			hash = _chunk_hash LIMIT 1) != 0 THEN
 
-		r_error := concat('2:chunk already exists in rootdir: ', _rootdir,
-		', hash: ', _chunk_hash, ', size: ', _chunk_size);
+	-- поиск чанка в начале
+	SELECT address, driver, location_group
+	INTO _e
+	FROM file_chunk
+	WHERE rootdir_id = _r.r_rootdir_id AND
+				size = _chunk_size AND
+				hash = _chunk_hash LIMIT 1;
+
+	IF _e IS NOT NULL THEN
+		r_address := _e.address;
+		r_driver := _e.driver;
+		r_location_group := _e.location_group;
 		return next;
 		return;
 	END IF;
-
 
 	-- если запись присутсвует, то это не должно вызвать ошибку
 	-- ошибка прийдёт после того, как кто-то захочет финализировать
@@ -1563,47 +1568,6 @@ BEGIN
 	END IF;
 
 	r_location_group = _n;
-	return next;
-END $$ LANGUAGE plpgsql;
-
--- получение информации о чанке
-CREATE OR REPLACE FUNCTION chunk_get(_rootdir UUID, _file UUID,
-	_chunk UUID,
-	_drop_ _drop_ DEFAULT 'drop')
-	RETURNS TABLE
-	(
-		r_error text,
-		r_address file_chunk.address%TYPE,
-		r_size file_chunk.size%TYPE,
-		r_offset file_chunk."offset"%TYPE,
-		r_hash file_chunk.hash%TYPE,
-		r_revision file_revision.revision%TYPE
-	)
-	AS $$
-DECLARE
-	_r record;
-BEGIN
-	SELECT file_chunk.*, file_revision.revision
-	INTO _r
-	FROM life_data(_rootdir), file, file_chunk, file_revision
-	WHERE
-		file.rootdir_id = r_rootdir_id AND
-		file.file = _file AND
-		file_chunk.file_id = file.id AND
-		file_chunk.chunk = _chunk AND
-		file_revision.id = file_chunk.revision_id;
-
-	IF _r IS NULL THEN
-		r_error := concat('1:Chunk not found');
-		return next;
-		return;
-	END IF;
-
-	r_address := _r.address;
-	r_size := _r.size;
-	r_offset := _r.offset;
-	r_hash := _r.hash;
-	r_revision := _r.revision;
 	return next;
 END $$ LANGUAGE plpgsql;
 
