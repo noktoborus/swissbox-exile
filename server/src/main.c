@@ -982,6 +982,8 @@ timeout_cb(struct ev_loop *loop, ev_timer *w, int revents)
 	if (!pain)
 		return;
 
+	fcac_tick(&pain->fcac);
+
 	/* подключение к редису */
 	for (size_t i = 0u; i < REDIS_C_MAX; i++) {
 		if (!pain->rs[i].connected) {
