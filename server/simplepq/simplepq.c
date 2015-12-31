@@ -1118,7 +1118,7 @@ _spq_chunk_prepare(PGconn *pg,
 	o->size = chunk_size;
 
 	if ((_l = PQgetlength(res, 0, 3)) > 0) {
-		o->group = strtoull(PQgetvalue(res, 0, 4), NULL, 10);
+		o->group = strtoull(PQgetvalue(res, 0, 3), NULL, 10);
 	}
 
 	PQclear(res);
