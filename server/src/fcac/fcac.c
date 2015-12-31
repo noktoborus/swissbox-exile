@@ -694,6 +694,7 @@ fcac_read(struct fcac_ptr *p, uint8_t *buf, size_t size)
 		} else if (p->n->type == FCAC_FILE) {
 			/* попали сюда с p->fd == -1, нужно переоткрыть */
 			char _path[PATH_MAX] = {0};
+			_format_filename(p->r->path, _path, sizeof(_path), p->id);
 			if ((p->fd = open(_path, O_RDONLY)) != -1) {
 				/* попытка чтения номер два */
 				_r = fcac_read(p, buf, size);
@@ -701,10 +702,9 @@ fcac_read(struct fcac_ptr *p, uint8_t *buf, size_t size)
 				/* несчастье, удаляем ноду, закрываемся */
 				xsyslog(LOG_WARNING,
 						"fcac error[id#%"PRIu64":%p]:"
-						" write reopen failed: %s",
+						" read reopen failed: %s",
 						p->id, (void*)p, strerror(errno));
 				remove = true;
-
 			}
 
 		}
