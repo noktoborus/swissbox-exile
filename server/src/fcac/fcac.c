@@ -663,6 +663,10 @@ fcac_read(struct fcac_ptr *p, uint8_t *buf, size_t size)
 			_fcac_node_remove(p->r, p->n);
 			return 0;
 		} else {
+			/* TODO: временный костыль */
+			close(p->fd);
+			p->fd = -1;
+			/* TODO: */
 			p->offset += (size_t)_r;
 			return (size_t)_r;
 		}
@@ -864,6 +868,10 @@ fcac_write(struct fcac_ptr *p, uint8_t *buf, size_t size)
 					rval = (size_t)_wr;
 					p->n->s.file.offset += rval;
 				}
+				/* TODO: временный костыль */
+				close(p->n->s.file.fd);
+				p->n->s.file.fd = -1;
+				/* TODO: */
 			}
 		} else if (p->n->type == FCAC_MEMORY) {
 			/* для памяти нужно выделить кусок и положить туда */
