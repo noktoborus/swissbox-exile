@@ -747,7 +747,7 @@ def proto(s, user, secret, devid, cmd = None):
                 r = False
                 continue
             _file_readed = []
-            for _n in [x for x in os.walk('.') if not x[0].startswith('./user')]:
+            for _n in [x for x in os.walk('.') if not x[0].startswith('./fcac_data')]:
                 for _f in _n[2]:
                     _f = _n[0] + '/' + _f
                     _e = recvFile(s, X_rootdir, _f, devid)
