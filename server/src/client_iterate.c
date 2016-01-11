@@ -608,10 +608,15 @@ handle_header(unsigned char *buf, size_t size, struct client *c)
 /*
  * подгрузка конфигурации пользователя после авторизации
  * TODO: заглушка
+ * дёргается при первом запуске треда и запросу от родителя
  */
 bool
 client_load(struct client *c)
 {
+	if (c->options.home) {
+		free(c->options.home);
+		c->options.home = NULL;
+	}
 	/* + sizeof('/') + sizeof('\0') */
 	size_t len = strlen(c->name) + strlen(c->cev->pain->options.cache_dir) + 2;
 	c->options.home = calloc(1, len + 1);
@@ -620,11 +625,25 @@ client_load(struct client *c)
 	snprintf(c->options.home, len, "%s/%s",
 			c->cev->pain->options.cache_dir, c->name);
 	if (mkdir(c->options.home, S_IRWXU) == -1 && errno != EEXIST) {
-		xsyslog(LOG_WARNING, "client[%"SEV_LOG"] mkdir(%s) in client_load() fail: %s",
+		xsyslog(LOG_WARNING,
+				"client[%"SEV_LOG"] mkdir(%s) in client_load() fail: %s",
 				c->cev->serial, c->options.home, strerror(errno));
 		return false;
 	}
+	/* копирование конфигурации у родителя */
 	c->options.send_buffer = 9660;
+
+	c->options.unique_device_id = (bool)c->cev->pain->options.unique_device_id;
+
+	c->options.limit_global_sql_queries =
+		c->cev->pain->options.limit_global_sql_queries;
+	c->options.limit_global_fd_queries =
+		c->cev->pain->options.limit_global_fd_queries;
+	c->options.limit_local_sql_queries =
+		c->cev->pain->options.limit_local_sql_queries;
+	c->options.limit_local_fd_queries =
+		c->cev->pain->options.limit_local_fd_queries;
+
 	return send_ping(c);
 }
 

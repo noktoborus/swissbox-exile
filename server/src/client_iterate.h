@@ -182,6 +182,14 @@ struct client {
 	struct {
 		char *home;
 		size_t send_buffer;
+
+		/* см. main.options */
+		bool unique_device_id;
+
+		long limit_global_sql_queries;
+		long limit_global_fd_queries;
+		long limit_local_sql_queries;
+		long limit_local_fd_queries;
 	} options;
 };
 

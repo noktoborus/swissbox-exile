@@ -122,7 +122,7 @@ c_auth_cb(struct client *c, uint64_t id, unsigned int msgtype, void *msg, void *
 			 * но так подробнее
 			 */
 			if (!list_alloc(&c->cum->devices, c->device_id, NULL) &&
-					c->cev->pain->options.unique_device_id) {
+					c->options.unique_device_id) {
 				/*
 				 * если не получилось добавить в список при включенных
 				 * уникальных device_id, то нужно отключить клиента
@@ -131,7 +131,7 @@ c_auth_cb(struct client *c, uint64_t id, unsigned int msgtype, void *msg, void *
 				pthread_mutex_unlock(&c->cum->lock);
 				return false;
 			}
-		} else if (c->cev->pain->options.unique_device_id) {
+		} else if (c->options.unique_device_id) {
 			char __e[80] = {0};
 			snprintf(__e, sizeof(__e),
 					"Device id (%"PRIX64") already taken", c->device_id);

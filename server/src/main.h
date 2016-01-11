@@ -194,8 +194,24 @@ struct main
 		cfg_bool_t log_failed_queries;
 
 		cfg_bool_t unique_device_id;
+
+		/* лимитирование обработки входящих пакетов
+		 * органичение по требуемым ресурсам
+		 */
+		/* глобальные ограничения (на весь сервер) */
+		long limit_global_sql_queries;
+		long limit_global_fd_queries;
+		/* локальные ограния (на весь сервер) */
+		long limit_local_sql_queries;
+		long limit_local_fd_queries;
 	} options;
 
+	/* значения для всякой херни */
+	struct {
+		pthread_mutex_t lock;
+		long sql_queries_count;
+		long fd_queries_count;
+	} values;
 };
 
 /* сообщение-ответ для клиента */

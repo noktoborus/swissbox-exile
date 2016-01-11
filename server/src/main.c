@@ -1364,6 +1364,17 @@ main(int argc, char *argv[])
 			CFG_SIMPLE_STR("packet_verbose", &pain.options.packet_verbose),
 			/* некоторые проверки */
 			CFG_SIMPLE_BOOL("unique_device_id", &pain.options.unique_device_id),
+			/* лимиты */
+			CFG_SIMPLE_INT("limit_global_sql_queries",
+					&pain.options.limit_global_sql_queries),
+			CFG_SIMPLE_INT("limit_global_fd_queries",
+					&pain.options.limit_global_fd_queries),
+
+			CFG_SIMPLE_INT("limit_local_sql_queries",
+					&pain.options.limit_local_sql_queries),
+			CFG_SIMPLE_INT("limit_local_fd_queries",
+					&pain.options.limit_local_fd_queries),
+
 			CFG_END()
 		};
 
@@ -1408,6 +1419,7 @@ main(int argc, char *argv[])
 			/*  */
 			fcac_init(&pain.fcac, true);
 			pthread_mutex_init(&pain.sev_lock, NULL);
+			pthread_mutex_init(&pain.values.lock, NULL);
 			/* мультисокет */
 			{
 				char *_x = strdup(pain.options.bindline);
@@ -1441,6 +1453,7 @@ main(int argc, char *argv[])
 					pthread_mutex_destroy(&pain.rs[i].x);
 				}
 			}
+			pthread_mutex_destroy(&pain.values.lock);
 			pthread_mutex_destroy(&pain.ev_lock);
 			pthread_mutex_destroy(&pain.rs_lock);
 			pthread_cond_destroy(&pain.rs_wait);
