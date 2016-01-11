@@ -10,6 +10,11 @@ client_reqs_acquire(struct client *c, enum handle_reqs_t reqs)
 	register long isql = 0l;
 	register long ifd = 0l;
 
+	/*
+	 * предпологается что счётчик будет инкрементироваться только при
+	 * прохождении всех предварительных проверок
+	 */
+
 	/* FIXME: пока только локальные лимиты */
 
 	if (reqs & H_REQS_SQL) {
