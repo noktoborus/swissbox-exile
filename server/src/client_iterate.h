@@ -191,6 +191,11 @@ struct client {
 		long limit_local_sql_queries;
 		long limit_local_fd_queries;
 	} options;
+
+	struct {
+		long sql_queries_count;
+		long fd_queries_count;
+	} values;
 };
 
 bool client_load(struct client *c);
@@ -203,6 +208,33 @@ typedef void(*handle_free_t)(void *, ProtobufCAllocator *);
 
 typedef size_t(*fep_get_packed_size_t)(void*);
 typedef size_t(*fep_pack_t)(void*, unsigned char*);
+
+/* типы ресурсов, которые нужны для обработки пакета
+ * обрабатываются битово
+ */
+enum handle_reqs_t {
+	H_REQS_Z = 0,
+	H_REQS_SQL = 1,
+	H_REQS_FD = 2
+};
+
+/* захват и отпуск счётчика ресурсов
+ * возвращает false в случае, если счётчик дальнейшая обработка пакета
+ * нежелательна
+ */
+bool client_reqs_acquire(struct client *c, enum handle_reqs_t reqs);
+void client_reqs_release(struct client *c, enum handle_reqs_t reqs);
+
+/* поклажа сообщения в очередь обработки на потом
+ * должно вызываться после неудачного client_reqs_acquire()
+ */
+bool client_reqs_queue(struct client *c, enum handle_reqs_t reqs,
+		unsigned type, void *msg);
+
+/* обработка сообщений в очереди (по одному за вызов)
+ * false как инд
+ */
+void client_reqs_unqueue(struct client *c, enum handle_reqs_t reqs);
 
 struct handle
 {

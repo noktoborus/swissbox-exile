@@ -13,7 +13,7 @@ FCAC=${SRC}/fcac/fcac.c
 
 SOURCES=${SRC}/main.c ${SRC}/packet.c ${SRC}/client_iterate.c proto/fep.pb-c.c\
 	${SRC}/redis_process.c ${SRC}/callback.c\
-	${SRC}/list.c ${SRC}/client/cum.c ${SRC}/client_cb.c\
+	${SRC}/list.c ${SRC}/client/cum.c ${SRC}/client_cb.c ${SRC}/client/reqs.c\
 	${AS3}\
 	${FCAC}\
 	${SQUEUE}\
