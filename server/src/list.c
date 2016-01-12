@@ -107,7 +107,8 @@ static inline struct listNode *
 _list_find(struct listPtr *p, uint64_t id, list_cmp_cb cmp, void *cb_d)
 {
 	struct listNode *rval = NULL;
-	if (!p || !p->r || !p->r->next)
+	/* поиск не выполняется если id == 0 */
+	if (!p || !p->r || !p->r->next || !id)
 		return NULL;
 
 	/* поиск с самого начала выполняется при условии что

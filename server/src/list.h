@@ -64,6 +64,11 @@ struct listPtr {
 typedef bool(*list_cmp_cb)(void *list_d, uint64_t id, void *cb_d);
 typedef void(*list_free_cb)(void*);
 
+/*
+ * можно хранить сообщения с id == 0
+ * в таком случае list_find() всегда возвращает NULL
+ *
+ */
 bool list_alloc(struct listRoot *root, uint64_t id, void *data);
 
 
@@ -73,7 +78,7 @@ bool list_alloc(struct listRoot *root, uint64_t id, void *data);
  * использоваться указатели не будут
  */
 bool list_ptr(struct listRoot *root, struct listPtr *ptr);
-/* поиск по id */
+/* поиск по id, при id == 0, всегда возвращается NULL */
 struct listNode *list_find(struct listPtr *p, uint64_t id);
 /* поиск по значению
  * cmp: процедура для сравнения значений
