@@ -322,12 +322,11 @@ packet2syslog(const char *head,
 		{
 			Fep__Error *_m = (void*)msg;
 			char _r[64] = {0};
-			snprintf(_r, sizeof(_r), "%"PRIu32, _m->remain);
-			snprintf(result, sizeof(result),
-					"id=%"PRIu64", message=\"%s\", remain=%s",
+			_l = snprintf(result, sizeof(result),
+					"id=%"PRIu64", message=\"%s\"",
 					_m->id,
-					_m->message,
-					(_m->has_remain ? _r : NULL));
+					_m->message);
+			_value_or_null(_m, result, "%"PRIu32, remain, _l, _e);
 			break;
 		}
 	case FEP__TYPE__tRootdirUpdate:
