@@ -1381,8 +1381,6 @@ main(int argc, char *argv[])
 		if (check_args(argc, argv))
 			return EXIT_SUCCESS;
 
-		curl_global_init(CURL_GLOBAL_ALL);
-
 		openlog(NULL, LOG_PERROR | LOG_PID, LOG_LOCAL0);
 		xsyslog(LOG_INFO, "--- START ---");
 
@@ -1484,7 +1482,6 @@ main(int argc, char *argv[])
 	free(pain.options.user);
 	free(pain.options.group);
 
-	curl_global_cleanup();
 	xsyslog(LOG_INFO, "--- EXIT ---");
 
 	if (_r)
