@@ -675,14 +675,22 @@ _handle_write_ask(struct client *c, unsigned type, Fep__WriteAsk *msg)
 	memset(&_ci, 0u, sizeof(_ci));
 	memset(&_hint, 0u, sizeof(_hint));
 
-	/*
-	 * TODO: если _prepare() вернул адрес и драйвер, то отослать satisfied
-	 */
 	if (!spq_chunk_prepare(c->name, c->device_id, &rootdir,
 			chunk_hash, msg->size, &_ci, &_hint)) {
 		if (*_hint.message)
 			return send_error(c, msg->id, _hint.message, -1);
 		return send_error(c, msg->id, "Internal error 1175", -1);
+	}
+
+	if (_ci.address || _ci.driver) {
+		/*
+		 * TODO: если _prepare() вернул адрес и драйвер, то отослать satisfied
+		 */
+		spq_getChunkInfo_free(&_ci);
+		return send_error(c, msg->id,
+				"Chunk already exists. "
+				"Please, use message 'Satisfied' istead 'Error'",
+				-1);
 	}
 	chunk_id = _ci.group;
 	spq_getChunkInfo_free(&_ci);
