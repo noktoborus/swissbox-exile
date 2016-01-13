@@ -321,7 +321,6 @@ packet2syslog(const char *head,
 	case FEP__TYPE__tError:
 		{
 			Fep__Error *_m = (void*)msg;
-			char _r[64] = {0};
 			_l = snprintf(result, sizeof(result),
 					"id=%"PRIu64", message=\"%s\"",
 					_m->id,
