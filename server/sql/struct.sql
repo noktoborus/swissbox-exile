@@ -263,9 +263,10 @@ CREATE OR REPLACE FUNCTION _check_is_trash(_rootdir_id bigint,
 	_drop_ _drop_ DEFAULT 'drop')
 	RETURNS boolean AS $$
 DECLARE
-	_r record;
+	_r integer;
 BEGIN
-	SELECT * INTO _r
+	SELECT COUNT(*)
+	INTO _r
 	FROM directory, options
 	WHERE
 		options."key" = 'trash_dir' AND
@@ -273,7 +274,8 @@ BEGIN
 		directory.directory = options.value_u AND
 		directory.id = _directory_id;
 
-	IF _r IS NOT NULL THEN
+	-- FIXME: record IS NULL is abscess
+	IF _r != 0 THEN
 		return TRUE;
 	END IF;
 	return FALSE;
@@ -495,6 +497,7 @@ BEGIN
 		WHERE user_id = new.user_id AND rootdir = new.rootdir;
 	END CASE;
 
+	-- FIXME: record IS NULL is abscess
 	IF _row IS NOT NULL THEN
 		new.rootdir_id = _row.id;
 		new.rootdir = _row.rootdir;
@@ -1531,9 +1534,10 @@ BEGIN
 	FROM file_chunk
 	WHERE rootdir_id = _r.r_rootdir_id AND
 				size = _chunk_size AND
-				hash = _chunk_hash LIMIT 1;
+				hash = _chunk_hash
+	LIMIT 1;
 
-	IF _e IS NOT NULL THEN
+	IF NOT _e IS NULL THEN
 		r_address := _e.address;
 		r_driver := _e.driver;
 		r_location_group := _e.location_group;
@@ -1803,6 +1807,7 @@ BEGIN
 			_life_.mark = options.value_u;
 	EXCEPTION WHEN undefined_table THEN -- nothing
 	END;
+	-- FIXME: record IS NULL is abscess
 	IF _ur IS NULL THEN
 		RAISE EXCEPTION 'try to use begin_life() before call this';
 	END IF;
@@ -1862,6 +1867,7 @@ BEGIN
 				file_revision.id = _row.target_id AND
 				file.id = file_revision.file_id AND
 				directory.id = file.directory_id;
+			-- FIXME: record IS NULL is abscess
 			IF _xrow IS NULL THEN
 				RAISE EXCEPTION 'zero result on file_revision, event %', _row.id;
 				return;
@@ -1895,6 +1901,7 @@ BEGIN
 			LEFT JOIN directory
 			ON directory.id = e.directory_id;
 
+			-- FIXME: record IS NULL is abscess
 			IF _xrow IS NULL THEN
 				RAISE EXCEPTION 'zero result on file_meta, event %', _row.id;
 				return;
@@ -1961,6 +1968,7 @@ BEGIN
 		r_devices := (SELECT COUNT(*) FROM device WHERE user_id = _user_id);
 		r_authorized := TRUE;
 
+		-- FIXME: record IS NULL is abscess
 		IF _row IS NULL THEN
 			INSERT 
 			INTO device (user_id, device)
@@ -1968,6 +1976,7 @@ BEGIN
 		END IF;
 
 		/* выход */
+		-- FIXME: record IS NULL is abscess
 		IF _row IS NOT NULL THEN
 			r_registered := _row.reg_time;
 			r_last_device := _row.device;
@@ -2009,6 +2018,7 @@ BEGIN
 		file_chunk.file_id = file.id AND
 		file_chunk.chunk = _chunk;
 
+	-- FIXME: record IS NULL is abscess
 	IF _r IS NULL THEN
 		r_error := concat('1:chunk "', _chunk,
 			'" not found in (file, rootdir): ',
