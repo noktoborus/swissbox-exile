@@ -389,6 +389,7 @@ static struct handle handle[FEP__TYPE__t_max] =
 	INVALID_P_HANDLE_S(FEP__TYPE__tStoreValue, "StoreValue", store_value), /* 31 */
 	INVALID_P_HANDLE_S(FEP__TYPE__tSatisfied, "Satisfied", satisfied), /* 32 */
 };
+#include "client/include/reqs.c"
 
 const char*
 Fepstr(unsigned type)
@@ -412,16 +413,8 @@ send_message(struct sev_ctx *cev, unsigned type, void *msg)
 		return false;
 	}
 
-	if (!handle[type].f_sizeof || !handle[type].f_pack) {
-		xsyslog(LOG_ERR, "client[%"SEV_LOG"] type %d (%s)"
-				"has no sizeof and pack field",
-				cev->serial, type, Fepstr(type));
-
-	}
-
 	/* подготавливается заголовок */
-	if (handle[type].f_sizeof)
-		len = handle[type].f_sizeof(msg);
+	len = sizeof_message(type, msg);
 	buf = pack_header(type, &len);
 	if (!buf) {
 		xsyslog(LOG_WARNING, "client[%"SEV_LOG"] memory fail in %s: %s",
@@ -435,7 +428,7 @@ send_message(struct sev_ctx *cev, unsigned type, void *msg)
 			cev->serial, Fepstr(type), type, len);
 #endif
 	/* упаковывается сообщение */
-	handle[type].f_pack(msg, &buf[HEADER_OFFSET]);
+	pack_message(type, msg, &buf[HEADER_OFFSET]);
 	if ((lval = sev_send(cev, buf, len)) != len) {
 		xsyslog(LOG_WARNING,
 				"client[%"SEV_LOG"] send fail in %s",
@@ -452,6 +445,112 @@ send_message(struct sev_ctx *cev, unsigned type, void *msg)
 	}
 
 	return (lval == len);
+}
+
+void
+free_message(unsigned type, void *msg)
+{
+	if (type > FEP__TYPE__t_max) {
+		xsyslog(LOG_WARNING, "Unknown message type #%u", type);
+		return;
+	}
+
+	if (!handle[type].e) {
+		xsyslog(LOG_WARNING,
+				"memory leak for message type #%u (%s)", type, Fepstr(type));
+	} else {
+		handle[type].e(msg, NULL);
+	}
+}
+
+size_t
+sizeof_message(unsigned type, void *msg)
+{
+	if (type > FEP__TYPE__t_max) {
+		xsyslog(LOG_WARNING, "Unknown message type #%u", type);
+		return 0u;
+	}
+
+	if (!handle[type].f_sizeof) {
+		xsyslog(LOG_WARNING,
+				"sizeof() not present for type #%u (%s)",
+				type, Fepstr(type));
+		return 0u;
+	}
+
+	return handle[type].f_sizeof(msg);
+}
+
+bool
+pack_message(unsigned type, void *msg, uint8_t *out)
+{
+	if (type > FEP__TYPE__t_max) {
+		xsyslog(LOG_WARNING, "Unknown message type #%u", type);
+		return false;
+	}
+
+	if (!handle[type].f_pack) {
+		xsyslog(LOG_WARNING,
+				"pack() not present for type #%u (%s)",
+				type, Fepstr(type));
+		return 0u;
+	}
+
+	handle[type].f_pack(msg, out);
+	return true;
+}
+
+int
+exec_bufmsg(struct client *c, unsigned type, uint8_t *buf, size_t len)
+{
+	void *msg = NULL;
+
+	if (!handle[type].f) {
+		/* проверять заполненность структуры нужно в компилтайме,
+		 * но раз такой возможности нет, то делаем это в рантайме
+		 */
+		xsyslog(LOG_INFO,
+				"client[%"SEV_LOG"] header[type: %s (%u), len: %"PRIuPTR"]: "
+				"message has no handle",
+				c->cev->serial, Fepstr(type), type, len);
+	} else {
+		/* не должно случаться такого, что бы небыло анпакера,
+		 * но как-то вот
+		 */
+		if (!handle[type].p) {
+			if (!handle[type].f(c, type, buf))
+				return HEADER_STOP;
+		} else {
+			msg = handle[type].p(NULL, len, buf);
+			if (msg) {
+				/* передача пакета обработчику */
+				/* TODO: печать сообщения в лог */
+				{
+					char _header[96] = {0};
+					snprintf(_header, sizeof(_header),
+							"client[%"SEV_LOG"] RX %"PRIuPTR" << ",
+							c->cev->serial, len);
+					packet2syslog(_header, type, msg);
+				}
+				if (!handle[type].f(c, type, msg)) {
+					free_message(type, msg);
+					return HEADER_STOP;
+				}
+				free_message(type, msg);
+			} else {
+				char _errormsg[1024];
+				snprintf(_errormsg, sizeof(_errormsg),
+						"malformed message type %s (%u), len %"PRIuPTR,
+						Fepstr(type), type, len);
+				xsyslog(LOG_INFO,
+						"client[%"SEV_LOG"] %s",
+						c->cev->serial, _errormsg);
+				send_error(c, 0, _errormsg, -1);
+			}
+		}
+	}
+
+	return len;
 }
 
 /* return offset */
@@ -543,64 +642,16 @@ handle_header(unsigned char *buf, size_t size, struct client *c)
 		return HEADER_MORE;
 	/* извлечение пакета */
 	{
-		void *rawmsg = &buf[HEADER_OFFSET];
-		void *msg;
-		bool exit = false;
-		if (!handle[c->h_type].f) {
-			xsyslog(LOG_INFO, "client[%"SEV_LOG"] header[type: %s (%u), len: %u]: "
-					"message has no handle",
-					c->cev->serial, Fepstr(c->h_type), c->h_type, c->h_len);
-		} else {
-			/* не должно случаться такого, что бы небыло анпакера,
-			 * но как-то вот
-			 */
-			if (!handle[c->h_type].p) {
-				if (!handle[c->h_type].f(c, c->h_type, rawmsg))
-					exit = true;
-			} else {
-				msg = handle[c->h_type].p(NULL, c->h_len, (uint8_t*)rawmsg);
-				if (msg) {
-					/* передача пакета обработчику */
-					/* TODO: печать сообщения в лог */
-					{
-						char _header[96] = {0};
-						snprintf(_header, sizeof(_header),
-								"client[%"SEV_LOG"] RX %"PRIu32" << ",
-								c->cev->serial, c->h_len);
-						packet2syslog(_header, c->h_type, msg);
-					}
-					if (!handle[c->h_type].f(c, c->h_type, msg))
-						exit = true;
-					/* проверять заполненность структуры нужно в компилтайме,
-					 * но раз такой возможности нет, то делаем это в рантайме
-					 */
-					if (!handle[c->h_type].e) {
-						xsyslog(LOG_WARNING,
-								"memory leak for message type #%u\n",
-								c->h_type);
-					} else {
-						handle[c->h_type].e(msg, NULL);
-					}
-				} else {
-					char _errormsg[1024];
-					snprintf(_errormsg, sizeof(_errormsg),
-							"malformed message type %s (%u), len %u",
-							Fepstr(c->h_type), c->h_type, c->h_len);
-					xsyslog(LOG_INFO,
-							"client[%"SEV_LOG"] %s",
-							c->cev->serial, _errormsg);
-					send_error(c, 0, _errormsg, -1);
-				}
-			}
-		}
+		int _r = exec_bufmsg(c, c->h_type, &buf[HEADER_OFFSET], c->h_len);
 		/* сброс типа сообщения, если всё нормально
 		 * иначе нужно прокинуть наверх на чём мы встали
 		 */
-		if (!exit) {
+		if (_r != HEADER_STOP || _r != HEADER_INVALID) {
 			c->h_type = 0u;
-			return (int)(c->h_len + HEADER_OFFSET);
-		} else
-			return HEADER_STOP;
+			return (int)(_r + HEADER_OFFSET);
+		} else {
+			return _r;
+		}
 	}
 	return HEADER_INVALID;
 }

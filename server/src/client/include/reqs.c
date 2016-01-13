@@ -1,8 +1,6 @@
 /* vim: ft=c ff=unix fenc=utf-8
- * file: src/client/reqs.c
+ * file: src/client/include/reqs.c
  */
-#include "junk/xsyslog.h"
-#include "src/client_iterate.h"
 
 bool
 client_reqs_acquire(struct client *c, enum handle_reqs_t reqs)
@@ -76,14 +74,79 @@ bool
 client_reqs_queue(struct client *c, enum handle_reqs_t reqs,
 		unsigned type, void *msg)
 {
-	/* TODO: ... */
+	struct h_reqs_store_t *hrs = NULL;
+	size_t len = 0u;
+
+	if (!(len = sizeof_message(type, msg)))
+		return false;
+
+	hrs = calloc(1, sizeof(*hrs) + len);
+	if (!hrs) {
+		return false;
+	}
+
+	if (!pack_message(type, msg, hrs->msg)) {
+		free(hrs);
+		return false;
+	}
+
+	hrs->len = len;
+	hrs->type = type;
+	hrs->reqs = reqs;
+
+	if (!list_alloc(&c->msg_delayed, 0, (void*)hrs)) {
+		free(hrs);
+		return false;
+	}
+
+	return true;
+}
+
+static bool
+_find_val_cb(struct h_reqs_store_t *list_d,
+		uint64_t id,
+		enum handle_reqs_t *reqs)
+{
+	if ((list_d->reqs & *reqs) == list_d->reqs) {
+		return true;
+	}
 	return false;
 }
 
-
-void
+bool
 client_reqs_unqueue(struct client *c, enum handle_reqs_t reqs)
 {
-	/* TODO: ... */
+	struct listPtr p = {0};
+	struct listNode *n = NULL;
+	struct h_reqs_store_t *h = NULL;
+	int r = 0;
+
+	list_ptr(&c->msg_delayed, &p);
+	n = list_find_val(&p, (list_cmp_cb)_find_val_cb, &reqs);
+	if (!n) {
+		return true;
+	}
+	h = n->data;
+
+	/* пытаемся вызвать процедурку */
+	r = exec_bufmsg(c, h->type, h->msg, h->len);
+
+	if (r == HEADER_STOP) {
+		list_free_node(n, free);
+		return false;
+	}
+
+	if (r == HEADER_INVALID || r == HEADER_MORE) {
+		xsyslog(LOG_WARNING,
+				"reqs_unqueue error: handle_header() returns %s",
+				(r == HEADER_INVALID ? "HEADER_INVALID" :
+				 (r == HEADER_STOP ? "HEADER_STOP" : "UNKNOWN")));
+		list_free_node(n, free);
+		return false;
+	}
+
+	/* освобождаем узел, т.к. дальше он нам не потребуется в любом случае */
+	list_free_node(n, free);
+	return true;
 }
 

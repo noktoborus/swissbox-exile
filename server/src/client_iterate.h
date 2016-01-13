@@ -155,6 +155,9 @@ struct client {
 
 	struct result_send *rout; /* список для ответов на всякие Query* */
 
+	/* отложенные входящие пакеты по причине достижения лимита обработки */
+	struct listRoot msg_delayed;
+
 	/* курсор по списку сообщений */
 	struct squeue_cursor broadcast_c;
 	/* счётчик ошибок
@@ -219,6 +222,17 @@ enum handle_reqs_t {
 };
 
 
+struct h_reqs_store_t {
+	unsigned type;
+	enum handle_reqs_t reqs;
+	size_t len;
+	/*
+	 * конечно это какое-то безумие паковать сообщение обратно
+	 * в массив, что бы снова его распаковать, но всё же...
+	 */
+	uint8_t msg[1];
+};
+
 /*
  * захват и освобождение
  * счётчики "тупые", потому использовать их нужно аккуратно
@@ -238,9 +252,14 @@ bool client_reqs_queue(struct client *c, enum handle_reqs_t reqs,
 		unsigned type, void *msg);
 
 /* обработка сообщений в очереди (по одному за вызов)
- * false как инд
+ * в качестве reqs передаётся битовая маска свободных ресурсов
+ *
+ * false возвращается в случае, если не удалось вызвать хандлер сообщения
+ * или хандлер вернул false
+ *
+ * во всех остальных случаях, включая пустую очередь, возвращается true
  */
-void client_reqs_unqueue(struct client *c, enum handle_reqs_t reqs);
+bool client_reqs_unqueue(struct client *c, enum handle_reqs_t reqs);
 
 struct handle
 {
@@ -270,6 +289,15 @@ const char *Fepstr(unsigned type);
 
 unsigned char *pack_header(unsigned type, size_t *len);
 bool send_message(struct sev_ctx *cev, unsigned type, void *msg);
+
+void free_message(unsigned type, void *msg);
+bool pack_message(unsigned type, void *msg, uint8_t *out);
+size_t sizeof_message(unsigned type, void *msg);
+/* возвращает длину сообщения в буфере в случае удачи
+ * HEADER_INVALID если какая-то хрень
+ * HEADER_STOP если хандлер сообщения вернул false
+ */
+int exec_bufmsg(struct client *c, unsigned type, uint8_t *buf, size_t len);
 
 uint64_t generate_id(struct client*);
 uint32_t generate_sid(struct client*);
