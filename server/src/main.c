@@ -1482,6 +1482,8 @@ main(int argc, char *argv[])
 	free(pain.options.user);
 	free(pain.options.group);
 
+	/* curl нужно чистить даже если не было инциализации */
+	curl_global_cleanup();
 	xsyslog(LOG_INFO, "--- EXIT ---");
 
 	if (_r)
