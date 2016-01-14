@@ -33,6 +33,20 @@ client_reqs_acquire(struct client *c, enum handle_reqs_t reqs)
 	c->values.sql_queries_count += isql;
 	c->values.fd_queries_count += ifd;
 
+#if DEEPDEBUG
+	if (isql) {
+		xsyslog(LOG_DEBUG, "client[%"SEV_LOG"] "
+				"acquire SQL, value: %lu",
+				c->cev->serial, c->values.sql_queries_count);
+	}
+
+	if (ifd) {
+		xsyslog(LOG_DEBUG, "client[%"SEV_LOG"] "
+				"acquire FD, value: %lu",
+				c->cev->serial, c->values.fd_queries_count);
+	}
+#endif
+
 	return true;
 }
 
@@ -50,9 +64,15 @@ client_reqs_release_all(struct client *c)
 void
 client_reqs_release(struct client *c, enum handle_reqs_t reqs)
 {
-	if (reqs && H_REQS_SQL) {
+	if (reqs & H_REQS_SQL) {
 		if (c->values.sql_queries_count) {
 			c->values.sql_queries_count--;
+#if DEEPDEBUG
+			xsyslog(LOG_DEBUG,
+					"client[%"SEV_LOG"] "
+					"release SQL, value: %lu",
+					c->cev->serial, c->values.sql_queries_count);
+#endif
 		} else {
 			xsyslog(LOG_WARNING,
 					"client[%"SEV_LOG"] "
@@ -61,9 +81,15 @@ client_reqs_release(struct client *c, enum handle_reqs_t reqs)
 		}
 	}
 
-	if (reqs && H_REQS_FD) {
+	if (reqs & H_REQS_FD) {
 		if (c->values.fd_queries_count) {
 			c->values.fd_queries_count--;
+#if DEEPDEBUG
+			xsyslog(LOG_DEBUG,
+					"client[%"SEV_LOG"] "
+					"release FD, value: %lu",
+					c->cev->serial, c->values.fd_queries_count);
+#endif
 		} else {
 			xsyslog(LOG_WARNING,
 					"client[%"SEV_LOG"] "

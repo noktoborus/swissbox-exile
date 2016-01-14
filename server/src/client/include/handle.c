@@ -628,6 +628,7 @@ _handle_write_ask(struct client *c, unsigned type, Fep__WriteAsk *msg)
 	guid_t rootdir;
 	guid_t file;
 	guid_t chunk;
+	guid_t revision;
 
 	struct getChunkInfo _ci = {0};
 	struct spq_hint _hint;
@@ -657,6 +658,8 @@ _handle_write_ask(struct client *c, unsigned type, Fep__WriteAsk *msg)
 		errmsg = "illegal guid: file_guid";
 	if (!string2guid(PSLEN(msg->chunk_guid), &chunk))
 		errmsg = "illegal guid: chunk_guid";
+	if (!string2guid(PSLEN(msg->revision_guid), &revision))
+		errmsg = "illegal guid: revision_guid";
 	if (!msg->chunk_hash.len)
 		errmsg = "Chunk hash is empty";
 
@@ -712,15 +715,25 @@ _handle_write_ask(struct client *c, unsigned type, Fep__WriteAsk *msg)
 	}
 
 	if (_ci.address || _ci.driver) {
+		struct spq_hint hint;
+		memset(&hint, 0u, sizeof(hint));
 		/*
-		 * TODO: если _prepare() вернул адрес и драйвер, то отослать satisfied
+		 * если _prepare() вернул адрес и драйвер, то отослать satisfied
 		 */
+
+		if (!spq_insert_chunk(c->name, c->device_id,
+					&rootdir, &file, &revision, &chunk,
+					chunk_hash, msg->size, msg->offset, _ci.address, &hint)) {
+			spq_getChunkInfo_free(&_ci);
+			if (*hint.message)
+				return send_error(c, msg->id, hint.message, -1);
+			else
+				return send_error(c, msg->id, "Internal error 1240", -1);
+		}
 		spq_getChunkInfo_free(&_ci);
+		/* освобождаем оба ресурса, т.к. End не прийдёт */
 		client_reqs_release(c, H_REQS_SQL | H_REQS_FD);
-		return send_error(c, msg->id,
-				"Chunk already exists. "
-				"Please, use message 'Satisfied' istead 'Error'",
-				-1);
+		return send_satisfied(c, msg->id);
 	}
 	chunk_id = _ci.group;
 	spq_getChunkInfo_free(&_ci);
@@ -775,6 +788,7 @@ _handle_write_ask(struct client *c, unsigned type, Fep__WriteAsk *msg)
 		xsyslog(LOG_WARNING,
 				"client[%"SEV_LOG"] open(%"PRIu64") failed: %s",
 				c->cev->serial, chunk_id, strerror(errno));
+		/* ошибка, End не прийдёт */
 		client_reqs_release(c, H_REQS_SQL | H_REQS_FD);
 		return send_error(c, msg->id, errmsg, -1);
 	}
@@ -796,11 +810,10 @@ _handle_write_ask(struct client *c, unsigned type, Fep__WriteAsk *msg)
 	wait_id(c, &c->sid, wrok.session_id, ws);
 	if (fid_ws) {
 		wf = fid_ws->data;
-		string2guid(msg->rootdir_guid, strlen(msg->rootdir_guid),
-				&wf->rootdir);
-		string2guid(msg->file_guid, strlen(msg->file_guid), &wf->file);
-		string2guid(msg->revision_guid, strlen(msg->revision_guid),
-				&wf->revision);
+
+		memcpy(&wf->rootdir, &rootdir, sizeof(rootdir));
+		memcpy(&wf->file, &file, sizeof(file));
+		memcpy(&wf->revision, &revision, sizeof(revision));
 
 		/* если запрос завершился неудачно, то файла, вероятнее всего нет */
 		_file_load(c, wf);
