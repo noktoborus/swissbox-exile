@@ -388,3 +388,5 @@ INSERT INTO options ("key", value_c, value_u)
 INSERT INTO options ("key", value_u)
 	VALUES ('life_mark', gen_random_uuid());
 
+\i sql/proc.sql
+\i sql/triggers.sql
