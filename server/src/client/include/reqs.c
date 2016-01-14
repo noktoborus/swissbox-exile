@@ -16,25 +16,17 @@ client_reqs_acquire(struct client *c, enum handle_reqs_t reqs)
 	/* FIXME: пока только локальные лимиты */
 
 	if (reqs & H_REQS_SQL) {
-		if (c->values.sql_queries_count + 1 <
+		if (c->values.sql_queries_count + 1 <=
 				c->options.limit_local_sql_queries) {
 			isql++;
-		}
+		} else return false;
 	}
 
 	if (reqs & H_REQS_FD) {
-		if (c->values.fd_queries_count + 1 <
+		if (c->values.fd_queries_count + 1 <=
 				c->options.limit_local_fd_queries) {
 			ifd++;
-		}
-	}
-
-	if (c->options.limit_local_sql_queries && !isql) {
-		return false;
-	}
-
-	if (c->options.limit_local_fd_queries && !ifd) {
-		return false;
+		} else return false;
 	}
 
 	/* счётчики инкрементируем даже если опции выключены */
@@ -42,6 +34,17 @@ client_reqs_acquire(struct client *c, enum handle_reqs_t reqs)
 	c->values.fd_queries_count += ifd;
 
 	return true;
+}
+
+void
+client_reqs_release_all(struct client *c)
+{
+	xsyslog(LOG_INFO,
+			"client[%"SEV_LOG"] counters -> sql: %ld, fd: %ld",
+			c->cev->serial,
+			c->values.sql_queries_count, c->values.fd_queries_count);
+
+	/* TODO: скрутить с глобального счётчика локальный счётчик */
 }
 
 void
@@ -82,6 +85,8 @@ client_reqs_queue(struct client *c, enum handle_reqs_t reqs,
 
 	hrs = calloc(1, sizeof(*hrs) + len);
 	if (!hrs) {
+		xsyslog(LOG_WARNING, "reqs error calloc(%"PRIuPTR") -> %s",
+				sizeof(*hrs) + len, strerror(errno));
 		return false;
 	}
 
@@ -98,6 +103,11 @@ client_reqs_queue(struct client *c, enum handle_reqs_t reqs,
 		free(hrs);
 		return false;
 	}
+
+	xsyslog(LOG_DEBUG,
+			"client[%"SEV_LOG"] message type %s delayed (sql: %ld, fd: %ld)",
+			c->cev->serial, Fepstr(type),
+			c->values.sql_queries_count, c->values.fd_queries_count);
 
 	return true;
 }
@@ -120,6 +130,26 @@ client_reqs_unqueue(struct client *c, enum handle_reqs_t reqs)
 	struct listNode *n = NULL;
 	struct h_reqs_store_t *h = NULL;
 	int r = 0;
+
+	if (reqs == H_REQS_Z) {
+		if (!c->options.limit_local_sql_queries ||
+				c->values.sql_queries_count + 1 <=
+					c->options.limit_local_sql_queries) {
+			reqs |= H_REQS_SQL;
+		}
+
+		if (!c->options.limit_local_fd_queries ||
+				c->values.sql_queries_count + 1 <=
+					c->options.limit_local_fd_queries) {
+			reqs |= H_REQS_FD;
+		}
+		/* не имеет смысла дальше ходиь по списку,
+		 * если нет доступных ресурсов
+		 */
+		if (reqs == H_REQS_Z) {
+			return true;
+		}
+	}
 
 	list_ptr(&c->msg_delayed, &p);
 	n = list_find_val(&p, (list_cmp_cb)_find_val_cb, &reqs);

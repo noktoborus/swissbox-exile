@@ -244,6 +244,8 @@ struct h_reqs_store_t {
  */
 bool client_reqs_acquire(struct client *c, enum handle_reqs_t reqs);
 void client_reqs_release(struct client *c, enum handle_reqs_t reqs);
+/* освобождение всех глобальных ресурсов, захваченные клиентом */
+void client_reqs_release_all(struct client *c);
 
 /* поклажа сообщения в очередь обработки на потом
  * должно вызываться после неудачного client_reqs_acquire()
@@ -258,6 +260,9 @@ bool client_reqs_queue(struct client *c, enum handle_reqs_t reqs,
  * или хандлер вернул false
  *
  * во всех остальных случаях, включая пустую очередь, возвращается true
+ *
+ * если reqs == H_REQS_Z, то процедурка сама определяет какие ресурсы
+ * доступны
  */
 bool client_reqs_unqueue(struct client *c, enum handle_reqs_t reqs);
 

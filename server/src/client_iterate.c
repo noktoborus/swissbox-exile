@@ -704,24 +704,19 @@ client_destroy(struct client *c)
 	if (!c)
 		return;
 	/* чистка очередей */
-	do {
-#if DEEPDEBUG
-		xsyslog(LOG_DEBUG, "client[%"SEV_LOG"] remain %"PRIuPTR" mid",
-				c->cev->serial, c->mid.count);
-#endif
-	} while (list_free_root(&c->mid, &mid_free));
-	do {
-#if DEEPDEBUG
-		xsyslog(LOG_DEBUG, "client[%"SEV_LOG"] remain %"PRIuPTR" sid",
-				c->cev->serial, c->sid.count);
-#endif
-	} while (list_free_root(&c->sid, (void(*)(void*))&sid_free));
-	do {
-#if DEEPDEBUG
-		xsyslog(LOG_DEBUG, "client[%"SEV_LOG"] remain %"PRIuPTR" fid",
-				c->cev->serial, c->fid.count);
-#endif
-	} while (list_free_root(&c->fid, (void(*)(void*))&fid_free));
+	xsyslog(LOG_INFO, "client[%"SEV_LOG"] remain %"PRIuPTR" mid",
+			c->cev->serial, c->mid.count);
+	xsyslog(LOG_INFO, "client[%"SEV_LOG"] remain %"PRIuPTR" sid",
+			c->cev->serial, c->sid.count);
+	xsyslog(LOG_INFO, "client[%"SEV_LOG"] remain %"PRIuPTR" fid",
+			c->cev->serial, c->fid.count);
+	xsyslog(LOG_INFO, "client[%"SEV_LOG"] remain %"PRIuPTR" delayed",
+			c->cev->serial, c->msg_delayed.count);
+
+	while (list_free_root(&c->mid, (void(*)(void*))&mid_free));
+	while (list_free_root(&c->sid, (void(*)(void*))&sid_free));
+	while (list_free_root(&c->fid, (void(*)(void*))&fid_free));
+	while (list_free_root(&c->msg_delayed, free));
 
 	/* убираем себя из списка подключённых */
 	if (c->cum) {
@@ -751,6 +746,8 @@ client_destroy(struct client *c)
 
 	/* список активных rootdir */
 	free(c->rootdir.g);
+
+	client_reqs_release_all(c);
 
 	free(c);
 }
@@ -786,6 +783,7 @@ _client_iterate_result_logdf(struct client *c, struct logDirFile *ldf)
 			if (c->rout->rootdir.not_null)
 				client_local_rootdir(c, &c->rout->rootdir, C_ROOTDIR_ACTIVATE);
 			rout_free(c);
+			client_reqs_release(c, H_REQS_SQL);
 			return send_end(c, sessid, packets);
 		} else {
 			rout_free(c);
@@ -934,6 +932,8 @@ _client_iterate_result(struct client *c)
 		uint8_t hash[HASH_MAX + 1];
 		size_t hash_len;
 		if (!spq_getChunks_it(&c->rout->v.c)) {
+			/* освобождаемся */
+			client_reqs_release(c, H_REQS_SQL);
 			/* итерироваться больше некуда, потому отправляем end и чистим
 			 *
 			 * если сообщение не отправится, то очередь подчиститься при
@@ -965,6 +965,7 @@ _client_iterate_result(struct client *c)
 		char guid[GUID_MAX + 1];
 		char parent[GUID_MAX + 1];
 		if (!spq_getRevisions_it(&c->rout->v.r)) {
+			client_reqs_release(c, H_REQS_SQL);
 			return send_end(c, c->rout->id, c->rout->packets) &&
 				(rout_free(c) || true);
 		}
@@ -991,6 +992,7 @@ _client_iterate_result(struct client *c)
 	} else if (c->rout->type == RESULT_DEVICES) {
 		Fep__ResultDevice msg = FEP__RESULT_DEVICE__INIT;
 		if (!spq_getDevices_it(&c->rout->v.d)) {
+			client_reqs_release(c, H_REQS_SQL);
 			return send_end(c, c->rout->id, c->rout->packets) &&
 				(rout_free(c) || true);
 		}
@@ -1049,6 +1051,9 @@ _client_iterate_chunk(struct client *c)
 		uint32_t _packets = c->cout->packets;
 		bool _corrupt = c->cout->corrupt;
 		cout_free(c);
+		/* и освобождам ресурс */
+		client_reqs_release(c, H_REQS_FD);
+
 		if (!send_end(c, _sessid, _packets))
 			return false;
 		if (_corrupt)
@@ -1339,47 +1344,49 @@ client_iterate(struct sev_ctx *cev, void *p)
 	 */
 	if (c->cout || c->rout || c->blen || sev_perhaps(cev, SEV_ACTION_READ)) {
 		sev_continue(cev);
-	} else if (c->cum && c->status.log_active) {
-		struct listNode *_ln;
-		struct listPtr _lp = {0};
-		struct rootdir_g *_rg;
-		uint32_t hash;
-		/* если нет никаких "срочных" действий, можно проверить сообщения
-		 * от других тредов
-		 *
-		 * проверяем следующим образом: итерируемся по локальному списку,
-		 * сравниваем со значением из глобального списка
-		 *
-		 * лочим сразу весь список, что бы не долбиться в кучу мелкил локов
-		 */
-		pthread_mutex_lock(&c->cum->lock);
-		for (unsigned i = 0; i < c->rootdir.c; i++) {
-			/* пропускаем не активные рутдиры */
-			if (!c->rootdir.g[i].active)
-				continue;
-			hash = hash_pjw((void*)&c->rootdir.g[i].rootdir, sizeof(guid_t));
-			list_ptr(&c->cum->rootdir, &_lp);
-			/* если не найдена директория в разделяемом списке,
-			 * то можно не волноваться, обновлений в ней не было
+	} else {
+		if (c->cum && c->status.log_active) {
+			struct listNode *_ln;
+			struct listPtr _lp = {0};
+			struct rootdir_g *_rg;
+			uint32_t hash;
+			/* если нет никаких "срочных" действий, можно проверить сообщения
+			 * от других тредов
+			 *
+			 * проверяем следующим образом: итерируемся по локальному списку,
+			 * сравниваем со значением из глобального списка
+			 *
+			 * лочим сразу весь список, что бы не долбиться в кучу мелкил локов
 			 */
-			if ((_ln = list_find(&_lp, hash)) != NULL) {
-				_rg = _ln->data;
-				/* когда чекпоинт в общей директории моложе
-				 * локального, то пришло время обновиться
+			pthread_mutex_lock(&c->cum->lock);
+			for (unsigned i = 0; i < c->rootdir.c; i++) {
+				/* пропускаем не активные рутдиры */
+				if (!c->rootdir.g[i].active)
+					continue;
+				hash = hash_pjw((void*)&c->rootdir.g[i].rootdir, sizeof(guid_t));
+				list_ptr(&c->cum->rootdir, &_lp);
+				/* если не найдена директория в разделяемом списке,
+				 * то можно не волноваться, обновлений в ней не было
 				 */
-				if (_rg->checkpoint > c->rootdir.g[i].checkpoint) {
-					_active_sync(c, &c->rootdir.g[i].rootdir,
-							c->rootdir.g[i].checkpoint,
-							C_NOSESSID,
-							_rg->checkpoint);
+				if ((_ln = list_find(&_lp, hash)) != NULL) {
+					_rg = _ln->data;
+					/* когда чекпоинт в общей директории моложе
+					 * локального, то пришло время обновиться
+					 */
+					if (_rg->checkpoint > c->rootdir.g[i].checkpoint) {
+						_active_sync(c, &c->rootdir.g[i].rootdir,
+								c->rootdir.g[i].checkpoint,
+								C_NOSESSID,
+								_rg->checkpoint);
+					}
 				}
-			}
 
+			}
+			pthread_mutex_unlock(&c->cum->lock);
 		}
-		pthread_mutex_unlock(&c->cum->lock);
+		/* обработка списка по доступным ресурсам */
+		client_reqs_unqueue(c, H_REQS_Z);
 	}
-	/* проверка таймаутов */
-	/* TODO */
 
 	/* переходим на следующую итерацию */
 	return true;
