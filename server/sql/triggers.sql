@@ -1,4 +1,5 @@
-/* vim: syntax=pgsql */
+/* vim: syntax=pgsql
+ */
 /* триггера */
  
 -- чистка event при удалении из file_meta и file_revision
