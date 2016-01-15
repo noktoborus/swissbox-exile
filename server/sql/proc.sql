@@ -2,6 +2,15 @@
  */
 /* процедурки */
 
+/*
+ 	процедуры для сборки файла:
+	link_chunk()
+	insert_chunk()
+	insert_revision()
+
+*/
+
+
 -- костыль для гроханья всех хранимых процедур
 DROP TYPE IF EXISTS _drop_ CASCADE;
 CREATE TYPE _drop_ AS ENUM ('drop');
@@ -46,6 +55,55 @@ BEGIN
 		RAISE EXCEPTION 'no user with name `%` in database', _username;
 	END IF;
 
+END $$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION _revision_is_complete(
+	_revision_id file_revision.id%TYPE, _drop_ _drop_ DEFAULT 'drop')
+	RETURNS boolean AS $$
+DECLARE
+	_r record;
+	maxsize bigint DEFAULT NULL;
+	e_size bigint DEFAULT 0;
+BEGIN
+	/* т.к. у нас нет общего размера файла
+		то готовность вычисляем по
+		MAX(offset) + size
+		при stored_chunks == chunks
+	*/
+	SELECT
+		MAX(file_chunk."offset" + file_chunk.size)
+	INTO maxsize
+	FROM file_revision, file_chunk
+	WHERE
+		file_revision.id = _revision_id AND
+		file_revision.chunks == file_revision.stored_chunks AND
+		file_chunk.revision_id == _revision_id;
+
+	IF maxsize IS NULL THEN
+		return false;
+	END IF;
+
+	-- ищим дырки
+	FOR _r IN
+		SELECT "offset", size
+		FROM file_chunk
+		WHERE file_chunk.revision_id = _revision_id
+		ORDER BY "offset" ASC LOOP
+		
+		IF _r."offset" > e_size THEN
+			-- дырка!
+			return false;
+		ELSIF _r."offset" < e_size THEN
+			-- наложение
+			IF _r."offset" + _r."size" > e_size THEN
+				e_size := e_size + _r.size;
+			END IF;
+		ELSE
+			e_size := e_size + _r.size;
+		END IF;
+	END LOOP;
+
+	return (e_size = maxsize);
 END $$ LANGUAGE plpgsql;
 
 -- впихивание ревизии, фактически -- обновление parent_id, ключа, имени и директории у файла
@@ -174,6 +232,8 @@ BEGIN
 			_filename,
 			_pubkey,
 			_chunks;
+		-- выход
+		r_complete := false;
 		return next;
 		return;
 	END IF;
@@ -257,6 +317,7 @@ BEGIN
 	-- удаление не нужных данных
 	DELETE FROM file_temp WHERE id = _ur.file_id;
 
+	r_complete := _revision_is_complete(_revision_id);
 	return next;
 END $$ LANGUAGE plpgsql;
 
@@ -265,9 +326,12 @@ CREATE OR REPLACE FUNCTION insert_chunk(
 	_rootdir_guid UUID, _file_guid UUID, _revision_guid UUID, _chunk_guid UUID,
 	_chunk_hash varchar(1024), _chunk_size integer, _chunk_offset integer,
 	_address text, _drop_ _drop_ DEFAULT 'drop')
-	RETURNS text AS $$
+	RETURNS TABLE
+	(
+		r_error text,
+		r_complete boolean
+	) AS $$
 DECLARE
-	_user_id "user".id%TYPE;
 	_row record;
 	-- user_id and rootdir_id
 	_ur record;
@@ -277,26 +341,12 @@ DECLARE
 	_revision_id bigint;
 	_location_group bigint;
 BEGIN
-	-- получение базовой информации
-	BEGIN
-		SELECT INTO _user_id user_id FROM _life_, options
-		WHERE options."key" = 'life_mark' AND
-			_life_.mark = options.value_u;
-	EXCEPTION WHEN undefined_table THEN -- nothing
-	END;
-	IF _user_id IS NULL THEN
-		RAISE EXCEPTION 'try to use begin_life() before call this';
-	END IF;
-	-- 1. Получить user_id и rootdir_id
-
-	-- для начала нужно выяснить rootdir_id
-	SELECT _user_id AS u, rootdir.id AS r INTO _ur FROM "user", rootdir
-	WHERE
-		rootdir.user_id = _user_id
-		AND rootdir.rootdir = _rootdir_guid;
-	IF _ur IS NULL THEN
-		return concat('rootdir "', _rootdir_guid, '" not found');
-	END IF;
+	-- 1. получение базовой информации
+	SELECT
+		r_rootdir_id AS r,
+		r_user_id AS u
+	INTO _ur
+	FROM life_data(_rootdir);
 
 	-- 2. получение file_id или вставка нового файла
 	SELECT file.id INTO _file_id FROM file
@@ -324,6 +374,7 @@ BEGIN
 	WHERE
 		file_revision.file_id = _file_id
 		AND file_revision.revision = _revision_guid;
+	-- если revision_id не нашёлся, то нужно вставить новую ревизию
 	IF _revision_id IS NULL THEN
 		WITH _row AS (
 			INSERT INTO file_revision (file_id, revision, chunks)
@@ -367,7 +418,10 @@ BEGIN
 			_ur.r,
 			_location_group);
 
-	return NULL;
+	-- проверка на готовность
+	r_complete := _revision_is_complete(_revision_id);
+
+	return;
 END $$ LANGUAGE plpgsql;
 
 -- линковка чанка из старой ревизии с новой ревизией
@@ -375,10 +429,15 @@ CREATE OR REPLACE FUNCTION link_chunk(
 	_rootdir_guid UUID, _file_guid UUID, _chunk_guid UUID,
 	_new_chunk_guid UUID, _new_revision_guid UUID,
 	_drop_ _drop_ DEFAULT 'drop')
-	RETURNS text AS $$
+	RETURNS TABLE
+	(
+		r_error text,
+		r_complete boolean
+	) AS $$
 DECLARE
 	_user_id "user".id%TYPE;
 	_row record;
+	_xrow record;
 BEGIN
 	-- FIXME: возникнут проблемы при переносе
 	-- чанков, расположенных не в кеше (с полем "driver")
@@ -414,12 +473,20 @@ BEGIN
 		AND file_chunk.chunk = _chunk_guid;
 	-- 3. воспользоваться insert_chunk
 	IF _row IS NULL THEN
-		return concat('file "', _file_guid,
+		r_error := concat('file "', _file_guid,
 			'" not found in rootdir "',
 		_rootdir_guid, '", file "', _file_guid, '"');
+		return next;
+		return;
 	END IF;
-	return (SELECT insert_chunk(_row.rootdir, _row.file, _row.revision,
-		_row.chunk, _row.hash, _row.size, _row.offset, _row.address));
+	SELECT *
+	INTO _xrow
+	FROM insert_chunk(_row.rootdir, _row.file, _row.revision,
+		_row.chunk, _row.hash, _row.size, _row.offset, _row.address);
+
+	r_error := _xrow.r_error;
+	r_complete := _xrow.r_complete;
+	return next;
 END $$ LANGUAGE plpgsql;
 
 -- возвращает информацию о текущем пользователе
