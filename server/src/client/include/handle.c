@@ -269,7 +269,10 @@ _handle_rename_chunk(struct client *c, unsigned type, Fep__RenameChunk *msg)
 	if (!spq_link_chunk(c->name, c->device_id, &rootdir, &file, &chunk,
 				&chunk_new, &revision_new, &hint)) {
 		wf->chunks_fail++;
-		errmsg = "Internal error 2054";
+		if (*hint.message)
+			errmsg = hint.message;
+		else
+			errmsg = "Internal error 2054";
 	} else {
 		wf->chunks_ok++;
 	}
@@ -347,7 +350,8 @@ _handle_end(struct client *c, unsigned type, Fep__End *end)
 		} else if (!spq_insert_chunk(c->name, c->device_id,
 					&wf->rootdir, &wf->file, &wf->revision,
 					&wx->chunk_guid, chunk_hash,
-					wx->size, wx->offset, "xxx", &hint)) {
+					wx->size, wx->offset, "xxx", NULL, &hint)) {
+			/* FIXME: делать проверку complete из insert_chunk */
 			/* запись чанка не удалась */
 			if (*hint.message)
 				snprintf(errmsg, sizeof(errmsg), hint.message);
@@ -716,6 +720,7 @@ _handle_write_ask(struct client *c, unsigned type, Fep__WriteAsk *msg)
 
 	if (_ci.address || _ci.driver) {
 		struct spq_hint hint;
+		bool _com = false;
 		memset(&hint, 0u, sizeof(hint));
 		/*
 		 * если _prepare() вернул адрес и драйвер, то отослать satisfied
@@ -723,7 +728,8 @@ _handle_write_ask(struct client *c, unsigned type, Fep__WriteAsk *msg)
 
 		if (!spq_insert_chunk(c->name, c->device_id,
 					&rootdir, &file, &revision, &chunk,
-					chunk_hash, msg->size, msg->offset, _ci.address, &hint)) {
+					chunk_hash, msg->size, msg->offset, _ci.address,
+					&_com, &hint)) {
 			spq_getChunkInfo_free(&_ci);
 			if (*hint.message)
 				return send_error(c, msg->id, hint.message, -1);
@@ -733,6 +739,8 @@ _handle_write_ask(struct client *c, unsigned type, Fep__WriteAsk *msg)
 		spq_getChunkInfo_free(&_ci);
 		/* освобождаем оба ресурса, т.к. End не прийдёт */
 		client_reqs_release(c, H_REQS_SQL | H_REQS_FD);
+		/* TODO: нужно создать ссылку на ожидание файла
+		 */
 		return send_satisfied(c, msg->id);
 	}
 	chunk_id = _ci.group;

@@ -49,6 +49,8 @@ bool spq_insert_chunk(char *username, uint64_t device_id,
 		guid_t *rootdir, guid_t *file, guid_t *revision, guid_t *chunk,
 		char *chunk_hash, uint32_t chunk_size, uint32_t chunk_offset,
 		char *address,
+		/* output */
+		bool *complete,
 		struct spq_hint *hint);
 
 bool spq_link_chunk(char *username, uint64_t device_id,

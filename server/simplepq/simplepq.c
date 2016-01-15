@@ -309,6 +309,7 @@ _spq_insert_chunk(PGconn *pgc,
 		guid_t *rootdir, guid_t *file, guid_t *revision, guid_t *chunk,
 		char *chunk_hash, uint32_t chunk_size, uint32_t chunk_offset,
 		char *address,
+		bool *complete,
 		struct spq_hint *hint)
 {
 	PGresult *res;
@@ -377,6 +378,12 @@ _spq_insert_chunk(PGconn *pgc,
 		return false;
 	}
 
+	if (complete) {
+		if (PQgetlength(res, 0, 1) != 0) {
+			*complete = (PQgetvalue(res, 0, 1)[0] == 't');
+		} else *complete = false;
+	}
+
 	PQclear(res);
 	return true;
 }
@@ -386,6 +393,7 @@ spq_insert_chunk(char *username, uint64_t device_id,
 		guid_t *rootdir, guid_t *file, guid_t *revision, guid_t *chunk,
 		char *chunk_hash, uint32_t chunk_size, uint32_t chunk_offset,
 		char *address,
+		bool *complete,
 		struct spq_hint *hint)
 {
 	bool r = false;
@@ -393,7 +401,7 @@ spq_insert_chunk(char *username, uint64_t device_id,
 	if ((c = acquire_conn(&_spq)) != NULL) {
 		r = spq_begin_life(c->conn, username, device_id) &&
 			_spq_insert_chunk(c->conn, rootdir, file, revision, chunk,
-				chunk_hash, chunk_size, chunk_offset, address, hint);
+				chunk_hash, chunk_size, chunk_offset, address, complete, hint);
 		release_conn(&_spq, c);
 	}
 	return r;
