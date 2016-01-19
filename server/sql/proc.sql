@@ -76,8 +76,8 @@ BEGIN
 	FROM file_revision, file_chunk
 	WHERE
 		file_revision.id = _revision_id AND
-		file_revision.chunks == file_revision.stored_chunks AND
-		file_chunk.revision_id == _revision_id;
+		file_revision.chunks = file_revision.stored_chunks AND
+		file_chunk.revision_id = _revision_id;
 
 	IF maxsize IS NULL THEN
 		return false;
@@ -120,7 +120,7 @@ create or replace function insert_revision(
 	_chunks integer,
 	_prepare boolean default FALSE,
 	_drop_ _drop_ default 'drop')
-	returns table(r_error text, r_checkpoint bigint) as $$
+	returns table(r_error text, r_checkpoint bigint, r_complete boolean) as $$
 DECLARE
 	_row record;
 	_parent record;
@@ -250,16 +250,13 @@ BEGIN
 		_chunks := COALESCE(_row.chunks, _chunks);
 	END IF;
 
-	-- 2. проверка количества чанков
-	SELECT stored_chunks INTO _w
-	FROM file_revision
-	WHERE id = _ur.revision_id;
-	IF _w != _chunks OR _w IS NULL THEN
-		r_error := concat('1:different stored chunks count and wanted: ',
-			_w, ' != ', _chunks, ' ',
-			'in rootdir "', _rootdir_guid, '", ',
+	-- 2. проверка на собранность файла
+	r_complete := _revision_is_complete(_ur.revision_id);
+	IF NOT r_complete THEN
+		r_error := concat('1:file not completed ',
+			'(rootdir "', _rootdir_guid, '", ',
 			'file "', _file_guid, '", ',
-			'revision "', _revision_guid, '"');
+			'revision "', _revision_guid, '")');
 		return next;
 		return;
 	END IF;
@@ -346,7 +343,7 @@ BEGIN
 		r_rootdir_id AS r,
 		r_user_id AS u
 	INTO _ur
-	FROM life_data(_rootdir);
+	FROM life_data(_rootdir_guid);
 
 	-- 2. получение file_id или вставка нового файла
 	SELECT file.id INTO _file_id FROM file
@@ -421,6 +418,7 @@ BEGIN
 	-- проверка на готовность
 	r_complete := _revision_is_complete(_revision_id);
 
+	return next;
 	return;
 END $$ LANGUAGE plpgsql;
 
@@ -1340,7 +1338,7 @@ CREATE OR REPLACE FUNCTION store_save(
 DECLARE
 	_r record;
 BEGIN
-	IF _offset == 0 AND _length != 0 THEN
+	IF _offset = 0 AND _length != 0 THEN
 		_offset = 1;
 	END IF;
 	SELECT INTO _r	*
