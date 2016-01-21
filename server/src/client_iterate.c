@@ -362,8 +362,7 @@ static struct handle handle[FEP__TYPE__t_max] =
 	INVALID_P_HANDLE_S(FEP__TYPE__tOkWrite, "OkWrite", ok_write), /* 12 */
 	TYPICAL_HANDLE_S(FEP__TYPE__tFileUpdate, "FileUpdate",
 			file_update), /* 13 */
-	TYPICAL_HANDLE_S(FEP__TYPE__tRenameChunk, "RenameChunk",
-			rename_chunk), /* 14 */
+	INVALID_P_HANDLE_S(FEP__TYPE__tOkWrite, "RenameChunk", rename_chunk), /* 14 */
 	TYPICAL_HANDLE_S(FEP__TYPE__tQueryChunks, "QueryChunks",
 			query_chunks), /* 15 */
 	INVALID_P_HANDLE_S(FEP__TYPE__tResultChunk, "ResultChunk",

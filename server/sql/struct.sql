@@ -16,7 +16,7 @@ DECLARE
 	_struct_version_value text;
 BEGIN
 	/* версия структуры */
-	SELECT INTO _struct_version_value '10';
+	SELECT INTO _struct_version_value '11';
 
 	/* проверка pgcrypto, на всякий случай
 	// уже не нужно, для примера
@@ -243,17 +243,6 @@ CREATE TABLE IF NOT EXISTS file
 	UNIQUE(rootdir_id, file)
 );
 
-/* таблица для сохранения временных значений файлов, недокачанных, к примеру */
-CREATE TABLE IF NOT EXISTS file_temp
-(
-	id bigint NOT NULL REFERENCES file(id) ON DELETE CASCADE,
-	directory UUID DEFAULT NULL,
-	directory_id bigint DEFAULT NULL,
-	filename varchar(4096) DEFAULT NULL,
-	pubkey varchar(4096) DEFAULT NULL,
-	chunks integer DEFAULT NULL
-);
-
 CREATE OR REPLACE FUNCTION _check_is_trash(_rootdir_id bigint,
 	_directory_id bigint,
 	_drop_ _drop_ DEFAULT 'drop')
@@ -300,6 +289,17 @@ CREATE TABLE IF NOT EXISTS file_revision
 	-- хак для индикации завершения сборки ревизии
 	fin boolean NOT NULL DEFAULT FALSE,
 	UNIQUE(file_id, revision)
+);
+
+/* таблица для сохранения временных значений файлов, недокачанных, к примеру */
+CREATE TABLE IF NOT EXISTS file_temp
+(
+	id bigint NOT NULL REFERENCES file_revision(id) ON DELETE CASCADE,
+	directory UUID DEFAULT NULL,
+	directory_id bigint DEFAULT NULL,
+	filename varchar(4096) DEFAULT NULL,
+	pubkey varchar(4096) DEFAULT NULL,
+	chunks integer DEFAULT NULL
 );
 
 CREATE SEQUENCE file_meta_seq;

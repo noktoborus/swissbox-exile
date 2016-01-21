@@ -56,6 +56,8 @@ bool spq_insert_chunk(char *username, uint64_t device_id,
 bool spq_link_chunk(char *username, uint64_t device_id,
 		guid_t *rootdir, guid_t *file, guid_t *chunk,
 		guid_t *new_chunk, guid_t *new_revision,
+		/* output */
+		bool *complete,
 		struct spq_hint *hint);
 
 uint64_t spq_insert_revision(char *username, uint64_t device_id,
@@ -65,6 +67,8 @@ uint64_t spq_insert_revision(char *username, uint64_t device_id,
 		guid_t *dir,
 		unsigned chunks,
 		bool prepare,
+		/* output */
+		bool *complete,
 		struct spq_hint *hint);
 
 uint64_t spq_directory_create(char *username, uint64_t device_id,

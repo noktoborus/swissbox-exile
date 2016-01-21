@@ -313,7 +313,7 @@ _spq_insert_chunk(PGconn *pgc,
 		struct spq_hint *hint)
 {
 	PGresult *res;
-	const char *tb = "SELECT insert_chunk"
+	const char *tb = "SELECT * FROM insert_chunk"
 		"("
 		"	$1::UUID, "
 		"	$2::UUID, "
@@ -324,7 +324,6 @@ _spq_insert_chunk(PGconn *pgc,
 		"	$7::integer, "
 		"	$8::text "
 		");";
-	const int fmt[8] = {0, 0, 0, 0, 0, 0, 0, 0};
 
 	char _rootdir[GUID_MAX + 1];
 	char _file[GUID_MAX + 1];
@@ -354,7 +353,7 @@ _spq_insert_chunk(PGconn *pgc,
 	val[6] = _offset;
 	val[7] = address;
 
-	res = PQexecParams(pgc, tb, 8, NULL, (const char *const*)val, len, fmt, 0);
+	res = PQexecParams(pgc, tb, 8, NULL, (const char *const*)val, len, NULL, 0);
 
 	if (PQresultStatus(res) != PGRES_TUPLES_OK) {
 		xsyslog(LOG_INFO, "exec insert_chunk error: %s",
@@ -381,6 +380,7 @@ _spq_insert_chunk(PGconn *pgc,
 	if (complete) {
 		if (PQgetlength(res, 0, 1) != 0) {
 			*complete = (PQgetvalue(res, 0, 1)[0] == 't');
+			xsyslog(LOG_INFO, "EQI %s\n", PQgetvalue(res, 0, 1));
 		} else *complete = false;
 	}
 
@@ -411,11 +411,12 @@ bool
 _spq_link_chunk(PGconn *pgc,
 		guid_t *rootdir, guid_t *file, guid_t *chunk,
 		guid_t *new_chunk, guid_t *new_revision,
+		bool *complete,
 		struct spq_hint *hint)
 {
 	PGresult *res;
 	ExecStatusType pqs;
-	const char tb[] = "SELECT link_chunk"
+	const char tb[] = "SELECT * FROM link_chunk"
 		"("
 		"	$1::UUID,"
 		"	$2::UUID,"
@@ -463,6 +464,12 @@ _spq_link_chunk(PGconn *pgc,
 		return false;
 	}
 
+	if (complete) {
+		if (PQgetlength(res, 0, 1) != 0) {
+			*complete = (PQgetvalue(res, 0, 1)[0] == 't');
+		} else *complete = false;
+	}
+
 	PQclear(res);
 	return true;
 }
@@ -471,6 +478,7 @@ bool
 spq_link_chunk(char *username, uint64_t device_id,
 		guid_t *rootdir, guid_t *file, guid_t *chunk,
 		guid_t *new_chunk, guid_t *new_revision,
+		bool *complete,
 		struct spq_hint *hint)
 {
 	bool r = false;
@@ -478,7 +486,7 @@ spq_link_chunk(char *username, uint64_t device_id,
 	if ((c = acquire_conn(&_spq)) != NULL) {
 		r = spq_begin_life(c->conn, username, device_id) &&
 			_spq_link_chunk(c->conn, rootdir, file, chunk,
-				new_chunk, new_revision, hint);
+				new_chunk, new_revision, complete, hint);
 		release_conn(&_spq, c);
 	}
 	return r;
@@ -758,6 +766,7 @@ _spq_insert_revision(PGconn *pgc,
 		guid_t *dir,
 		unsigned chunks,
 		bool prepare,
+		bool *complete,
 		struct spq_hint *hint)
 {
 	uint64_t result;
@@ -795,7 +804,7 @@ _spq_insert_revision(PGconn *pgc,
 	len[2] = guid2string(revision, PSIZE(_revision));
 	len[3] = guid2string(parent_revision, PSIZE(_parent_revision));
 	len[4] = strlen(filename);
-	len[5] = strlen(pubkey);
+	len[5] = pubkey ? strlen(pubkey) : 0;
 	len[6] = guid2string(dir, PSIZE(_dir));
 	len[7] = snprintf(_chunks, sizeof(_chunks), "%u", chunks);
 	len[8] = prepare ? 4 : 5;
@@ -818,14 +827,22 @@ _spq_insert_revision(PGconn *pgc,
 		spq_feed_hint(NULL, 0u, hint);
 		xsyslog(LOG_INFO, "exec insert_revision error: %s", _m);
 		PQclear(res);
+		Q_LOGX(tb, sizeof(len) / sizeof(*len), val, len);
 		return 0;
 	} else if ((_mlen = PQgetlength(res, 0, 0)) > 0u) {
 		_m = PQgetvalue(res, 0, 0);
 		spq_feed_hint(_m, _mlen, hint);
-		xsyslog(LOG_INFO, "exec insert_revision warning: %s", _m);
+		xsyslog(LOG_INFO, "exec insert_revision warning: %s", hint->message);
 	}
 
 	result = strtoul(PQgetvalue(res, 0, 1), NULL, 10);
+
+	if (complete) {
+		if (PQgetlength(res, 0, 2) != 0) {
+			*complete = (PQgetvalue(res, 0, 2)[0] == 't');
+		} else *complete = false;
+	}
+
 	PQclear(res);
 	return result;
 }
@@ -838,6 +855,7 @@ spq_insert_revision(char *username, uint64_t device_id,
 		guid_t *dir,
 		unsigned chunks,
 		bool prepare,
+		bool *complete,
 		struct spq_hint *hint)
 {
 	uint64_t r = 0lu;
@@ -846,7 +864,7 @@ spq_insert_revision(char *username, uint64_t device_id,
 		if (spq_begin_life(c->conn, username, device_id)) {
 			r = _spq_insert_revision(c->conn, rootdir, file,
 					revision, parent_revision, filename, pubkey, dir, chunks,
-					prepare, hint);
+					prepare, complete, hint);
 		}
 		release_conn(&_spq, c);
 	}

@@ -2,6 +2,89 @@
  * file: src/client/include/handle.c
  */
 
+static inline struct wait_file *
+_wait_file(struct client *c,
+		guid_t *rootdir, guid_t *file, guid_t *revision)
+{
+	register bool exists = false;
+	uint64_t hash = 0u;
+	struct wait_store *ws = NULL;
+	struct wait_file *wf = NULL;
+	guid_t hash_s[2];
+
+	const int wssize = sizeof(struct wait_store) + sizeof(struct wait_file);
+
+	memcpy(hash_s, revision, sizeof(*revision));
+	memcpy(hash_s + 1, file, sizeof(*file));
+	/*memcpy(hash_s + 2, rootdir, sizeof(rootdir));*/
+
+	hash = ((uint64_t)hash_pjw((char*)hash_s, sizeof(guid_t) * 2)) << 32;
+	hash |= (uint64_t)hash_pjw((char*)revision, sizeof(*revision));
+
+	if (!hash) {
+		char _rootdir[GUID_MAX + 1] = {0};
+		char _file[GUID_MAX + 1] = {0};
+		guid2string(rootdir, PSIZE(_rootdir));
+		guid2string(file, PSIZE(_file));
+		xsyslog(LOG_WARNING,
+				"client[%"SEV_LOG"] "
+				"wait_file error: zero hash: rootdir(%s), file(%s)",
+				c->cev->serial, _rootdir, _file);
+		return NULL;
+	}
+
+	exists = ((ws = touch_id(c, &c->fid, hash)) != NULL);
+	if (ws == NULL) {
+		/* отсутствует запись, нужно создать */
+		ws = calloc(1, wssize);
+
+		if (!ws) {
+			xsyslog(LOG_WARNING,
+					"client[%"SEV_LOG"] "
+					"wait_file error: calloc(%d) -> %s",
+					c->cev->serial, wssize, strerror(errno));
+			return NULL;
+		}
+		ws->data = ws + 1;
+	}
+	wf = ws->data;
+
+	wf->id = hash;
+	if (!wf->rootdir.not_null)
+		memcpy(&wf->rootdir, rootdir, sizeof(*rootdir));
+	if (!wf->file.not_null)
+		memcpy(&wf->file, file, sizeof(*file));
+	if (revision) {
+		/* проверка на вшивость, не может загружаться
+		 * больше одной ревизии к файлу
+		 */
+		if (!wf->revision.not_null) {
+			memcpy(&wf->revision, revision, sizeof(*revision));
+		} else if(memcmp(&wf->revision, revision, sizeof(*revision))) {
+			char _file[GUID_MAX + 1];
+			char _rev_exists[GUID_MAX + 1];
+			char _rev_overlay[GUID_MAX + 1];
+			guid2string(file, PSIZE(_file));
+			guid2string(&wf->revision, PSIZE(_rev_exists));
+			guid2string(revision, PSIZE(_rev_overlay));
+			xsyslog(LOG_WARNING, "client[%"SEV_LOG"] "
+					"attempt to make chaos in file '%s': "
+					"work with rev'%s', new rev'%s'",
+					c->cev->serial, _file, _rev_exists, _rev_overlay);
+			return NULL;
+		}
+	}
+
+	/* добавляем в очередь, если нет ещё */
+	if (!exists) {
+		if (!wait_id(c, &c->fid, hash, ws)) {
+			free(ws);
+			return NULL;
+		}
+	}
+	return wf;
+}
+
 /* подгрузка имеющейся информации о файле */
 static bool
 _file_load(struct client *c, struct wait_file *wf)
@@ -29,8 +112,8 @@ _file_load(struct client *c, struct wait_file *wf)
 
 			if (fmeta.enc_filename)
 				strncpy(wf->enc_filename, fmeta.enc_filename, PATH_MAX);
+			spq_getFileMeta_free(&fmeta);
 		}
-		spq_getFileMeta_free(&fmeta);
 	}
 
 	return true;
@@ -43,37 +126,63 @@ _file_load(struct client *c, struct wait_file *wf)
 static bool
 _file_complete(struct client *c, struct wait_file *wf, bool prepare)
 {
-	uint64_t checkpoint;
+	uint64_t checkpoint = 0u;
 	struct spq_hint hint;
 	bool retval = true;
-	if (wf->chunks != wf->chunks_ok) {
-		if (prepare) {
-			size_t pkeysize = wf->key_len * 2 + 1;
-			char *pkeyhex = alloca(pkeysize);
-			memset(&hint, 0, sizeof(struct spq_hint));
-			bin2hex(wf->key, wf->key_len, pkeyhex, pkeysize);
-			spq_insert_revision(c->name, c->device_id,
-					&wf->rootdir, &wf->file, &wf->revision, &wf->parent,
-					wf->enc_filename, pkeyhex, &wf->dir, wf->chunks, true,
-					&hint);
-			/* если произошла ошибка, то нужно выйти */
-			if (hint.level != SPQ_OK) {
-				if (*hint.message)
-					return send_error(c, wf->msg_id, hint.message, -1);
-				return send_error(c, wf->msg_id, "Internal error 934", -1);
-			}
-		}
-		return true;
-	}
-	/* файл собрался */
-	{
+	bool _com = wf->complete;
+	/* если файл не завершён, пытаемся сделать предварительную запись
+	 * предварительная запись происходит в случае, если
+	 * FileMeta приходит раньше чанков
+	 *
+	 * имеет смысл делать prepare только для chunks > 0
+	 */
+	if (!_com && wf->chunks && prepare) {
 		size_t pkeysize = wf->key_len * 2 + 1;
 		char *pkeyhex = alloca(pkeysize);
 		memset(&hint, 0, sizeof(struct spq_hint));
 		bin2hex(wf->key, wf->key_len, pkeyhex, pkeysize);
+		spq_insert_revision(c->name, c->device_id,
+				&wf->rootdir, &wf->file, &wf->revision, &wf->parent,
+				wf->enc_filename, pkeyhex, &wf->dir, wf->chunks, true,
+				&_com,
+				&hint);
+		/* выход */
+		if (hint.level == SPQ_ERR) {
+			/* если произошла ошибка, то нужно выйти и убрать запись из
+			 * очереди
+			 */
+			if (!wf->ref) {
+				void *d;
+				if ((d = query_id(c, &c->fid, wf->id)) != NULL)
+					fid_free(d);
+			}
+			if (*hint.message)
+				return send_error(c, wf->msg_id, hint.message, -1);
+			return send_error(c, wf->msg_id, "Internal error 934", -1);
+		}
+	}
+	/* если файл не завершён, то смысла продолжать нет */
+	if (!_com) {
+		return true;
+	} else {
+		/* кладём статус в струтуру */
+		wf->complete = true;
+	}
+	/* файл собрался */
+	{
+		size_t pkeysize = wf->key_len * 2 + 1;
+		char *pkeyhex = NULL;
+		memset(&hint, 0, sizeof(struct spq_hint));
+		if (wf->key_len) {
+			pkeyhex = alloca(pkeysize);
+			memset(pkeyhex, 0, pkeysize);
+			bin2hex(wf->key, wf->key_len, pkeyhex, pkeysize);
+		}
+		/* нужно получить чекпоинт */
 		checkpoint = spq_insert_revision(c->name, c->device_id,
 				&wf->rootdir, &wf->file, &wf->revision, &wf->parent,
 				wf->enc_filename, pkeyhex, &wf->dir, wf->chunks, false,
+				&_com,
 				&hint);
 	}
 	if (!checkpoint) {
@@ -85,7 +194,10 @@ _file_complete(struct client *c, struct wait_file *wf, bool prepare)
 		/* рассылаем приглашение обновиться соседям */
 		client_share_checkpoint(c, &wf->rootdir, checkpoint);
 
-		retval = send_ok(c, wf->msg_id, checkpoint, NULL);
+		if (*hint.message)
+			retval = send_ok(c, wf->msg_id, checkpoint, hint.message);
+		else
+			retval = send_ok(c, wf->msg_id, checkpoint, NULL);
 	}
 #if DEEPDEBUG
 		xsyslog(LOG_DEBUG, "client[%"SEV_LOG"] file complete with ref=%u, "
@@ -107,11 +219,12 @@ _file_complete(struct client *c, struct wait_file *wf, bool prepare)
 bool
 _handle_file_meta(struct client *c, unsigned type, Fep__FileMeta *msg)
 {
-	/* TODO: удаление файлов */
-	uint64_t hash;
-	wait_store_t *ws;
 	struct wait_file *wf;
 	struct spq_FileMeta fmeta;
+
+	guid_t rootdir;
+	guid_t file;
+	guid_t revision;
 
 	char *enc_filename;
 	uint8_t *key;
@@ -119,10 +232,13 @@ _handle_file_meta(struct client *c, unsigned type, Fep__FileMeta *msg)
 
 	bool need_clear = false;
 
+	string2guid(PSLEN(msg->rootdir_guid), &rootdir);
+	string2guid(PSLEN(msg->file_guid), &file);
+	string2guid(PSLEN(msg->revision_guid), &revision);
+
+	memset(&fmeta, 0u, sizeof(struct spq_FileMeta));
 	if (!c->status.auth_ok)
 		return send_error(c, msg->id, "Unauthorized", -1);
-
-	hash = MAKE_FHASH(msg->rootdir_guid, msg->file_guid);
 
 	/* FIXME: ересь, прибраться после починки таблиц
 	 * если в FileMeta не указаны enc_filename и key,
@@ -133,12 +249,6 @@ _handle_file_meta(struct client *c, unsigned type, Fep__FileMeta *msg)
 	key = msg->key.data;
 	key_len = msg->key.len;
 	if (!msg->enc_filename || !msg->key.len) {
-		guid_t _rootdir;
-		guid_t _file;
-		guid_t _rev;
-		string2guid(PSLEN(msg->rootdir_guid), &_rootdir);
-		string2guid(PSLEN(msg->file_guid), &_file);
-		string2guid(PSLEN(msg->revision_guid), &_rev);
 #if DEEPDEBUG
 		xsyslog(LOG_DEBUG, "client[%"SEV_LOG"] "
 				"FileMeta Prepare: enc_filename: \"%s\", "
@@ -147,9 +257,8 @@ _handle_file_meta(struct client *c, unsigned type, Fep__FileMeta *msg)
 				msg->enc_filename, msg->file_guid, msg->revision_guid,
 				msg->key.len);
 #endif
-		memset(&fmeta, 0u, sizeof(struct spq_FileMeta));
 		if (!spq_getFileMeta(c->name, c->device_id,
-					&_rootdir, &_file, NULL, false, &fmeta, NULL)) {
+					&rootdir, &file, NULL, false, &fmeta, NULL)) {
 			return send_error(c, msg->id, "Internal error 1759", -1);
 		}
 		if (fmeta.empty) {
@@ -165,33 +274,16 @@ _handle_file_meta(struct client *c, unsigned type, Fep__FileMeta *msg)
 		}
 	}
 
-	/* ws_touched нужен для избежания попадания второй записи об одном файле
-	 * в список
-	 */
-	ws = touch_id(c, &c->fid, hash);
-	if (!ws) {
-		/* если записи нет, нужно создать новую */
-		ws = calloc(1, sizeof(struct wait_store) + sizeof(struct wait_file));
-		if (!ws) {
-			if (need_clear)
-				spq_getFileMeta_free(&fmeta);
-			return send_error(c, msg->id, "Internal error 1860", -1);
-		}
-		wf = ws->data = ws + 1;
-		wf->id = hash;
-		wait_id(c, &c->fid, hash, ws);
-	} else {
-		wf = ws->data;
+	wf = _wait_file(c, &rootdir, &file, &revision);
+	if (!wf) {
+		spq_getFileMeta_free(&fmeta);
+		return send_error(c, msg->id, "Internal error 1860", -1);
 	}
 
-	/* заполнение всех полей */
-	wf->msg_id = msg->id;
-	if (!wf->rootdir.not_null)
-		string2guid(PSLEN(msg->rootdir_guid), &wf->rootdir);
-	if (!wf->file.not_null)
-		string2guid(PSLEN(msg->file_guid), &wf->file);
-	if (!wf->revision.not_null)
-		string2guid(PSLEN(msg->revision_guid), &wf->revision);
+	/* заполнение оставшихся полей */
+	if (!wf->msg_id)
+		wf->msg_id = msg->id;
+
 	if (!wf->parent.not_null && msg->parent_revision_guid)
 		string2guid(PSLEN(msg->parent_revision_guid), &wf->parent);
 	if (!wf->dir.not_null)
@@ -211,79 +303,17 @@ _handle_file_meta(struct client *c, unsigned type, Fep__FileMeta *msg)
 		spq_getFileMeta_free(&fmeta);
 #if DEEPDEBUG
 	xsyslog(LOG_DEBUG, "client[%"SEV_LOG"] FileMeta: enc_filename: \"%s\", "
-			"file_guid: \"%s\", revision_guid: \"%s\", key_len: %"PRIuPTR" "
-			"hash: %"PRIu64,
+			"file_guid: \"%s\", revision_guid: \"%s\", key_len: %"PRIuPTR,
 			c->cev->serial,
-			enc_filename, msg->file_guid, msg->revision_guid, key_len,
-			hash);
+			enc_filename, msg->file_guid, msg->revision_guid, key_len);
 #endif
+	/* если чанков нет, то собирать нечего, потому сразу выставляем
+	 * флаг готовности
+	 */
+	if (!wf->chunks) {
+		wf->complete = true;
+	}
 	return _file_complete(c, wf, true);
-}
-
-bool
-_handle_rename_chunk(struct client *c, unsigned type, Fep__RenameChunk *msg)
-{
-	uint64_t hash;
-	struct wait_store *ws;
-	struct wait_file *wf;
-	char *errmsg = NULL;
-	struct spq_hint hint;
-
-	guid_t rootdir;
-	guid_t file;
-	guid_t chunk;
-	guid_t revision_new;
-	guid_t chunk_new;
-
-	string2guid(msg->rootdir_guid, strlen(msg->rootdir_guid), &rootdir);
-	string2guid(msg->file_guid, strlen(msg->file_guid), &file);
-	string2guid(msg->chunk_guid, strlen(msg->chunk_guid), &chunk);
-	string2guid(msg->to_revision_guid, strlen(msg->to_revision_guid),
-			&revision_new);
-	string2guid(msg->to_chunk_guid, strlen(msg->to_chunk_guid), &chunk_new);
-
-	/* получение хеша и поиск структуры в списке */
-	hash = MAKE_FHASH(msg->rootdir_guid, msg->file_guid);
-	if ((ws = touch_id(c, &c->fid, hash)) == NULL) {
-		/* создание нового wait_file */
-		ws = calloc(1, sizeof(struct wait_store) + sizeof(struct wait_file));
-		if (!ws)
-			return send_error(c, msg->id, "Internal error 1725", -1);
-		wf = (ws->data = ws + 1);
-		memcpy(&wf->file, &file, sizeof(guid_t));
-		memcpy(&wf->revision, &revision_new, sizeof(guid_t));
-		memcpy(&wf->rootdir, &rootdir, sizeof(guid_t));
-		wf->id = hash;
-		_file_load(c, wf);
-		wait_id(c, &c->fid, hash, ws);
-	} else {
-		wf = ws->data;
-	}
-#if DEEPDEBUG
-	xsyslog(LOG_DEBUG, "rename chunk: rootdir: %s, file: %s, chunk %s -> "
-			"chunk %s, rev %s", msg->rootdir_guid, msg->file_guid,
-			msg->chunk_guid, msg->to_chunk_guid, msg->to_revision_guid);
-#endif
-	memset(&hint, 0, sizeof(struct spq_hint));
-	/* манипуляция данными в бд */
-	if (!spq_link_chunk(c->name, c->device_id, &rootdir, &file, &chunk,
-				&chunk_new, &revision_new, &hint)) {
-		wf->chunks_fail++;
-		if (*hint.message)
-			errmsg = hint.message;
-		else
-			errmsg = "Internal error 2054";
-	} else {
-		wf->chunks_ok++;
-	}
-
-	if (errmsg) {
-		if (*hint.message)
-			return send_error(c, msg->id, hint.message, -1);
-		else
-			return send_error(c, msg->id, errmsg, -1);
-	}
-	return send_ok(c, msg->id, C_OK_SIMPLE, NULL);
 }
 
 bool
@@ -304,6 +334,7 @@ _handle_end(struct client *c, unsigned type, Fep__End *end)
 	struct wait_file *wf;
 	char chunk_hash[HASHHEX_MAX + 1];
 	char errmsg[1024] = {0};
+	bool _com = false;
 
 	ws = query_id(c, &c->sid, end->session_id);
 	if (!ws) {
@@ -350,8 +381,7 @@ _handle_end(struct client *c, unsigned type, Fep__End *end)
 		} else if (!spq_insert_chunk(c->name, c->device_id,
 					&wf->rootdir, &wf->file, &wf->revision,
 					&wx->chunk_guid, chunk_hash,
-					wx->size, wx->offset, "xxx", NULL, &hint)) {
-			/* FIXME: делать проверку complete из insert_chunk */
+					wx->size, wx->offset, "xxx", &_com, &hint)) {
 			/* запись чанка не удалась */
 			if (*hint.message)
 				snprintf(errmsg, sizeof(errmsg), hint.message);
@@ -360,11 +390,15 @@ _handle_end(struct client *c, unsigned type, Fep__End *end)
 		}
 	}
 
+	/* если собралась ревизия, то нужно пометить */
+	if (_com) {
+		wf->complete = true;
+	}
+
 	sid_free(ws);
 	/* освобождаем захваченный в handle_write_ask() ресурс */
 	client_reqs_release(c, H_REQS_FD);
 	if (!*errmsg) {
-		wf->chunks_ok++;
 		/* нет смысла пытаться отправить "Ok" клиенту, если
 		 * соеденение отвалилось при отправке OkUpdate
 		 */
@@ -373,7 +407,6 @@ _handle_end(struct client *c, unsigned type, Fep__End *end)
 		return send_ok(c, end->id, C_OK_SIMPLE, NULL);
 	} else {
 		/* чанк не нужен, клиент перетащит его заного */
-		wf->chunks_fail++;
 		return send_error(c, end->id, errmsg, -1);
 	}
 }
@@ -638,9 +671,7 @@ _handle_write_ask(struct client *c, unsigned type, Fep__WriteAsk *msg)
 	struct spq_hint _hint;
 	char chunk_hash[PATH_MAX];
 
-	uint64_t hash = 0;
 	uint64_t chunk_id = 0;
-	struct wait_store *fid_ws;
 	struct wait_file *wf;
 	Fep__OkWrite wrok = FEP__OK_WRITE__INIT;
 
@@ -718,6 +749,12 @@ _handle_write_ask(struct client *c, unsigned type, Fep__WriteAsk *msg)
 		return send_error(c, msg->id, "Internal error 1175", -1);
 	}
 
+	/* структура файла нам нужна в любом случае */
+	if (!(wf = _wait_file(c, &rootdir, &file, &revision))) {
+		client_reqs_release(c, H_REQS_SQL | H_REQS_FD);
+		return send_error(c, msg->id, "Internal error 1321", -1);
+	}
+
 	if (_ci.address || _ci.driver) {
 		struct spq_hint hint;
 		bool _com = false;
@@ -739,8 +776,13 @@ _handle_write_ask(struct client *c, unsigned type, Fep__WriteAsk *msg)
 		spq_getChunkInfo_free(&_ci);
 		/* освобождаем оба ресурса, т.к. End не прийдёт */
 		client_reqs_release(c, H_REQS_SQL | H_REQS_FD);
-		/* TODO: нужно создать ссылку на ожидание файла
-		 */
+		/* если сборка завершена, то выставляем соотвествующий флаг */
+		if (_com) {
+			wf->complete = true;
+			/* и вызываем сценарий финализации */
+			if (!_file_complete(c, wf, false))
+				return false;
+		}
 		return send_satisfied(c, msg->id);
 	}
 	chunk_id = _ci.group;
@@ -749,18 +791,9 @@ _handle_write_ask(struct client *c, unsigned type, Fep__WriteAsk *msg)
 	{
 		/* в этом блоке структура wx только настраивается,
 			упаковка происходит дальше */
-		bool fid_in; /* логический костыль */
-		hash = MAKE_FHASH(msg->rootdir_guid, msg->file_guid);
-		fid_in = ((fid_ws = touch_id(c, &c->fid, hash)) != NULL);
-
-		if (!fid_ws) {
-			fid_ws = calloc(1, sizeof(struct wait_store)
-					+ sizeof(struct wait_file));
-			fid_ws->data = fid_ws + 1;
-		}
 		ws = calloc(1, sizeof(struct wait_store) + sizeof(struct wait_xfer));
-		if (!ws || !fid_ws) {
-			errmsg = "";
+		if (!ws) {
+			errmsg = "Internal error 1315";
 		} else {
 			wx = (ws->data = ws + 1);
 			/* открытие/создание файла */
@@ -776,23 +809,18 @@ _handle_write_ask(struct client *c, unsigned type, Fep__WriteAsk *msg)
 			string2guid(msg->chunk_guid, strlen(msg->chunk_guid),
 					&wx->chunk_guid);
 			/* ссылаемся на wait_file и увеличиваем счётчик */
-			wx->wf = fid_ws->data;
+			wx->wf = wf;
 			wx->wf->ref++;
 			wx->hash_len = msg->chunk_hash.len;
 			memcpy(wx->hash, (void*)msg->chunk_hash.data, msg->chunk_hash.len);
 			wx->offset = msg->offset;
 		}
-		/* логический костыль */
-		if (fid_in)
-			fid_ws = NULL;
 	}
 
 	if (errmsg) {
 		fcac_close(&wx->p);
 		if (ws)
 			free(ws);
-		if (fid_ws)
-			free(fid_ws);
 		xsyslog(LOG_WARNING,
 				"client[%"SEV_LOG"] open(%"PRIu64") failed: %s",
 				c->cev->serial, chunk_id, strerror(errno));
@@ -816,19 +844,11 @@ _handle_write_ask(struct client *c, unsigned type, Fep__WriteAsk *msg)
 #endif
 	/* инициализаци полей wait_file */
 	wait_id(c, &c->sid, wrok.session_id, ws);
-	if (fid_ws) {
-		wf = fid_ws->data;
 
-		memcpy(&wf->rootdir, &rootdir, sizeof(rootdir));
-		memcpy(&wf->file, &file, sizeof(file));
-		memcpy(&wf->revision, &revision, sizeof(revision));
-
-		/* если запрос завершился неудачно, то файла, вероятнее всего нет */
-		_file_load(c, wf);
-
-		wf->id = hash;
-		wait_id(c, &c->fid, hash, fid_ws);
-	}
+	/* если запрос завершился неудачно, то файла, вероятнее всего нет
+	 * не помню зачем это нужно, какой-то костыль
+	 */
+	_file_load(c, wf);
 
 	/* в случае успеха освобождаем только ресурс SQL, но оставляем
 	 * захваченным fd, его нужно освободить только после прихода End

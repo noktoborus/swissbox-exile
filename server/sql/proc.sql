@@ -63,21 +63,50 @@ CREATE OR REPLACE FUNCTION _revision_is_complete(
 DECLARE
 	_r record;
 	maxsize bigint DEFAULT NULL;
+	chunks integer DEFAULT NULL;
 	e_size bigint DEFAULT 0;
 BEGIN
+	SELECT e.chunks
+	INTO chunks
+	FROM (
+		SELECT 
+			CASE
+				WHEN file_revision.chunks = 0
+					THEN COALESCE(file_temp.chunks, 0)
+				ELSE file_revision.chunks END AS chunks,
+			file_revision.stored_chunks AS stored
+		FROM file_revision
+		/*
+		нужных данных в file_revision может не оказаться,
+		но они могут быть в file_temp
+		*/
+		LEFT JOIN file_temp
+		ON
+			file_temp.id = _revision_id
+		WHERE
+			file_revision.id = _revision_id
+		) AS e
+	WHERE e.chunks = e.stored;
+	
+	IF chunks IS NULL THEN
+		return FALSE;
+	ELSIF chunks = 0 THEN
+		/*
+		если количество чанков == 0, то мы в любом случае
+		считаем что ревизия собралась
+		-- FIXME: что делать, если stored != chunks?
+		*/
+		return TRUE;
+	END IF;
 	/* т.к. у нас нет общего размера файла
 		то готовность вычисляем по
 		MAX(offset) + size
-		при stored_chunks == chunks
+		при stored_chunks = chunks
 	*/
-	SELECT
-		MAX(file_chunk."offset" + file_chunk.size)
+	SELECT MAX(file_chunk."offset" + file_chunk.size)
 	INTO maxsize
-	FROM file_revision, file_chunk
-	WHERE
-		file_revision.id = _revision_id AND
-		file_revision.chunks = file_revision.stored_chunks AND
-		file_chunk.revision_id = _revision_id;
+	FROM file_chunk
+	WHERE file_chunk.revision_id = _revision_id;
 
 	IF maxsize IS NULL THEN
 		return false;
@@ -135,6 +164,7 @@ BEGIN
 		e.directory_id AS directory_id,
 		file.id AS file_id,
 		file_revision.id AS revision_id,
+		file_revision.checkpoint AS checkpoint,
 		NOT file_revision.fin AS permit
 	INTO _ur
 	FROM (SELECT
@@ -172,6 +202,18 @@ BEGIN
 		return;
 	END IF;
 
+	-- здесь нужно или проверять _ur.permit или убрать из таблиц поле "fin"
+	IF NOT _ur.revision_id IS NULL AND NOT _ur.checkpoint IS NULL THEN
+		r_error := concat('3:file revision already completed ',
+			'(rootdir "', _rootdir_guid, '", ',
+			'file "', _file_guid, '", ',
+			'revision "', _revision_guid, '")');
+		r_complete := TRUE;
+		r_checkpoint := _ur.checkpoint;
+		return next;
+		return;
+	END IF;
+
 	-- проверка существования файла (и создание его)
 	IF _ur.file_id IS NULL THEN
 		WITH _x AS (
@@ -193,7 +235,8 @@ BEGIN
 
 
 	-- 0.5 проверка наличия ревизии
-	SELECT INTO _parent id, revision
+	SELECT id, revision
+	INTO _parent
 	FROM file_revision
 	WHERE fin = TRUE AND
 		file_id = _ur.file_id AND
@@ -224,9 +267,10 @@ BEGIN
 	END IF;
 
 	-- если это подготовка, то выполнение всего следующего кода не нужно
-	IF _prepare = TRUE THEN
+	-- prepare выполняется только для _chunks > 0
+	IF _prepare = TRUE AND _chunks > 0 THEN
 		INSERT INTO file_temp SELECT
-			_ur.file_id,
+			_ur.revision_id,
 			_dir_guid,
 			_ur.directory_id,
 			_filename,
@@ -312,9 +356,9 @@ BEGIN
 	END IF;
 
 	-- удаление не нужных данных
-	DELETE FROM file_temp WHERE id = _ur.file_id;
+	DELETE FROM file_temp WHERE id = _ur.revision_id;
 
-	r_complete := _revision_is_complete(_revision_id);
+	r_complete := _revision_is_complete(_ur.revision_id);
 	return next;
 END $$ LANGUAGE plpgsql;
 
@@ -652,6 +696,7 @@ BEGIN
 	return;
 END $$ LANGUAGE plpgsql;
 
+-- TODO: удалить к хуям, в следствии того, что file_temp.id на самом деле не file.id, а file_revision.id происходит какая-то херня
 -- информация о файле (ревизии)
 -- если _revision IS NULL, то извлекается последняя ревизия
 CREATE OR REPLACE FUNCTION file_get(_rootdir UUID, _file UUID, _revision UUID,
@@ -672,38 +717,22 @@ CREATE OR REPLACE FUNCTION file_get(_rootdir UUID, _file UUID, _revision UUID,
 DECLARE
 	_r record;
 	_rev record;
+	t record;
 BEGIN
-	-- выборка файла и директории
-	SELECT
-		t.file_id,
-		t.rootdir_id,
-		t.file_guid,
-		COALESCE(file_temp.directory, directory.directory) AS directory_guid,
-		COALESCE(file_temp.filename, t.filename) AS filename,
-		COALESCE(file_temp.pubkey, t.pubkey) AS pubkey
-	FROM (
-		SELECT
-			file.id AS file_id,
-			r_rootdir_id AS rootdir_id,
-			file.file AS file_guid,
-			file.filename AS filename,
-			file.directory_id AS directory_id,
-			file.pubkey AS pubkey
-		FROM life_data(_rootdir), file
-		WHERE
-			file.rootdir_id = r_rootdir_id AND
-			file.file = _file
-		) AS t
-	INTO _r
-	LEFT JOIN file_temp ON file_temp.id = t.file_id
-	LEFT JOIN directory ON directory.id = t.directory_id;
 
-	IF _r IS NULL THEN
-		r_error := concat('1:file "', _file, '" in rootdir "', _rootdir, '" ',
-			'not found');
-		return next;
-		return;
-	END IF;
+	-- выборка файла
+	SELECT
+		file.id AS file_id,
+		r_rootdir_id AS rootdir_id,
+		file.file AS file_guid,
+		file.filename AS filename,
+		file.directory_id AS directory_id,
+		file.pubkey AS pubkey
+	INTO t
+	FROM life_data(_rootdir), file
+	WHERE
+		file.rootdir_id = r_rootdir_id AND
+		file.file = _file;
 
 	-- выборка ревизии
 	-- если указана конкретная ревизиая, то выдаём её,
@@ -718,7 +747,7 @@ BEGIN
 	LEFT JOIN file_revision AS parent_revision
 	ON parent_revision.id = file_revision.parent_id
 	WHERE
-		file_revision.file_id = _r.file_id AND
+		file_revision.file_id = t.file_id AND
 		CASE
 			WHEN _revision IS NOT NULL
 				THEN file_revision.revision = _revision
@@ -727,6 +756,26 @@ BEGIN
 		END AND
 		file_revision.fin = NOT COALESCE(uncompleted, False)
 	ORDER BY file_revision.checkpoint DESC LIMIT 1;
+	
+	-- выборка файла и директории
+	SELECT
+		t.file_id,
+		t.rootdir_id,
+		t.file_guid,
+		COALESCE(file_temp.directory, directory.directory) AS directory_guid,
+		COALESCE(file_temp.filename, t.filename) AS filename,
+		COALESCE(file_temp.pubkey, t.pubkey) AS pubkey
+	INTO _r
+	FROM (SELECT 1 WHERE NOT t IS NULL) AS x -- костыль
+	LEFT JOIN file_temp ON file_temp.id = t.file_id
+	LEFT JOIN directory ON directory.id = t.directory_id;
+
+	IF _r IS NULL THEN
+		r_error := concat('1:file "', _file, '" in rootdir "', _rootdir, '" ',
+			'not found');
+		return next;
+		return;
+	END IF;
 
 	IF _rev IS NULL THEN
 		r_error := concat('1:revision "', _revision, '" for file "', _file, '" ',

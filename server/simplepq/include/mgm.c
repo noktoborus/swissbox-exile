@@ -328,8 +328,13 @@ _spq_log_expand(const char *query,
 
 	if (vals) {
 		for (s = 0u; s < vals; s++) {
-			offset += snprintf(values + offset, sizeof(values) - offset,
-					" '%s',", val[s]);
+			if (val[s]) {
+				offset += snprintf(values + offset, sizeof(values) - offset,
+						" '%s',", val[s]);
+			} else {
+				offset += snprintf(values + offset, sizeof(values) - offset,
+						" NULL,");
+			}
 		}
 		values[offset - 1] = '\0';
 
