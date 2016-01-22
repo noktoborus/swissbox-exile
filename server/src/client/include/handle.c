@@ -1010,7 +1010,6 @@ _handle_query_revisions(struct client *c, unsigned type,
 		client_reqs_release(c, H_REQS_SQL);
 		return send_error(c, msg->id, "Internal error 111", -1);
 	}
-	xsyslog(LOG_WARNING, "= result_send:1013 %p", (void*)rs);
 	memcpy(&rs->v.r, &gr, sizeof(struct getRevisions));
 	rs->id = msg->session_id;
 	rs->type = RESULT_REVISIONS;
@@ -1037,7 +1036,6 @@ _handle_query_devices(struct client *c, unsigned type, Fep__QueryDevices *msg)
 				strerror(errno));
 		return send_error(c, msg->id, "Internal error 995", -1);
 	}
-	xsyslog(LOG_WARNING, "= result_send:1040 %p", (void*)rs);
 
 	/* освобождается в client_iterate */
 	if (!client_reqs_acquire(c, H_REQS_SQL)) {
@@ -1106,7 +1104,6 @@ _handle_query_chunks(struct client *c, unsigned type, Fep__QueryChunks *msg)
 		client_reqs_release(c, H_REQS_SQL);
 		return send_error(c, msg->id, "Internal error 111", -1);
 	}
-	xsyslog(LOG_WARNING, "= result_send:1109 %p", (void*)rs);
 
 	/* отправка подтверждения, что всё ок */
 	{

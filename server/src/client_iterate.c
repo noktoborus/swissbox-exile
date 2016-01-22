@@ -238,7 +238,6 @@ _active_sync(struct client *c, guid_t *rootdir, uint64_t checkpoint,
 	if (!rs) {
 		return false;
 	}
-	xsyslog(LOG_WARNING, "= result_send:241 %p", (void*)rs);
 
 	/* TODO: NULL для листинга rootdir,
 	 * с указанием rootdir_guid - для файлов/дир
