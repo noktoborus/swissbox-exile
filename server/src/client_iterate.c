@@ -806,21 +806,22 @@ _client_iterate_result_logdf(struct client *c, struct logDirFile *ldf)
 		guid2string(&ldf->directory, guid, sizeof(guid));
 		msg.rootdir_guid = rootdir;
 		msg.directory_guid = guid;
-		msg.checkpoint = ldf->checkpoint;
 
 		if (*ldf->path)
 			msg.path = ldf->path;
 
-		msg.no = ldf->row;
-		msg.max = ldf->max;
-
 		msg.has_checkpoint = true;
-		msg.has_no = true;
-		msg.has_max = true;
+		msg.checkpoint = ldf->checkpoint;
 
 		if (c->rout->id != C_NOSESSID) {
 			msg.session_id = c->rout->id;
 			msg.has_session_id = true;
+
+			/* если sessid_id не назначен, то no и max нам не нужны */
+			msg.has_no = true;
+			msg.has_max = true;
+			msg.no = ldf->row;
+			msg.max = ldf->max;
 		}
 
 		c->rout->packets++;
@@ -844,7 +845,6 @@ _client_iterate_result_logdf(struct client *c, struct logDirFile *ldf)
 		char rev[GUID_MAX + 1];
 
 		msg.id = generate_id(c);
-		msg.checkpoint = ldf->checkpoint;
 
 		guid2string(&ldf->file, file, sizeof(file));
 		guid2string(&ldf->directory, dir, sizeof(dir));
@@ -860,16 +860,17 @@ _client_iterate_result_logdf(struct client *c, struct logDirFile *ldf)
 		if (ldf->revision.not_null)
 			msg.revision_guid = rev;
 
-		msg.no = ldf->row;
-		msg.max = ldf->max;
-
 		msg.has_checkpoint = true;
-		msg.has_no = true;
-		msg.has_max = true;
+		msg.checkpoint = ldf->checkpoint;
 
 		if (c->rout->id != C_NOSESSID) {
 			msg.has_session_id = true;
 			msg.session_id = c->rout->id;
+
+			msg.has_no = true;
+			msg.has_max = true;
+			msg.no = ldf->row;
+			msg.max = ldf->max;
 		}
 
 		c->rout->packets++;
@@ -888,19 +889,20 @@ _client_iterate_result_logdf(struct client *c, struct logDirFile *ldf)
 		msg.name = ldf->path;
 
 		msg.id = generate_id(c);
-		msg.checkpoint = ldf->checkpoint;
 		msg.rootdir_guid = rootdir;
 
-		msg.no = ldf->row;
-		msg.max = ldf->max;
-
 		msg.has_checkpoint = true;
-		msg.has_no = true;
-		msg.has_max = true;
+		msg.checkpoint = ldf->checkpoint;
 
 		if (c->rout->id != C_NOSESSID) {
 			msg.session_id = c->rout->id;
 			msg.has_session_id = true;
+
+			msg.has_no = true;
+			msg.has_max = true;
+
+			msg.no = ldf->row;
+			msg.max = ldf->max;
 		}
 
 		/* обновление чекпоинта клиента для rootdir */
