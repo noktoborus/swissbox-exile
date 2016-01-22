@@ -238,6 +238,7 @@ _active_sync(struct client *c, guid_t *rootdir, uint64_t checkpoint,
 	if (!rs) {
 		return false;
 	}
+	xsyslog(LOG_WARNING, "= result_send:241 %p", (void*)rs);
 
 	/* TODO: NULL для листинга rootdir,
 	 * с указанием rootdir_guid - для файлов/дир
@@ -831,6 +832,9 @@ _client_iterate_result_logdf(struct client *c, struct logDirFile *ldf)
 				msg.no, msg.max,
 				rootdir, guid);
 #endif
+		if (!msg.session_id) {
+			xsyslog(LOG_WARNING, "FUCK DirectoryUpdate");
+		}
 		return send_message(c->cev, FEP__TYPE__tDirectoryUpdate, &msg);
 	} else if (ldf->type == 'f') {
 		Fep__FileUpdate msg = FEP__FILE_UPDATE__INIT;

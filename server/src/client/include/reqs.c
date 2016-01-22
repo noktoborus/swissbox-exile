@@ -16,14 +16,16 @@ client_reqs_acquire(struct client *c, enum handle_reqs_t reqs)
 	/* FIXME: пока только локальные лимиты */
 
 	if (reqs & H_REQS_SQL) {
-		if (c->values.sql_queries_count + 1 <=
+		if (!c->options.limit_local_sql_queries ||
+				c->values.sql_queries_count + 1 <=
 				c->options.limit_local_sql_queries) {
 			isql++;
 		} else return false;
 	}
 
 	if (reqs & H_REQS_FD) {
-		if (c->values.fd_queries_count + 1 <=
+		if (!c->options.limit_local_fd_queries ||
+				c->values.fd_queries_count + 1 <=
 				c->options.limit_local_fd_queries) {
 			ifd++;
 		} else return false;
@@ -165,7 +167,7 @@ client_reqs_unqueue(struct client *c, enum handle_reqs_t reqs)
 		}
 
 		if (!c->options.limit_local_fd_queries ||
-				c->values.sql_queries_count + 1 <=
+				c->values.fd_queries_count + 1 <=
 					c->options.limit_local_fd_queries) {
 			reqs |= H_REQS_FD;
 		}
