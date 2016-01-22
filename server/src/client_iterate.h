@@ -133,7 +133,10 @@ struct client {
 	char name[C_NAMELEN];
 
 	struct client_cum *cum;
+	/* TODO: общий checkpoint для списка rootdir нужен
+	 * но сейчас он вносит путаницу
 	uint64_t checkpoint;
+	*/
 	uint64_t device_id;
 
 	struct {

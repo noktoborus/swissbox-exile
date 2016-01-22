@@ -226,11 +226,17 @@ _active_sync(struct client *c, guid_t *rootdir, uint64_t checkpoint,
 #if DEEPDEBUG
 	{
 		char _rootdir[GUID_MAX + 1];
+		char _sessid[32] = {0};
 		guid2string(rootdir, PSIZE(_rootdir));
+		if (session_id != C_NOSESSID) {
+			snprintf(_sessid, sizeof(_sessid), "sid=%"PRIu32, session_id);
+		} else {
+			snprintf(_sessid, sizeof(_sessid), "automatic");
+		}
 		xsyslog(LOG_DEBUG,
-				"client[%"SEV_LOG"] activate sync from checkpoint=%"PRIu64
+				"client[%"SEV_LOG"] activate sync (%s) from checkpoint=%"PRIu64
 				" for device=%"PRIX64" in '%s'",
-				c->cev->serial, c->checkpoint, c->device_id, _rootdir);
+				c->cev->serial, _sessid, checkpoint, c->device_id, _rootdir);
 	}
 #endif
 
@@ -793,7 +799,12 @@ _client_iterate_result_logdf(struct client *c, struct logDirFile *ldf)
 	guid2string(&ldf->rootdir, rootdir, sizeof(rootdir));
 
 	/* обновляем чекпоинт в рутдире */
-	client_local_rootdir(c, &ldf->rootdir, ldf->checkpoint);
+	if (ldf->type != 'r') {
+		/* checkpoint нужно обновлять только если это файл или
+		 * директория, а не список rootdir
+		 */
+		client_local_rootdir(c, &ldf->rootdir, ldf->checkpoint);
+	}
 
 	/* отсылка данных */
 	if (ldf->type == 'd') {
@@ -832,9 +843,6 @@ _client_iterate_result_logdf(struct client *c, struct logDirFile *ldf)
 				msg.no, msg.max,
 				rootdir, guid);
 #endif
-		if (!msg.session_id) {
-			xsyslog(LOG_WARNING, "FUCK DirectoryUpdate");
-		}
 		return send_message(c->cev, FEP__TYPE__tDirectoryUpdate, &msg);
 	} else if (ldf->type == 'f') {
 		Fep__FileUpdate msg = FEP__FILE_UPDATE__INIT;
@@ -903,9 +911,6 @@ _client_iterate_result_logdf(struct client *c, struct logDirFile *ldf)
 			msg.no = ldf->row;
 			msg.max = ldf->max;
 		}
-
-		/* обновление чекпоинта клиента для rootdir */
-		c->checkpoint = ldf->checkpoint;
 
 		c->rout->packets++;
 #if DEEPDEBUG

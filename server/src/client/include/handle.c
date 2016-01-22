@@ -489,7 +489,6 @@ _handle_want_sync(struct client *c, unsigned type, Fep__WantSync *msg)
 		return client_reqs_queue(c, H_REQS_SQL, type, msg);
 	}
 
-	c->checkpoint = msg->checkpoint;
 	if (!_active_sync(c, rootdir.not_null ? &rootdir : NULL, msg->checkpoint,
 				msg->session_id, 0lu)) {
 		client_reqs_release(c, H_REQS_SQL);
