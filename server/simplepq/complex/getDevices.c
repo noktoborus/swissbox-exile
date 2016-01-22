@@ -36,7 +36,7 @@ spq_getDevices_exec(PGconn *pgc,
 		PQclear(res);
 		Q_LOGX(tb, sizeof(len) / sizeof(*len), val, len);
 		return NULL;
-	} else if ((_l = PQgetlength(res, 0, 0)) != 0) {
+	} else if (PQntuples(res) > 0 && (_l = PQgetlength(res, 0, 0)) != 0) {
 		_v = PQgetvalue(res, 0, 0);
 		spq_feed_hint(_v, _l, hint);
 		PQclear(res);
