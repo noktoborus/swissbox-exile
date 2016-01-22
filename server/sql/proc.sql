@@ -1091,18 +1091,11 @@ BEGIN
 		return QUERY SELECT * FROM state_list(_rootdir);
 		return;
 	END IF;
-	-- получение базовой информации
-	-- TODO: заменить говнище на life_data()
-	BEGIN
-		SELECT INTO _ur user_id, device_id FROM _life_, options
-		WHERE options."key" = 'life_mark' AND
-			_life_.mark = options.value_u;
-	EXCEPTION WHEN undefined_table THEN -- nothing
-	END;
-	-- FIXME: record IS NULL is abscess
-	IF _ur IS NULL THEN
-		RAISE EXCEPTION 'try to use begin_life() before call this';
-	END IF;
+
+	SELECT INTO _ur
+		r_user_id AS user_id,
+		r_device_id AS device_id
+	FROM life_data();
 
 	-- 2. листинг лога
 	FOR _row IN
