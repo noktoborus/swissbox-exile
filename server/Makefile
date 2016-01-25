@@ -50,7 +50,7 @@ pack: .pack_feps
 .pack_feps: ${BIN}
 	@echo pack into dist/feps-`git describe --always --long`.tbz
 	mkdir -p dist
-	tar -cjvf dist/feps-`git describe --always --long`.tbz bin/ user/.keep sql/struct.sql
+	tar -cjvf dist/feps-`git describe --always --long`.tbz bin/ user/.keep sql/*.sql fcac_data/.keep
 	@touch $@
 
 ${BIN}: .buildflags .sqlversion ${SOURCES} ${INC_SOURCES}
