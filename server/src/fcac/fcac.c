@@ -127,7 +127,10 @@ _fcac_node_remove(struct fcac *r, struct fcac_node *n)
 						free(n->s.memory.buf);
 					break;
 				case FCAC_FILE:
-					if (n->s.file.fd != -1)
+					/* у финализированного узла
+					 * файл должен быть закрытым изначально
+					 */
+					if (!n->finalized && n->s.file.fd != -1)
 						close(n->s.file.fd);
 					break;
 				default:
@@ -530,6 +533,7 @@ fcac_open(struct fcac *r, uint64_t id, struct fcac_ptr *p, enum fcac_options o)
 	n->r->statistic.opened_ptr++;
 	/* выход */
 	_unlock(r, NULL);
+
 	return true;
 }
 
@@ -576,6 +580,7 @@ fcac_close(struct fcac_ptr *p)
 		p->r->statistic.closed_ptr++;
 		_unlock(p->r, NULL);
 	}
+
 	return true;
 }
 
@@ -583,6 +588,7 @@ enum fcac_ready
 fcac_is_ready(struct fcac_ptr *p)
 {
 	enum fcac_ready rval = FCAC_CLOSED;
+
 	/* FIXME: нужна ли здесь блокировка?
 	 * даже при обращении к указателю может возникнуть ситуация
 	 * в которой p->n будет в неизвестном состоянии
@@ -748,7 +754,6 @@ fcac_set_ready(struct fcac_ptr *p)
 			_format_filename(p->r->path, _path, sizeof(_path), p->n->id);
 			/* закрытие дескрипторов */
 			close(p->n->s.file.fd);
-			p->n->s.file.fd = -1;
 			/* финализация файлов в кеше заключается в удалении флага "u+w" */
 			if (chmod(_path, S_IRUSR)) {
 				xsyslog(LOG_WARNING,
