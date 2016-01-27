@@ -471,6 +471,7 @@ fcac_open(struct fcac *r, uint64_t id, struct fcac_ptr *p, enum fcac_options o)
 		_format_filename(r->path, _path, sizeof(_path), id);
 
 		if (!stat(_path, &st) && !(st.st_mode & S_IWUSR)) {
+			/* открываем файл для указателя */
 			if ((fd = open(_path, O_RDONLY)) == -1) {
 				xsyslog(LOG_WARNING,
 						"fcac error[id#%"PRIu64"]: open(%s) -> %s",
@@ -488,6 +489,8 @@ fcac_open(struct fcac *r, uint64_t id, struct fcac_ptr *p, enum fcac_options o)
 		if (!n) {
 			xsyslog(LOG_WARNING, "fcac open error: calloc(%d) -> %s",
 					(int)sizeof(*n), strerror(errno));
+			if (fd != -1)
+				close(fd);
 			return false;
 		}
 		/* встраивание в список
