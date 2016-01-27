@@ -27,7 +27,11 @@ enum fcac_options {
 	/* мигрировать в FILE после записи */
 	FCAC_AFTER_FILE = 4,
 	/* мигрировать в MEMORY после записи */
-	FCAC_AFTER_MEMORY = 6
+	FCAC_AFTER_MEMORY = 8,
+#if 0
+	/* TODO: только для чтения, если файл отсутвует -- ошибка */
+	FCAC_READ_ONLY = 16
+#endif
 };
 
 /* ключи для fcac_set() */
