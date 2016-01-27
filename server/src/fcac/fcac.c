@@ -36,6 +36,8 @@ _lock(struct fcac *r, struct fcac_node *n)
 		} else {
 			xsyslog(LOG_WARNING, "fcac: lock error: %s", strerror(errno));
 		}
+	} else {
+		return true;
 	}
 	return false;
 }
