@@ -1231,13 +1231,12 @@ _handle_store_save(struct client *c, unsigned type, Fep__StoreSave *msg)
 bool
 _handle_store_load(struct client *c, unsigned type, Fep__StoreLoad *msg)
 {
-	Fep__StoreValue rmsg;
+	Fep__StoreValue rmsg = FEP__STORE_VALUE__INIT;
 	struct spq_hint hint;
 	struct spq_StoreData sd;
 	bool rval = true;
 	memset(&hint, 0, sizeof(hint));
 	memset(&sd, 0, sizeof(sd));
-	memset(&rmsg, 0, sizeof(rmsg));
 
 	if (!spq_store_load(c->name, c->device_id,
 				msg->shared, msg->offset, msg->length,
