@@ -589,6 +589,10 @@ def examine(msg):
                     maybe(msg, "max"), msg.device_id, msg.last_auth_time, msg.is_online))
         return True
 
+    if _type == "StoreValue":
+        write_std("%% %s: (id: %s) size: %s, store: {'%s'}\n"
+                %(_type, msg.id, msg.size, msg.store))
+
     write_std("%% %s: (id: %s, sid: %s)\n"
             %(_type, maybe(msg, "id"), maybe(msg, "session_id")))
     return True
@@ -757,6 +761,24 @@ def proto(s, user, secret, devid, cmd = None):
                     _file_readed.append(_e)
                 if not r:
                     break
+            continue
+        if c == "store":
+            _in_string = "The quick brown fox jumps over the lazy dog"
+            msg_save = FEP.StoreSave()
+            msg_save.id = random.randint(1, 10000)
+            msg_save.shared = True
+            msg_save.store = _in_string
+            send_message(s, msg_save)
+            rmsg = recv_message(s, ["Error", "Ok"])
+            examine(rmsg)
+
+            msg_load = FEP.StoreLoad()
+            msg_load.id = random.randint(1, 10000)
+            msg_load.shared = True
+            send_message(s, msg_load)
+            rmsg = recv_message(s, ["Error", "StoreValue"]);
+            examine(rmsg)
+
             continue
         if c == "sync":
             r = proto_sync(s)

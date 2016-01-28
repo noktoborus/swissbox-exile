@@ -16,7 +16,7 @@ DECLARE
 	_struct_version_value text;
 BEGIN
 	/* версия структуры */
-	SELECT INTO _struct_version_value '11';
+	SELECT INTO _struct_version_value '12';
 
 	/* проверка pgcrypto, на всякий случай
 	// уже не нужно, для примера

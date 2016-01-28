@@ -1390,21 +1390,21 @@ BEGIN
 		IF _offset THEN
 			UPDATE device
 			SET store = overlay(store placing _store from _offset for _length)
-			WHERE device.id = r_device_id;
+			WHERE device.id = _r.r_device_id;
 		ELSE
 			UPDATE device
 			SET store = _store
-			WHERE device.id = r_device_id;
+			WHERE device.id = _r.r_device_id;
 		END IF;
 	ELSE
 		IF _offset THEN
 			UPDATE "user"
 			SET store = overlay(store placing _store from _offset for _length)
-			WHERE "user".id = r_user_id;
+			WHERE "user".id = _r.r_user_id;
 		ELSE
 			UPDATE "user"
 			SET store = _store
-			WHERE "user".id = r_user_id;
+			WHERE "user".id = _r.r_user_id;
 		END IF;
 	END IF;
 

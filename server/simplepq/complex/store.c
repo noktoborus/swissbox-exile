@@ -14,6 +14,9 @@ _spq_store_save(PGconn *pgc,
 		"$1::bytea, $2::boolean, $3::integer, $4::integer"
 		")";
 
+	unsigned char *escdata = NULL;
+	size_t escdata_len = 0u;
+
 	char *val[4];
 	int len[4];
 
@@ -23,12 +26,22 @@ _spq_store_save(PGconn *pgc,
 	int _l = 0;
 	char *_m = NULL;
 
-	len[0] = data_len;
+	escdata = PQescapeByteaConn(pgc,
+			(const unsigned char*)data, data_len, &escdata_len);
+	if (!escdata) {
+		xsyslog(LOG_WARNING,
+				"libp error: can't escape %"PRIu32" bytes", data_len);
+		spq_feed_hint(NULL, 0u, hint);
+		return false;
+	}
+
+
+	len[0] = escdata_len;
 	len[1] = share ? 4 : 5;
 	len[2] = snprintf(_offset, sizeof(_offset), "%"PRIu32, length);
 	len[3] = snprintf(_length, sizeof(_length), "%"PRIu32, length);
 
-	val[0] = (char*)data;
+	val[0] = (char*)escdata;
 	val[1] = share ? "true" : "false";
 	val[2] = _offset;
 	val[3] = _length;
@@ -41,6 +54,7 @@ _spq_store_save(PGconn *pgc,
 		xsyslog(LOG_INFO, "exec store_save error: %s", _m);
 		PQclear(res);
 		Q_LOGX(tb, sizeof(len) / sizeof(*len), val, len);
+		PQfreemem(escdata);
 		return false;
 	} else if ((_l = PQgetlength(res, 0, 0)) > 0u) {
 		_m = PQgetvalue(res, 0, 0);
@@ -48,6 +62,8 @@ _spq_store_save(PGconn *pgc,
 		xsyslog(LOG_INFO, "exec store_save warning: %s", _m);
 	}
 
+	PQfreemem(escdata);
+	PQclear(res);
 	return true;
 }
 
@@ -59,7 +75,8 @@ bool spq_store_save(char *username, uint64_t device_id,
 	bool r = false;
 	struct spq *c;
 	if ((c = acquire_conn(&_spq)) != NULL) {
-		r = _spq_store_save(c->conn,
+		r = spq_begin_life(c->conn, username, device_id) &&
+			_spq_store_save(c->conn,
 				share, offset, length, data, data_len, hint);
 		release_conn(&_spq, c);
 	}
@@ -87,13 +104,13 @@ _spq_store_load(PGconn *pgc,
 	int _l = 0;
 	char *_m = NULL;
 
-	len[1] = share ? 4 : 5;
-	len[2] = snprintf(_offset, sizeof(_offset), "%"PRIu32, length);
-	len[3] = snprintf(_length, sizeof(_length), "%"PRIu32, length);
+	len[0] = share ? 4 : 5;
+	len[1] = snprintf(_offset, sizeof(_offset), "%"PRIu32, length);
+	len[2] = snprintf(_length, sizeof(_length), "%"PRIu32, length);
 
-	val[1] = share ? "true" : "false";
-	val[2] = _offset;
-	val[3] = _length;
+	val[0] = share ? "true" : "false";
+	val[1] = _offset;
+	val[2] = _length;
 
 	res = PQexecParams(pgc, tb, 3, NULL, (const char *const*)val, len, NULL, 0);
 	pqs = PQresultStatus(res);
@@ -111,8 +128,21 @@ _spq_store_load(PGconn *pgc,
 	}
 	/* получение значений */
 
-	sd->store_len = PQgetlength(res, 0, 1);
-	sd->store = (uint8_t*)PQgetvalue(res, 0, 1);
+	{
+		size_t __len = 0u;
+		sd->store =
+			(uint8_t*)PQunescapeBytea(
+					(const unsigned char*)PQgetvalue(res, 0, 1),
+					&__len);
+		sd->store_len = __len;
+		if (!sd->store && (__len = PQgetlength(res, 0, 1)) > 0) {
+
+			xsyslog(LOG_WARNING,
+					"libpq error: can't unescape %"PRIuPTR" bytes", __len);
+			spq_feed_hint(NULL, 0u, hint);
+		}
+	}
+
 	if (PQgetlength(res, 0, 2)) {
 		sd->length = (uint32_t)strtoul(PQgetvalue(res, 0, 2), NULL, 10);
 	}
@@ -152,6 +182,9 @@ void spq_store_load_free(struct spq_StoreData *sd)
 	}
 	if (sd->res) {
 		PQclear(sd->res);
+	}
+	if (sd->store) {
+		PQfreemem(sd->store);
 	}
 	memset(sd, 0u, sizeof(*sd));
 }
