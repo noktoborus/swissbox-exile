@@ -389,8 +389,8 @@ static struct handle handle[FEP__TYPE__t_max] =
 	INVALID_P_HANDLE_S(FEP__TYPE__tState, "State", state), /* 26 */
 	TYPICAL_HANDLE_S(FEP__TYPE__tQueryDevices, "QueryDevices", query_devices), /* 27 */
 	INVALID_P_HANDLE_S(FEP__TYPE__tResultDevice, "ResultDevice", result_device), /* 28 */
-	TYPICAL_HANDLE_S(FEP__TYPE__tStoreSave, "StoreSave", store_load), /* 29 */
-	TYPICAL_HANDLE_S(FEP__TYPE__tStoreLoad, "StoreLoad", store_save), /* 30 */
+	TYPICAL_HANDLE_S(FEP__TYPE__tStoreSave, "StoreSave", store_save), /* 29 */
+	TYPICAL_HANDLE_S(FEP__TYPE__tStoreLoad, "StoreLoad", store_load), /* 30 */
 	INVALID_P_HANDLE_S(FEP__TYPE__tStoreValue, "StoreValue", store_value), /* 31 */
 	INVALID_P_HANDLE_S(FEP__TYPE__tSatisfied, "Satisfied", satisfied), /* 32 */
 };
