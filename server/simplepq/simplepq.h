@@ -122,6 +122,7 @@ struct getLocalFiles {
 	void *res;
 
 	uint64_t file_id;
+
 	char *path;
 	char *owner;
 

@@ -78,8 +78,8 @@ _spq_store_load(PGconn *pgc,
 		"$1::boolean, $2::integer, $3::integer"
 		")";
 
-	char *val[4];
-	int len[4];
+	char *val[3];
+	int len[3];
 
 	char _offset[12];
 	char _length[12];
@@ -95,7 +95,7 @@ _spq_store_load(PGconn *pgc,
 	val[2] = _offset;
 	val[3] = _length;
 
-	res = PQexecParams(pgc, tb, 4, NULL, (const char *const*)val, len, NULL, 0);
+	res = PQexecParams(pgc, tb, 3, NULL, (const char *const*)val, len, NULL, 0);
 	pqs = PQresultStatus(res);
 	if (pqs != PGRES_TUPLES_OK && pqs != PGRES_EMPTY_QUERY) {
 		_m = PQresultErrorMessage(res);
