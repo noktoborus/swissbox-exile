@@ -2,6 +2,7 @@ server/bin/*
 server/proto/*
 server/user/*
 server/.*
+server/fcac_data/*
 server/dist
 *.py[cod]
 additional_flags

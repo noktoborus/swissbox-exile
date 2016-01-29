@@ -95,6 +95,7 @@ _release_conn(struct spq_root *spq, struct spq *sc)
 	pthread_mutex_unlock(&spq->mutex);
 	return;
 }
+
 #if DEEPDEBUG
 static inline struct spq*
 __acquire_conn(struct spq_root *spq, const char *funcname)

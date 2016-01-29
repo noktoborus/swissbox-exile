@@ -613,10 +613,14 @@ def proto(s, user, secret, devid, cmd = None):
     if cmd:
         cmd.reverse()
     while (type(cmd) == list and cmd and r) or cmd is None:
+        g = ""
         c = ""
         write_std('input queue len: %s\n' %(len(_input_queue)))
         if cmd:
             c = cmd.pop()
+        elif g != "" and not g is None:
+            c = g
+            g = ""
         elif cmd is None:
             c = input('help> ');
 
@@ -779,6 +783,22 @@ def proto(s, user, secret, devid, cmd = None):
             rmsg = recv_message(s, ["Error", "StoreValue"]);
             examine(rmsg)
 
+            continue
+        if c == "stress":
+            for x in xrange(0, 10000):
+                msg = FEP.Ping()
+                msg.id = random.randint(1, 10000)
+                msg.sec = 0
+                msg.usec = 0
+                send_message(s, msg)
+                msg = FEP.WantSync()
+                msg.id = random.randint(1, 10000)
+                msg.checkpoint = 0
+                msg.session_id = 1000000 + x
+                send_message(s, msg)
+                rmsg = recv_message(s, ("FileUpdate", "RootdirUpdate", "DirectoryUpdate", "Error", "Ok", "End", "State"))
+                examine(rmsg)
+            g = "ewait"
             continue
         if c == "sync":
             r = proto_sync(s)

@@ -202,6 +202,7 @@ action_files(struct main *pain, struct almsg_parser *alm, char *action)
 		for (i = 0u; spq_getLocalFiles_it(&lf); i++) {
 			snprintf(_cc, sizeof(_cc), "%"PRIu64, lf.file_id);
 			almsg_append(&ap, PSLEN("from"), PSLEN(pain->options.name));
+			/* id == location_group */
 			almsg_append(&ap, PSLEN("id"), PSLEN(_cc));
 			almsg_append(&ap, PSLEN("file"), PSLEN(lf.path));
 			almsg_append(&ap, PSLEN("owner"), PSLEN(lf.owner));

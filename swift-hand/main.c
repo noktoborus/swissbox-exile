@@ -20,12 +20,15 @@
 #include "../server/junk/xsyslog.h"
 #include "keystone-client/keystone-client.h"
 
+#include "fcac.h"
+
 /*
  * 1. интерфейс к redis
  * 2. интерфейс к swift
  */
 
 struct w {
+	struct fcac fcac;
 	struct {
 		char *auth;
 		char *service;
@@ -416,9 +419,17 @@ ossw_v1_first_container(struct w *w)
 	return container;
 }
 
+
+/*
+ * path: локальный путь к файлу
+ * container: название контейнера
+ * uniq_name: уникальное имя в контейнере
+ * lid: id файла
+ * target_resource: выходной параметр, путь к загруженному файлу
+ */
 bool
 ossw_v1_upload(struct w *w, const char *path, char *container, char *uniq_name,
-		char target_resource[PATH_MAX])
+		uint64_t lid, char target_resource[PATH_MAX])
 {
 	/*
 	http://docs.rackspace.com/files/api/v1/cf-devguide/content/objectServicesOperations_d1e000.html
@@ -430,78 +441,68 @@ ossw_v1_upload(struct w *w, const char *path, char *container, char *uniq_name,
 	CURLcode res;
 	long httpcode = 0l;
 	struct curl_slist *header = NULL;
-	off_t file_sz = 0ul;
-	FILE *file_src = NULL;
-	struct stat st;
+	/*off_t file_sz = 0ul;*/
+	struct fcac_ptr fp = {0};
 
-	if (stat(path, &st) == -1) {
-		xsyslog(LOG_WARNING, "stat(%s) failed: %s",
-				path, strerror(errno));
-		return false;
-	}
+	char *_tr = NULL;
 
-	if (st.st_size == 0ul) {
-		/* TODO: не нужно сообщать или использовать какую-то метку
-		 * в нормальных ситуациях файлов с _нулевым_ размером быть не должно
-		 */
-		xsyslog(LOG_INFO, "stat(%s) file size is zero",
-				path);
-		return false;
-	}
-
-	if (!(file_src = fopen(path, "r"))) {
-		/* TODO: предпологается что ошибка постоянная, потому нужно
-		 * ставить какой-то флаг, что этот файл не операбелен
-		 */
-		xsyslog(LOG_WARNING, "fopen(%s) error: %s", path, strerror(errno));
-		return false;
-	}
-
+	memset(&fp, 0, sizeof(fp));
 
 	if (!container || !*container) {
 		container = w->e.garbage_catalog;
 	}
 
 	if (!*container) {
-		xsyslog(LOG_INFO, "container not setted for upload");
-		fclose(file_src);
+		xsyslog(LOG_INFO,
+				"container not setted for upload, file#%"PRIu64" skip", lid);
 		return false;
 	}
 
 	if (!ossw_v1_create_container(w, container)) {
-		fclose(file_src);
+		xsyslog(LOG_DEBUG,
+				"container not created for file#%"PRIu64", skip", lid);
+		return false;
+	}
+
+	/* TODO: нужно открывать только на чтение (FCAC_READ_ONLY) */
+	if (!fcac_open(&w->fcac, lid, &fp, FCAC_PREFERRED_FILE)) {
+		xsyslog(LOG_DEBUG,
+				"can't get access in cache for file#%"PRIu64", skip", lid);
+		return false;
+	}
+
+	if (fcac_is_ready(&fp) != FCAC_READY) {
+		xsyslog(LOG_WARNING,
+				"file#%"PRIu64" not ready for reading, skip", lid);
 		return false;
 	}
 
 	snprintf(buf, sizeof(buf), "%s/%s", container, uniq_name);
 	if (!(curl = _curl_init(w, buf, &header))) {
-		fclose(file_src);
+		fcac_close(&fp);
 		return false;
 	}
 
 	curl_easy_setopt(curl, CURLOPT_UPLOAD, 1L);
 	curl_easy_setopt(curl, CURLOPT_PUT, 1L);
 
-	curl_easy_setopt(curl, CURLOPT_READDATA, file_src);
+	curl_easy_setopt(curl, CURLOPT_READDATA, &fp);
 
-	curl_easy_setopt(curl, CURLOPT_INFILESIZE_LARGE,
-			(curl_off_t)file_sz);
+	/*curl_easy_setopt(curl, CURLOPT_INFILESIZE_LARGE,
+			(curl_off_t)file_sz);*/
 
-	{
-		char *_tr = NULL;
-		curl_easy_getinfo(curl, CURLINFO_EFFECTIVE_URL, &_tr);
-		if (_tr) {
-			/* отбрасывается базовая часть */
-			_tr += strlen(w->c.service);
-			memset(target_resource, 0u, PATH_MAX);
-			memcpy(target_resource, _tr, strlen(_tr));
-		} else {
-			xsyslog(LOG_WARNING, "curl error: no url for '%s'", path);
-			fclose(file_src);
-			curl_easy_cleanup(curl);
-			curl_slist_free_all(header);
-			return false;
-		}
+	curl_easy_getinfo(curl, CURLINFO_EFFECTIVE_URL, &_tr);
+	if (_tr) {
+		/* отбрасывается базовая часть */
+		_tr += strlen(w->c.service);
+		memset(target_resource, 0u, PATH_MAX);
+		memcpy(target_resource, _tr, strlen(_tr));
+	} else {
+		xsyslog(LOG_WARNING, "curl error: no url for '%s'", path);
+		fcac_close(&fp);
+		curl_easy_cleanup(curl);
+		curl_slist_free_all(header);
+		return false;
 	}
 
 	res = curl_easy_perform(curl);
@@ -513,21 +514,22 @@ ossw_v1_upload(struct w *w, const char *path, char *container, char *uniq_name,
 	curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &httpcode);
 
 	if (httpcode != 201l) {
-		xsyslog(LOG_WARNING, "upload(%s) not completed, response code: %ld",
-				path, httpcode);
+		xsyslog(LOG_WARNING,
+				"upload(%s:%"PRIu64") not completed, response code: %ld (url: %s)",
+				path, lid, httpcode, _tr);
 		retval = false;
 	}
 
 	curl_easy_cleanup(curl);
 	curl_slist_free_all(header);
-	fclose(file_src);
+	fcac_close(&fp);
 
 	return retval;
 }
 
 bool
 process_file(struct main *pain, const char *owner, const char *path,
-		char target_resource[PATH_MAX])
+		uint64_t lid, char target_resource[PATH_MAX])
 {
 	/* предпологается что путь к файлу представляет собой уникальный
 	 * идентификатор, потому уникальное имя файла
@@ -535,17 +537,24 @@ process_file(struct main *pain, const char *owner, const char *path,
 	 *
 	 * имя пользователя используется в качестве контейнера
 	 */
+	char extra[PATH_MAX + 1] = {0};
 	char h_sha256[32] = {0};
 	char h_sha256_hex[128] = {0};
+	size_t extra_l = 0u;
+
 	memset(h_sha256, 0u, sizeof(h_sha256));
 	memset(h_sha256_hex, 0u, sizeof(h_sha256_hex));
-	sha256((const unsigned char*)path, strlen(path),
-			(unsigned char *)h_sha256, 0);
-	bin2hex((uint8_t*)h_sha256, sizeof(h_sha256) * sizeof(uint8_t),
+	extra_l =
+		snprintf(extra, sizeof(extra), "%s:%"PRIu64":%s", owner, lid, path);
+
+	sha256((const unsigned char*)extra, extra_l, (unsigned char *)h_sha256, 0);
+	bin2hex((uint8_t*)h_sha256,
+			sizeof(h_sha256) * sizeof(uint8_t),
 			h_sha256_hex, sizeof(h_sha256_hex));
+
 	/* попытки залить файл */
 	if (ossw_v1_upload(&pain->w, path, (char*)owner, h_sha256_hex,
-				target_resource)) {
+				lid, target_resource)) {
 		return true;
 	}
 
@@ -556,6 +565,7 @@ void
 rdc_blpop_cb(redisAsyncContext *ac, redisReply *r, struct main *pain)
 {
 	struct almsg_parser ap;
+	uint64_t lid = 0u; /* location group */
 	const char *id = NULL;
 	const char *owner = NULL;
 	const char *path = NULL;
@@ -594,8 +604,10 @@ rdc_blpop_cb(redisAsyncContext *ac, redisReply *r, struct main *pain)
 		return;
 	}
 
+	lid = (uint64_t)strtoull(id, NULL, 10);
+
 	snprintf(_path, sizeof(_path), "%s/%s", pain->options.cache_dir, path);
-	if (process_file(pain, owner, path, target_resource)) {
+	if (process_file(pain, owner, _path, lid, target_resource)) {
 		struct almsg_parser rap;
 		char *rap_buf = NULL;
 		size_t rap_bsz;
@@ -695,7 +707,7 @@ main(int argc, char *argv[])
 	/* базовые значения */
 	pain.options.redis_chan = strdup("fep_broadcast");
 	pain.options.name = strdup("swift-hand");
-	pain.options.cache_dir = strdup("../server/user");
+	pain.options.cache_dir = strdup("../server/fcac_data");
 
 	pain.w.t.url = strdup("https://swissbox-swift.it-grad.ru/v2.0/tokens");
 	pain.w.t.tenant = strdup("project01");
@@ -732,6 +744,7 @@ main(int argc, char *argv[])
 	}
 
 	openlog(NULL, LOG_PERROR | LOG_PID, LOG_LOCAL0);
+	fcac_init(&pain.w.fcac, false);
 	xsyslog(LOG_INFO, "--- START ---");
 #if 1
 	if (curl_global_init(CURL_GLOBAL_ALL))  {
@@ -739,6 +752,8 @@ main(int argc, char *argv[])
 		return EXIT_FAILURE;
 	}
 #endif
+	/* setup fcac */
+	fcac_set(&pain.w.fcac, FCAC_PATH, pain.options.cache_dir);
 	/* begin */
 	swift_token(&pain.w);
 	rloop(&pain);
@@ -752,6 +767,7 @@ main(int argc, char *argv[])
 	free(pain.options.redis_chan);
 	free(pain.options.name);
 	free(pain.options.cache_dir);
+	fcac_destroy(&pain.w.fcac);
 
 	return EXIT_SUCCESS;
 }

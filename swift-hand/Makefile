@@ -1,9 +1,10 @@
 # vim: ft=make ff=unix fenc=utf-8
 # file: Makefile
 LIBS=`pkg-config --libs --cflags json-c` -lhiredis -lpthread
-CFLAGS=-ggdb2 -D_GNU_SOURCE -D_POSIX_C_SOURCE -D_BSD_SOURCE -D_DEFAULT_SOURCE -Wall -pedantic -std=c99 -I. -I../server
+CFLAGS=-ggdb2 -D_GNU_SOURCE -D_POSIX_C_SOURCE -D_BSD_SOURCE -D_DEFAULT_SOURCE -Wall -pedantic -std=c99 -I. -I../server -I../server/src/fcac
 BIN=swift-hand
 SRC=main.c keystone-client/keystone-client.c rdc.c ../server/junk/utils.c ../server/junk/almsg.c
+FCAC=../server/src/fcac/fcac.c
 
 all: ${BIN}
 
@@ -19,5 +20,5 @@ all: ${BIN}
 	echo -n " " >>.buildflags
 
 ${BIN}: ${SRC} .buildflags
-	${CC} -o ${BIN} ${CFLAGS} ${SRC} ${LIBS} `cat .buildflags` ${BUILDFLAGS}
+	${CC} -o ${BIN} ${CFLAGS} ${SRC} ${FCAC} ${LIBS} `cat .buildflags` ${BUILDFLAGS}
 
