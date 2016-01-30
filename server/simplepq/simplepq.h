@@ -7,18 +7,24 @@
  * менеджмент подключения к pgsql,
  * ерунда для простого выполнения запросов
  */
+#include <ev.h>
+
 #include "junk/guid.h"
 #include "junk/utils.h"
 #include <stdbool.h>
 #include <libpq-fe.h>
 
-/* открытие подключений к бд, pool -- количество подключений */
+
+/* открытие подключений к бд, pool -- количество подключений
+ * потоко-небезопасная функция
+ */
 void spq_open(unsigned pool, char *pgstring);
+/* закрытие менеджера подключений. Потоко-небезопасная функция */
+void spq_close();
 void spq_resize(unsigned pool);
 
 /* включение/выключение печать в лог запросов с ошибками */
 void spq_set_log_failed_queries(bool enable);
-void spq_close();
 
 bool spq_create_tables();
 

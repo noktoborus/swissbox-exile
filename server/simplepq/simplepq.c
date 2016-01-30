@@ -20,9 +20,9 @@
 
 /* предпологается что везде одинаковые переменные */
 #define Q_LOG(q) \
-	{ if (_spq.log_failed_queries) _spq_log_expand(q, 0, NULL, NULL); }
+	{ if (_spq.options.log_failed_queries) _spq_log_expand(q, 0, NULL, NULL); }
 #define Q_LOGX(q, n, val, len) \
-	{ if (_spq.log_failed_queries) \
+	{ if (_spq.options.log_failed_queries) \
 		_spq_log_expand(q, n, (const char *const*)val, len); }
 
 bool spq_feed_hint(const char *msg, size_t msglen, struct spq_hint *hint);
