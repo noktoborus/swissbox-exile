@@ -38,6 +38,8 @@ static struct spq_root {
 	struct ev_cleanup sig_cleanup;
 	/* захват подключения */
 	struct ev_async sig_acquire;
+	/* сообщение о необходимости сброса всех подключений */
+	struct ev_async sig_int;
 	/* сообщение о необходимости выхода */
 	struct ev_async exit;
 	/* обновление конфигурации */
@@ -375,6 +377,20 @@ spq_timer_cb(struct ev_loop *loop, ev_timer *w, int revents)
 }
 
 static void
+spq_int_cb(struct ev_loop *loop, ev_cleanup *w, int revents)
+{
+	struct spq_root *spq = ev_userdata(loop);
+	struct spq *sc = NULL;
+	struct spq *sp = NULL;
+	xsyslog(LOG_INFO, "spq mgm: interrupt");
+	/* сопсно всё прерывание заключается в принудительном удалением ссылок */
+	for (sc = spq->first; sc; sc = sp) {
+		sp = sc->next;
+		_free_spq(spq, sc);
+	}
+}
+
+static void
 spq_cleanup_cb(struct ev_loop *loop, ev_cleanup *w, int revents)
 {
 	struct spq_root *spq = ev_userdata(loop);
@@ -516,15 +532,17 @@ spq_open(unsigned pool, char *pgstring)
 		xsyslog(LOG_INFO, "manager thread started: %p", (void*)_spq.mgm);
 
 		/* инициализация сигналов */
+		ev_async_init(&_spq.sig_int, spq_int_cb);
 		ev_async_init(&_spq.sig_acquire, spq_acquire_cb);
 		ev_async_init(&_spq.exit, spq_exit_cb);
 		ev_async_init(&_spq.update, spq_update_cb);
-		ev_timer_init(&_spq.timer, spq_timer_cb, .5, .10);
-		ev_timer_init(&_spq.ping, spq_ping_cb, .35, 30);
+		ev_timer_init(&_spq.timer, spq_timer_cb, 0., 5.);
+		ev_timer_init(&_spq.ping, spq_ping_cb, 35., 30.);
 		ev_cleanup_init(&_spq.sig_cleanup, spq_cleanup_cb);
 
 		ev_set_userdata(_spq.loop, &_spq);
 
+		ev_async_start(_spq.loop, &_spq.sig_int);
 		ev_async_start(_spq.loop, &_spq.sig_acquire);
 		ev_async_start(_spq.loop, &_spq.exit);
 		ev_async_start(_spq.loop, &_spq.update);
@@ -592,6 +610,14 @@ spq_set_address(char *pgstring)
 }
 
 void
+spq_interrupt()
+{
+	if (!_spq.inited)
+		return;
+	ev_async_send(_spq.loop, &_spq.sig_int);
+}
+
+void
 spq_close()
 {
 	void *n = NULL;
@@ -607,6 +633,7 @@ spq_close()
 	_spq.inited = false;
 
 	/* деинициализация цикла */
+	ev_async_stop(_spq.loop, &_spq.sig_int);
 	ev_async_stop(_spq.loop, &_spq.sig_acquire);
 	ev_async_stop(_spq.loop, &_spq.exit);
 	ev_async_stop(_spq.loop, &_spq.update);

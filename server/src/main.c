@@ -1438,6 +1438,8 @@ main(int argc, char *argv[])
 				cfg_update(&pain);
 				/* выход происходит при остановке всех evio в лупе */
 				ev_run(loop, 0);
+				/* сначала прерываем все запросы к бд */
+				spq_interrupt();
 				/* чистка серверных сокетов */
 				while (server_free(loop, pain.sev));
 			} else {

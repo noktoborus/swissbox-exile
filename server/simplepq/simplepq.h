@@ -19,6 +19,8 @@
  * потоко-небезопасная функция
  */
 void spq_open(unsigned pool, char *pgstring);
+/* прерывание всех запросов */
+void spq_interrupt();
 /* закрытие менеджера подключений. Потоко-небезопасная функция */
 void spq_close();
 void spq_resize(unsigned pool);
