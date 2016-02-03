@@ -3,6 +3,9 @@
  */
 
 struct spq {
+	/* сигнал для освобождения структуры */
+	struct ev_async release;
+
 	PGconn *conn;
 
 	/* хеш строки подключения
@@ -10,7 +13,6 @@ struct spq {
 	 */
 	uint32_t pgstring_hash;
 
-	struct timeval lc; /* последняя проверка статуса */
 	uint32_t errhash;
 	bool mark_active;
 
@@ -32,14 +34,26 @@ struct spq_options {
 static struct spq_root {
 	struct ev_loop *loop;
 
+	/* срабатывает при выходе из ev_loop */
+	struct ev_cleanup sig_cleanup;
+	/* захват подключения */
+	struct ev_async sig_acquire;
+	/* сообщение о необходимости выхода */
 	struct ev_async exit;
+	/* обновление конфигурации */
 	struct ev_async update;
+	/* уборка */
 	struct ev_timer timer;
+	/* пинг подключений */
 	struct ev_timer ping;
 
 	pthread_t mgm;
+	pthread_mutex_t mgm_lock;
 
 	bool inited;
+
+	/* блокировка опций для пущей безопасности */
+	pthread_mutex_t options_lock;
 	/* структура для
 	 * обновления конфигурации
 	 * сначала значения изменяются в этих полях
@@ -58,7 +72,16 @@ static struct spq_root {
 
 	struct {
 		struct spq *sc;
+		pthread_mutex_t lock;
+		pthread_cond_t cond;
+		/* ожидает ли кто-нибудь подключения
+		 * будем считать что wait атомарный
+		 */
+		bool wait;
+		size_t wait_count;
 	} acquire;
+
+	unsigned active;
 
 	struct spq *first;
 } _spq;
@@ -66,11 +89,11 @@ static struct spq_root {
 #if DEEPDEBUG
 static void
 spq_ac() {
-#if 0
 	unsigned c = 1u;
 	struct spq *sc;
-	xsyslog(LOG_USER, "stats: (pool=%u, end=%s, active=%u)\n",
-			_spq.pool, _spq.end ? "yes" : "no", _spq.active);
+	xsyslog(LOG_USER, "stats: (pool=%u, active=%u)\n",
+			_spq.options.pool, _spq.active);
+
 	for (sc = _spq.first; sc; sc = sc->next, c++) {
 		xsyslog(LOG_USER,
 				"n#%02u: active: %s, acquired: %s (%u), status: %d @ %p\n",
@@ -81,7 +104,6 @@ spq_ac() {
 				PQstatus(sc->conn),
 				(void*)sc);
 	}
-#endif
 }
 
 #endif
@@ -90,42 +112,41 @@ spq_ac() {
 static struct spq*
 _acquire_conn(struct spq_root *spq)
 {
-	/* TODO: */
-#if 0
-	struct spq *c = NULL;
-	while(c == NULL) {
-		/* процедура выполняется параллельно */
-		pthread_mutex_lock(&spq->mutex);
-		if (spq->end)
-			break;
-		if (!spq->acquire.sc) {
-			pthread_cond_signal(&spq->cond);
-		} else {
-			c = spq->acquire.sc;
-			c->mark_active = true;
+	struct spq *sc = NULL;
+	/* отправка сообщения о готовности захватить ресурс */
+	ev_async_send(spq->loop, &spq->sig_acquire);
+	/* ожидание ответа */
+	pthread_mutex_lock(&spq->acquire.lock);
+	/* инкриментация счётчика ожидания */
+	if (++spq->acquire.wait_count)
+		spq->acquire.wait = true;
+
+	/*
+	 * захват подключения происходит в
+	 * spq_release_cb, spq_acquire_cb, spq_timer_cb
+	 */
+	/* FIXME: use pthread_cond_timedwait() */
+	if (!pthread_cond_wait(&spq->acquire.cond, &spq->acquire.lock)) {
+		/* сигнал пришёл, загребаем указатель */
+		if ((sc = spq->acquire.sc) != NULL) {
+			sc->mark_active = true;
 			spq->acquire.sc = NULL;
-			spq->active++;
 		}
-		pthread_mutex_unlock(&spq->mutex);
 	}
-	return c;
-#endif
-	return NULL;
+
+	if (!--spq->acquire.wait_count)
+		spq->acquire.wait = false;
+
+	pthread_mutex_unlock(&spq->acquire.lock);
+	return sc;
 }
 
 /* возвращение захваченного ресурса в пул */
 static void
 _release_conn(struct spq_root *spq, struct spq *sc)
 {
-	/* TODO: */
-#if 0
-	/* процедура выполняется параллельно */
-	pthread_mutex_lock(&spq->mutex);
-	sc->mark_active = false;
-	spq->active--;
-	pthread_mutex_unlock(&spq->mutex);
-	return;
-#endif
+	/* всё что нужно сделать здесь -- свиснуть в событие */
+	ev_async_send(spq->loop, &sc->release);
 }
 
 #if DEEPDEBUG
@@ -137,6 +158,8 @@ __acquire_conn(struct spq_root *spq, const char *funcname)
 		xsyslog(LOG_DEBUG, "acquire %p in %s", (void*)c, funcname);
 		c->acquired_by = funcname;
 		c->acquires++;
+	} else {
+		xsyslog(LOG_DEBUG, "acquire fail in %s", funcname);
 	}
 	return c;
 }
@@ -173,15 +196,88 @@ _free_spq(struct spq_root *spq, struct spq *sc)
 	if (spq->first == sc)
 		spq->first = (sc->next ? sc->next : sc->prev);
 
-	xsyslog(LOG_INFO, "spq con[%p] close", (void*)sc);
+	ev_async_stop(spq->loop, &sc->release);
+
+	xsyslog(LOG_INFO,
+			"spq con[%p] close, active = %s",
+			(void*)sc, (sc->mark_active ? "yes" : "no"));
 	free(sc);
 }
 
 static void*
 _thread_mgm(struct spq_root *spq)
 {
+	/* синхронизация запуска */
+	pthread_mutex_lock(&spq->mgm_lock);
+	pthread_mutex_unlock(&spq->mgm_lock);
+	pthread_mutex_destroy(&spq->mgm_lock);
+
 	ev_run(spq->loop, 0);
 	return NULL;
+}
+
+static void
+spq_acquire_cb(struct ev_loop *loop, ev_async *w, int revents)
+{
+	struct spq_root *spq = ev_userdata(loop);
+	struct spq *sc = NULL;
+
+	pthread_mutex_lock(&spq->acquire.lock);
+	if (!spq->acquire.sc) {
+		/* поиск свободного подключения */
+		for (sc = spq->first; sc; sc = sc->next) {
+			if (!sc->mark_active && sc->conn) {
+				spq->active++;
+				spq->acquire.sc = sc;
+			}
+		}
+	}
+	/* установка флага */
+	if (!spq->acquire.sc) {
+		spq->acquire.wait = true;
+	} else {
+		/*
+		 * сигнал отправляется только в случае успешного захвата
+		 */
+		pthread_cond_signal(&spq->acquire.cond);
+	}
+
+	pthread_mutex_unlock(&spq->acquire.lock);
+}
+
+static void
+spq_release_cb(struct ev_loop *loop, ev_async *w, int revents)
+{
+	struct spq_root *spq = ev_userdata(loop);
+	struct spq *sc = (void*)w;
+
+	/* проверка состояния и захват */
+	if (PQstatus(sc->conn) != CONNECTION_OK) {
+		PQfinish(sc->conn);
+		sc->conn = NULL;
+	} if (spq->acquire.wait) {
+		/* захват подключения */
+		pthread_mutex_lock(&spq->acquire.lock);
+		spq->acquire.sc = sc;
+
+		pthread_cond_signal(&spq->acquire.cond);
+		if (!sc->mark_active) {
+			sc->mark_active = true;
+			xsyslog(LOG_WARNING,
+					"spq con[%p] error: unexpected free connection", (void*)sc);
+			spq->active++;
+		}
+
+		pthread_mutex_unlock(&spq->acquire.lock);
+	} else {
+		if (sc->mark_active) {
+			sc->mark_active = false;
+			spq->active--;
+		} else {
+			xsyslog(LOG_WARNING,
+					"spq con[%p] error: unexpected release message", (void*)sc);
+		}
+	}
 }
 
 static void
@@ -208,11 +304,15 @@ spq_timer_cb(struct ev_loop *loop, ev_timer *w, int revents)
 				} else {
 					spq->first = sc;
 				}
+
+				ev_async_init(&sc->release, spq_release_cb);
+				ev_async_start(spq->loop, &sc->release);
 			} else {
 				xsyslog(LOG_INFO, "spq new connection error: %s",
 						strerror(errno));
 			}
 		}
+
 		if (sc->mark_active)
 			continue;
 
@@ -242,10 +342,23 @@ spq_timer_cb(struct ev_loop *loop, ev_timer *w, int revents)
 			}
 		}
 
-		/* подключение */
+		/* новое подключение */
 		sc->pgstring_hash = hash_pjw(PSLEN(spq->options.pgstring));
-		sc->conn = PQconnectdb(spq->options.pgstring);
-		PQsetErrorVerbosity(sc->conn, PQERRORS_TERSE);
+		if (!(sc->conn = PQconnectdb(spq->options.pgstring))) {
+			xsyslog(LOG_INFO,
+					"spq con[%p] new connection error: %s",
+					(void*)sc, strerror(errno));
+		} else {
+			PQsetErrorVerbosity(sc->conn, PQERRORS_TERSE);
+			/* проверяем, есть ли кто у нас на ожидании и выполняем захват */
+			if (spq->acquire.wait) {
+				pthread_mutex_lock(&spq->acquire.lock);
+				spq->acquire.sc = sc;
+				spq->active++;
+				pthread_cond_signal(&spq->acquire.cond);
+				pthread_mutex_unlock(&spq->acquire.lock);
+			}
+		}
 	}
 
 	/* отсекание лишних подключений */
@@ -259,6 +372,24 @@ spq_timer_cb(struct ev_loop *loop, ev_timer *w, int revents)
 		_free_spq(spq, sc);
 	}
 	return;
+}
+
+static void
+spq_cleanup_cb(struct ev_loop *loop, ev_cleanup *w, int revents)
+{
+	struct spq_root *spq = ev_userdata(loop);
+	struct spq *sc = NULL;
+	struct spq *sp = NULL;
+	xsyslog(LOG_INFO, "spq mgm: cleanup");
+
+	/* отчистка списка подключений */
+	for (sc = spq->first; sc; sc = sp) {
+		sp = sc->next;
+		_free_spq(spq, sc);
+	}
+
+
+	ev_cleanup_stop(loop, w);
 }
 
 static void
@@ -282,7 +413,37 @@ spq_update_cb(struct ev_loop *loop, ev_async *w, int revents)
 {
 	struct spq_root *spq = ev_userdata(loop);
 	xsyslog(LOG_INFO, "spq manager: update configuration");
-	/* TODO */
+	/* проверка на изменения и применение конфигурации */
+
+	pthread_mutex_lock(&spq->options_lock);
+
+	if (spq->options_in.pgstring &&
+			spq->options_in.pgstring != spq->options.pgstring) {
+		/* проверки по указателя должно хватить */
+		free(spq->options.pgstring);
+		/* перенос значения и чистка указателя */
+		spq->options.pgstring = spq->options_in.pgstring;
+		spq->options_in.pgstring = NULL;
+		/* обновление хеша */
+		spq->pgstring_hash = hash_pjw(PSLEN(spq->options.pgstring));
+		xsyslog(LOG_INFO,
+				"spq manager: new pgstring: %s", spq->options.pgstring);
+	}
+
+	if (spq->options_in.log_failed_queries != spq->options.log_failed_queries) {
+		spq->options.log_failed_queries = spq->options_in.log_failed_queries;
+		xsyslog(LOG_INFO,
+				"spq manager: log_failed_queries set to %s",
+				spq->options.log_failed_queries ? "enabled" : "disabled");
+	}
+
+	if (spq->options_in.pool != spq->options.pool) {
+		spq->options.pool = spq->options_in.pool;
+		xsyslog(LOG_INFO,
+					"spq manager: pool size set to %u",
+					spq->options.pool);
+	}
+	pthread_mutex_unlock(&spq->options_lock);
 }
 
 /* должно вызываться после старта треда */
@@ -345,25 +506,40 @@ spq_open(unsigned pool, char *pgstring)
 	memcpy(&_spq.options_in, &_spq.options, sizeof(struct spq_options));
 
 	_spq.inited = true;
+
+	/* синхронизация запуска */
+	pthread_mutex_init(&_spq.mgm_lock, NULL);
+	pthread_mutex_lock(&_spq.mgm_lock);
 	/* создание нового потока */
-	if (pthread_create(&_spq.mgm, NULL,
+	if (!pthread_create(&_spq.mgm, NULL,
 				(void*(*)(void*))_thread_mgm, (void*)&_spq)) {
 		xsyslog(LOG_INFO, "manager thread started: %p", (void*)_spq.mgm);
 
 		/* инициализация сигналов */
+		ev_async_init(&_spq.sig_acquire, spq_acquire_cb);
 		ev_async_init(&_spq.exit, spq_exit_cb);
 		ev_async_init(&_spq.update, spq_update_cb);
 		ev_timer_init(&_spq.timer, spq_timer_cb, .5, .10);
 		ev_timer_init(&_spq.ping, spq_ping_cb, .35, 30);
+		ev_cleanup_init(&_spq.sig_cleanup, spq_cleanup_cb);
 
 		ev_set_userdata(_spq.loop, &_spq);
 
+		ev_async_start(_spq.loop, &_spq.sig_acquire);
 		ev_async_start(_spq.loop, &_spq.exit);
 		ev_async_start(_spq.loop, &_spq.update);
 		ev_timer_start(_spq.loop, &_spq.timer);
 		ev_timer_start(_spq.loop, &_spq.ping);
+		ev_cleanup_start(_spq.loop, &_spq.sig_cleanup);
+
+		pthread_mutex_init(&_spq.options_lock, NULL);
+		pthread_mutex_init(&_spq.acquire.lock, NULL);
+		pthread_cond_init(&_spq.acquire.cond, NULL);
+
+		pthread_mutex_unlock(&_spq.mgm_lock);
 		/* запустились */
 	} else {
+		pthread_mutex_destroy(&_spq.mgm_lock);
 		_spq.inited = false;
 		_spq_clear(&_spq);
 		xsyslog(LOG_ERR,
@@ -375,22 +551,44 @@ spq_open(unsigned pool, char *pgstring)
 void
 spq_resize(unsigned pool)
 {
+	pthread_mutex_lock(&_spq.options_lock);
+
 	if (pool == _spq.options_in.pool)
 		return;
 	xsyslog(LOG_INFO, "spq: resize pool: %u -> %u", _spq.options_in.pool, pool);
 	_spq.options_in.pool = pool;
 	ev_async_send(_spq.loop, &_spq.update);
+
+	pthread_mutex_unlock(&_spq.options_lock);
 }
 
 void
 spq_set_log_failed_queries(bool enable)
 {
+	pthread_mutex_lock(&_spq.options_lock);
+
 	if (enable == _spq.options_in.log_failed_queries)
 		return;
 	xsyslog(LOG_INFO,
 			"spq: set log_failed_queries to %s", enable ? "true" : "false");
 	_spq.options_in.log_failed_queries = enable;
 	ev_async_send(_spq.loop, &_spq.update);
+
+	pthread_mutex_unlock(&_spq.options_lock);
+}
+
+void
+spq_set_address(char *pgstring)
+{
+	pthread_mutex_lock(&_spq.options_lock);
+
+	if (_spq.options_in.pgstring) {
+		free(_spq.options_in.pgstring);
+	}
+	/* копирование, потому что хрен знает что нам передали */
+	_spq.options_in.pgstring = strdup(pgstring);
+
+	pthread_mutex_unlock(&_spq.options_lock);
 }
 
 void
@@ -404,12 +602,24 @@ spq_close()
 	xsyslog(LOG_INFO, "spq manager: wait exit...");
 	pthread_join(_spq.mgm, &n);
 
+	pthread_cond_broadcast(&_spq.acquire.cond);
+
 	_spq.inited = false;
 
 	/* деинициализация цикла */
+	ev_async_stop(_spq.loop, &_spq.sig_acquire);
 	ev_async_stop(_spq.loop, &_spq.exit);
 	ev_async_stop(_spq.loop, &_spq.update);
 	ev_timer_stop(_spq.loop, &_spq.timer);
+
+	pthread_mutex_destroy(&_spq.options_lock);
+	pthread_mutex_destroy(&_spq.acquire.lock);
+	pthread_cond_destroy(&_spq.acquire.cond);
+
+	_spq_clear(&_spq);
+
+	ev_loop_destroy(_spq.loop);
+	memset(&_spq, 0, sizeof(_spq));
 }
 
 void
@@ -459,3 +669,4 @@ _spq_log_expand(const char *query,
 	}
 
 }
+

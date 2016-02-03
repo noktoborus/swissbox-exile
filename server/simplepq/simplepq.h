@@ -25,6 +25,8 @@ void spq_resize(unsigned pool);
 
 /* включение/выключение печать в лог запросов с ошибками */
 void spq_set_log_failed_queries(bool enable);
+/* изменения адреса подключения */
+void spq_set_address(char *pgstring);
 
 bool spq_create_tables();
 
