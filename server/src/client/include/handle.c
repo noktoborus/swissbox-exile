@@ -649,6 +649,7 @@ _handle_read_ask(struct client *c, unsigned type, Fep__ReadAsk *msg)
 		}
 
 		spq_getChunkInfo_free(&cnfo);
+		client_reqs_release(c, H_REQS_SQL);
 		return _r;
 	}
 }
