@@ -209,6 +209,9 @@ _free_spq(struct spq_root *spq, struct spq *sc)
 static void*
 _thread_mgm(struct spq_root *spq)
 {
+#if __USE_GNU
+	pthread_setname_np(pthread_self(), "SimplePQ");
+#endif
 	/* синхронизация запуска */
 	pthread_mutex_lock(&spq->mgm_lock);
 	pthread_mutex_unlock(&spq->mgm_lock);

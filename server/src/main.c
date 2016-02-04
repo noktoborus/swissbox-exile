@@ -178,6 +178,12 @@ client_io_cb(struct ev_loop *loop, ev_io *w, int revents)
 void *
 client_main(struct sev_ctx *cev)
 {
+#if __USE_GNU
+	char _thread_name[128] = {0};
+	snprintf(_thread_name, sizeof(_thread_name) - 1,
+			"client#%"SEV_LOG, cev->serial);
+	pthread_setname_np(pthread_self(), _thread_name);
+#endif
 	/* регистрация себя */
 	ev_set_userdata(cev->loop, (void*)cev);
 
