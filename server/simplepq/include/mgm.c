@@ -93,8 +93,10 @@ static void
 spq_ac() {
 	unsigned c = 1u;
 	struct spq *sc;
-	xsyslog(LOG_USER, "stats: (pool=%u, active=%u)\n",
-			_spq.options.pool, _spq.active);
+	xsyslog(LOG_USER,
+			"stats: (pool=%u, active=%u, wait=%s, wait_count=%"PRIuPTR")\n",
+			_spq.options.pool, _spq.active,
+			_spq.acquire.wait ? "yes" : "no", _spq.acquire.wait_count);
 
 	for (sc = _spq.first; sc; sc = sc->next, c++) {
 		xsyslog(LOG_USER,
@@ -234,6 +236,7 @@ spq_acquire_cb(struct ev_loop *loop, ev_async *w, int revents)
 			if (!sc->mark_active && sc->conn) {
 				spq->active++;
 				spq->acquire.sc = sc;
+				break;
 			}
 		}
 	}
