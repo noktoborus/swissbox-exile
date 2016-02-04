@@ -20,9 +20,9 @@
 
 /* предпологается что везде одинаковые переменные */
 #define Q_LOG(q) \
-	{ if (_spq.options.log_failed_queries) _spq_log_expand(q, 0, NULL, NULL); }
+	{ if (_root.log_failed_queries) _spq_log_expand(q, 0, NULL, NULL); }
 #define Q_LOGX(q, n, val, len) \
-	{ if (_spq.options.log_failed_queries) \
+	{ if (_root.log_failed_queries) \
 		_spq_log_expand(q, n, (const char *const*)val, len); }
 
 bool spq_feed_hint(const char *msg, size_t msglen, struct spq_hint *hint);
@@ -46,19 +46,19 @@ bool
 spq_create_tables()
 {
 	const char *const tb = "SELECT fepserver_installed();";
-	struct spq *sc;
+	struct spq_key *k;
 	PGresult *res;
 	ExecStatusType pqs;
-	sc = acquire_conn(&_spq);
-	if (!sc)
+	k = spq_vote(NULL, 0u);
+	if (!k)
 		return false;
 
-	res = PQexec(sc->conn, tb);
+	res = PQexec(k->c, tb);
 	pqs = PQresultStatus(res);
 	if (pqs != PGRES_TUPLES_OK) {
 		xsyslog(LOG_ERR, "postgresql: %s", PQresultErrorMessage(res));
 		xsyslog(LOG_ERR, "please inject sql/struct.sql into db");
-		release_conn(&_spq, sc);
+		spq_devote(k);
 		PQclear(res);
 		Q_LOG(tb);
 		return false;
@@ -71,7 +71,7 @@ spq_create_tables()
 			xsyslog(LOG_ERR, "expected and db version differ (%s != %s). "
 					"Please, update database from sql/struct.sql file",
 					S(SQLSTRUCTVER), version);
-			release_conn(&_spq, sc);
+			spq_devote(k);
 			PQclear(res);
 			return false;
 		}
@@ -81,7 +81,7 @@ spq_create_tables()
 	}
 	PQclear(res);
 
-	release_conn(&_spq, sc);
+	spq_devote(k);
 	return true;
 }
 
@@ -869,37 +869,6 @@ spq_insert_revision(char *username, uint64_t device_id,
 		release_conn(&_spq, c);
 	}
 	return r;
-}
-
-bool
-spq_begin_life(PGconn *pgc, char *username, uint64_t device_id)
-{
-	PGresult *res;
-	const char tb[] = "SELECT begin_life($1::character varying, $2::bigint);";
-	const int fmt[2] = {0, 0};
-
-	char _device_id[16];
-
-	char *val[2];
-	int len[2];
-
-	len[0] = strlen(username);
-	len[1] = snprintf(_device_id, sizeof(_device_id), "%"PRIu64, device_id);
-
-	val[0] = username;
-	val[1] = _device_id;
-
-	res = PQexecParams(pgc, tb, 2, NULL, (const char *const*)val, len, fmt, 0);
-	if (PQresultStatus(res) != PGRES_TUPLES_OK) {
-		xsyslog(LOG_INFO, "exec begin_life error: %s",
-				PQresultErrorMessage(res));
-		PQclear(res);
-		Q_LOGX(tb, sizeof(len) / sizeof(*len), val, len);
-		return false;
-	}
-
-	PQclear(res);
-	return true;
 }
 
 static inline bool

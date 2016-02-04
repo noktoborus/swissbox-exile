@@ -13,17 +13,43 @@
 #include "junk/utils.h"
 #include <stdbool.h>
 #include <libpq-fe.h>
+#include <pthread.h>
 
+struct spq_key {
+	PGconn *c;
+
+	bool in_action;
+	size_t uses;
+
+	uint32_t pgstring_hash;
+
+	struct spq_key *key;
+	struct spq_key *keyp;
+};
+
+struct spq {
+	/* основная блокировка */
+	pthread_mutex_t lock;
+
+	uint32_t pgstring_hash;
+	char *pgstring;
+	bool log_failed_queries;
+
+
+	size_t active;
+	size_t count;
+
+	struct spq_key *key;
+};
 
 /* открытие подключений к бд, pool -- количество подключений
  * потоко-небезопасная функция
  */
-void spq_open(unsigned pool, char *pgstring);
+void spq_open(char *pgstring);
 /* прерывание всех запросов */
 void spq_interrupt();
 /* закрытие менеджера подключений. Потоко-небезопасная функция */
 void spq_close();
-void spq_resize(unsigned pool);
 
 /* включение/выключение печать в лог запросов с ошибками */
 void spq_set_log_failed_queries(bool enable);
@@ -31,6 +57,14 @@ void spq_set_log_failed_queries(bool enable);
 void spq_set_address(char *pgstring);
 
 bool spq_create_tables();
+
+/* запрос ключа */
+struct spq_key *
+spq_vote(const char *username, uint64_t device_id);
+
+/* возврат отработанного ключа */
+void
+spq_devote(struct spq_key *key);
 
 enum spq_level {
 	SPQ_OK = 0,
@@ -352,9 +386,6 @@ struct spq_InitialUser {
  * получение начальных значений для пользователя
  */
 bool spq_initial_user(struct spq_InitialUser *iu, struct spq_hint *hint);
-
-/* помогалки */
-bool spq_begin_life(PGconn *pgc, char *username, uint64_t device_id);
 
 /* костыли */
 bool spq_add_user(char *username, char *secret, struct spq_hint *hint);

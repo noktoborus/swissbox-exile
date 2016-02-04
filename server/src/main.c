@@ -1303,7 +1303,6 @@ cfg_update(struct main *pain)
 	 */
 
 	/* изменение размера пула подключений */
-	spq_resize((unsigned)pain->options.pg_poolsize);
 	spq_set_log_failed_queries((bool)pain->options.log_failed_queries);
 	/* инициализация лога сервера */
 	if (*pain->options.packet_verbose)
@@ -1395,7 +1394,7 @@ main(int argc, char *argv[])
 	}
 	if ((_r = pidfile_accept(&pain)) && (_r = chuser(&pain))) {
 		xsyslog(LOG_DEBUG, "pg: \"%s\"", pain.options.pg_connstr);
-		spq_open(SPQ_DEFAULT_POOLSIZE, pain.options.pg_connstr);
+		spq_open(pain.options.pg_connstr);
 		/* всякая ерунда с бд */
 		if ((_r = spq_create_tables()) != false) {
 			loop = EV_DEFAULT;
