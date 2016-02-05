@@ -6,7 +6,7 @@ void
 spq_getLocalFiles_free(struct getLocalFiles *state)
 {
 	if (state->p) {
-		release_conn(&_spq, state->p);
+		spq_devote((struct spq_key*)state->p);
 	}
 	if (state->res) {
 		PQclear(state->res);
@@ -74,22 +74,19 @@ _s_exec(PGconn *pgc, struct spq_hint *hint)
 bool
 spq_getLocalFiles(struct getLocalFiles *state, struct spq_hint *hint)
 {
-	struct spq *c;
+	struct spq_key *c;
 	PGresult *res;
 
-	/* инициализация,
-	 * смысла отдавать на каждой итерации подключение pg
-	 * т.к. пока не будут загребены все результаты,
-	 * выполнить новый запрос не получится(?)
-	 */
-	if (!state->p && (state->p = acquire_conn(&_spq)) == NULL) {
+	/* TODO: хуита */
+	if (!state->p && (state->p = spq_vote(NULL, 0u)) == NULL) {
+		xsyslog(LOG_WARNING, "spq: vote getLocalFiles error");
 		return false;
 	}
-	c = (struct spq*)state->p;
+	c = (struct spq_key*)state->p;
 
 	/* если ресурса нет -- делаем запрос */
-	if (!state->res && (state->res = _s_exec(c->conn, hint)) == NULL) {
-		release_conn(&_spq, c);
+	if (!state->res && (state->res = _s_exec(c->c, hint)) == NULL) {
+		spq_devote(c);
 		memset(state, 0u, sizeof(struct getLocalFiles));
 		return false;
 	}

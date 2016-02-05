@@ -3,6 +3,42 @@
  */
 
 bool
+spq_feed_hint(const char *msg, size_t msglen, struct spq_hint *hint)
+{
+	size_t e;
+	if (!hint)
+		return false;
+
+	if (!msg || !msglen) {
+		hint->level = SPQ_ERR;
+		return true;
+	}
+
+	if (msglen >= 2u && msg[1] == ':') {
+		switch(msg[0]) {
+		case '2':
+			hint->level = SPQ_WARN;
+			break;
+		case '3':
+			hint->level = SPQ_NOTICE;
+			break;
+		default:
+			hint->level = SPQ_ERR;
+			break;
+		}
+		e = MIN(SPQ_ERROR_LEN, msglen - 2);
+		strncpy(hint->message, &msg[2], e);
+		hint->message[e] = '\0';
+	} else {
+		hint->level = SPQ_ERR;
+		e = MIN(SPQ_ERROR_LEN, msglen);
+		strncpy(hint->message, msg, e);
+		hint->message[e] = '\0';
+	}
+	return true;
+}
+
+bool
 spq_create_tables()
 {
 	const char *const tb = "SELECT fepserver_installed();";

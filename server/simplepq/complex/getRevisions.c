@@ -51,21 +51,12 @@ _spq_getRevisions_exec(PGconn *pgc,
 }
 
 bool
-spq_getRevisions(char *username, uint64_t device_id,
+spq_getRevisions(struct spq_key *k,
 		guid_t *rootdir, guid_t *file,
 		unsigned depth, struct getRevisions *state)
 {
-	struct spq *c;
-
-	if (!state->p && (state->p = acquire_conn(&_spq)) == NULL) {
-		return false;
-	}
-	c = (struct spq*)state->p;
-
-	if (!state->res && (!spq_begin_life(c->conn, username, device_id) ||
-			(state->res = _spq_getRevisions_exec(c->conn,
-				rootdir, file, depth)) == NULL)) {
-		release_conn(&_spq, c);
+	if (!state->res && (state->res = _spq_getRevisions_exec(k->c,
+				rootdir, file, depth)) == NULL) {
 		memset(state, 0u, sizeof(struct getRevisions));
 		return false;
 	}
@@ -103,8 +94,6 @@ spq_getRevisions_it(struct getRevisions *state)
 void
 spq_getRevisions_free(struct getRevisions *state)
 {
-	if (state->p)
-		release_conn(&_spq, state->p);
 	if (state->res)
 		PQclear(state->res);
 	memset(state, 0u, sizeof(struct getRevisions));

@@ -3,7 +3,7 @@
  */
 
 bool
-_spq_store_save(PGconn *pgc,
+spq_store_save(struct spq_key *k,
 		bool share, uint32_t offset, uint32_t length,
 		uint8_t *data, uint32_t data_len,
 		struct spq_hint *hint)
@@ -26,7 +26,7 @@ _spq_store_save(PGconn *pgc,
 	int _l = 0;
 	char *_m = NULL;
 
-	escdata = PQescapeByteaConn(pgc,
+	escdata = PQescapeByteaConn(k->c,
 			(const unsigned char*)data, data_len, &escdata_len);
 	if (!escdata) {
 		xsyslog(LOG_WARNING,
@@ -46,7 +46,7 @@ _spq_store_save(PGconn *pgc,
 	val[2] = _offset;
 	val[3] = _length;
 
-	res = PQexecParams(pgc, tb, 4, NULL, (const char *const*)val, len, NULL, 0);
+	res = PQexecParams(k->c, tb, 4, NULL, (const char *const*)val, len, NULL, 0);
 	pqs = PQresultStatus(res);
 	if (pqs != PGRES_TUPLES_OK && pqs != PGRES_EMPTY_QUERY) {
 		_m = PQresultErrorMessage(res);
@@ -67,24 +67,8 @@ _spq_store_save(PGconn *pgc,
 	return true;
 }
 
-bool spq_store_save(char *username, uint64_t device_id,
-		bool share, uint32_t offset, uint32_t length,
-		uint8_t *data, uint32_t data_len,
-		struct spq_hint *hint)
-{
-	bool r = false;
-	struct spq *c;
-	if ((c = acquire_conn(&_spq)) != NULL) {
-		r = spq_begin_life(c->conn, username, device_id) &&
-			_spq_store_save(c->conn,
-				share, offset, length, data, data_len, hint);
-		release_conn(&_spq, c);
-	}
-	return r;
-}
-
-void *
-_spq_store_load(PGconn *pgc,
+bool
+spq_store_load(struct spq_key *k,
 		bool share, uint32_t offset, uint32_t length,
 		struct spq_StoreData *sd,
 		struct spq_hint *hint)
@@ -112,7 +96,7 @@ _spq_store_load(PGconn *pgc,
 	val[1] = _offset;
 	val[2] = _length;
 
-	res = PQexecParams(pgc, tb, 3, NULL, (const char *const*)val, len, NULL, 0);
+	res = PQexecParams(k->c, tb, 3, NULL, (const char *const*)val, len, NULL, 0);
 	pqs = PQresultStatus(res);
 	if (pqs != PGRES_TUPLES_OK && pqs != PGRES_EMPTY_QUERY) {
 		_m = PQresultErrorMessage(res);
@@ -120,7 +104,7 @@ _spq_store_load(PGconn *pgc,
 		xsyslog(LOG_INFO, "exec store_load error: %s", _m);
 		PQclear(res);
 		Q_LOGX(tb, sizeof(len) / sizeof(*len), val, len);
-		return NULL;
+		return false;
 	} else if ((_l = PQgetlength(res, 0, 0)) > 0u) {
 		_m = PQgetvalue(res, 0, 0);
 		spq_feed_hint(_m, _l, hint);
@@ -147,39 +131,11 @@ _spq_store_load(PGconn *pgc,
 		sd->length = (uint32_t)strtoul(PQgetvalue(res, 0, 2), NULL, 10);
 	}
 
-	return res;
-}
-
-bool
-spq_store_load(char *username, uint64_t device_id,
-		bool share, uint32_t offset, uint32_t length,
-		struct spq_StoreData *sd,
-		struct spq_hint *hint)
-{
-	struct spq *c;
-
-	if (!sd->p && (sd->p = acquire_conn(&_spq)) == NULL) {
-		return false;
-	}
-	c = (struct spq*)sd->p;
-
-	/* если ресурса нет -- делаем запрос */
-	if (!sd->res && (!spq_begin_life(c->conn, username, device_id) ||
-			(sd->res = _spq_store_load(c->conn,
-				share, offset, length, sd, hint)) == NULL)) {
-		release_conn(&_spq, c);
-		memset(sd, 0u, sizeof(*sd));
-		return false;
-	}
-
 	return true;
 }
 
 void spq_store_load_free(struct spq_StoreData *sd)
 {
-	if (sd->p) {
-		release_conn(&_spq, sd->p);
-	}
 	if (sd->res) {
 		PQclear(sd->res);
 	}

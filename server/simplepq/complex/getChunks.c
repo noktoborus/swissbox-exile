@@ -43,9 +43,6 @@ _spq_getChunks_exec(PGconn *pgc,
 void
 spq_getChunks_free(struct getChunks *state)
 {
-	if (state->p) {
-		release_conn(&_spq, state->p);
-	}
 	if (state->res) {
 		PQclear(state->res);
 	}
@@ -74,28 +71,15 @@ spq_getChunks_it(struct getChunks *state)
 }
 
 bool
-spq_getChunks(char *username, uint64_t device_id,
+spq_getChunks(struct spq_key *k,
 		guid_t *rootdir, guid_t *file, guid_t *revision,
 		struct getChunks *state)
 {
-	struct spq *c;
 	PGresult *res;
 
-	/* инициализация,
-	 * смысла отдавать на каждой итерации подключение pg
-	 * т.к. пока не будут загребены все результаты,
-	 * выполнить новый запрос не получится(?)
-	 */
-	if (!state->p && (state->p = acquire_conn(&_spq)) == NULL) {
-		return false;
-	}
-	c = (struct spq*)state->p;
-
 	/* если ресурса нет -- делаем запрос */
-	if (!state->res && (!spq_begin_life(c->conn, username, device_id) ||
-			(state->res = _spq_getChunks_exec(c->conn,
-				rootdir, file, revision)) == NULL)) {
-		release_conn(&_spq, c);
+	if (!state->res && (state->res = _spq_getChunks_exec(k->c,
+				rootdir, file, revision)) == NULL) {
 		memset(state, 0u, sizeof(struct getChunks));
 		return false;
 	}

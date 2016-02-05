@@ -72,7 +72,7 @@ void
 spq_getDevices_free(struct getDevices *state)
 {
 	if (state->p) {
-		release_conn(&_spq, state->p);
+		spq_devote((struct spq_key*)state->p);
 	}
 	if (state->res) {
 		PQclear(state->res);
@@ -85,18 +85,19 @@ spq_getDevices(const char *username, uint64_t device_id,
 		struct getDevices *state,
 		struct spq_hint *hint)
 {
-	struct spq *c;
+	struct spq_key *c;
 	PGresult *res;
 
-	if (!state->p && (state->p = acquire_conn(&_spq)) == NULL) {
+	if (!state->p && (state->p = spq_vote(NULL, 0u)) == NULL) {
+		xsyslog(LOG_WARNING, "spq: vote getDevices error");
 		return false;
 	}
-	c = (struct spq*)state->p;
+	c = (struct spq_key*)state->p;
 
 	/* если ресурса нет -- делаем запрос */
-	if (!state->res && (state->res = spq_getDevices_exec(c->conn,
+	if (!state->res && (state->res = spq_getDevices_exec(c->c,
 					username, device_id, hint)) == NULL) {
-		release_conn(&_spq, c);
+		spq_devote(c);
 		memset(state, 0u, sizeof(*state));
 		return false;
 	}

@@ -25,13 +25,11 @@
 	{ if (_root.log_failed_queries) \
 		_spq_log_expand(q, n, (const char *const*)val, len); }
 
-bool spq_feed_hint(const char *msg, size_t msglen, struct spq_hint *hint);
-
 #include "include/mgm.c"
 #include "include/base.c"
 
 bool
-_spq_getChunkInfo(PGconn *pgc,
+spq_getChunkInfo(struct spq_key *k,
 		guid_t *rootdir, guid_t *file, guid_t *chunk,
 		struct getChunkInfo *o, struct spq_hint *hint)
 {
@@ -59,7 +57,7 @@ _spq_getChunkInfo(PGconn *pgc,
 	val[1] = _file;
 	val[2] = _chunk;
 
-	res = PQexecParams(pgc, tb, 3, NULL, (const char *const*)val, len, fmt, 0);
+	res = PQexecParams(k->c, tb, 3, NULL, (const char *const*)val, len, fmt, 0);
 	pqs = PQresultStatus(res);
 
 	if (pqs != PGRES_TUPLES_OK && pqs != PGRES_EMPTY_QUERY) {
@@ -102,22 +100,6 @@ _spq_getChunkInfo(PGconn *pgc,
 }
 
 bool
-spq_getChunkInfo(char *username, uint64_t device_id,
-		guid_t *rootdir, guid_t *file, guid_t *chunk,
-		struct getChunkInfo *o, struct spq_hint *hint)
-{
-	bool r = false;
-	struct spq *c;
-	memset(o, 0, sizeof(*o));
-	if ((c = acquire_conn(&_spq)) != NULL) {
-		r = spq_begin_life(c->conn, username, device_id) &&
-			_spq_getChunkInfo(c->conn, rootdir, file, chunk, o, hint);
-		release_conn(&_spq, c);
-	}
-	return r;
-}
-
-bool
 spq_getChunkInfo_free(struct getChunkInfo *o)
 {
 	if (o->address)
@@ -129,7 +111,7 @@ spq_getChunkInfo_free(struct getChunkInfo *o)
 }
 
 bool
-_spq_getFileMeta(PGconn *pgc, guid_t *rootdir, guid_t *file,
+spq_getFileMeta(struct spq_key *k, guid_t *rootdir, guid_t *file,
 		guid_t *revision, bool uncompleted,
 		struct spq_FileMeta *fmeta, struct spq_hint *hint)
 {
@@ -157,7 +139,7 @@ _spq_getFileMeta(PGconn *pgc, guid_t *rootdir, guid_t *file,
 	val[2] = len[2] ? _revision : NULL;
 	val[3] = uncompleted ? "TRUE" : "FALSE";
 
-	res = PQexecParams(pgc, tb, 4, NULL, (const char *const*)val, len, fmt, 0);
+	res = PQexecParams(k->c, tb, 4, NULL, (const char *const*)val, len, fmt, 0);
 	pqs = PQresultStatus(res);
 	if (pqs != PGRES_TUPLES_OK && pqs != PGRES_EMPTY_QUERY) {
 		xsyslog(LOG_INFO, "getFileMeta exec error: %s",
@@ -214,43 +196,17 @@ _spq_getFileMeta(PGconn *pgc, guid_t *rootdir, guid_t *file,
 	return true;
 }
 
-bool
-spq_getFileMeta(char *username, uint64_t device_id,
-		guid_t *rootdir, guid_t *file,
-		guid_t *revision, bool uncompleted,
-		struct spq_FileMeta *fmeta, struct spq_hint *hint)
-{
-	bool retval = false;
-	struct spq *c;
-	if ((c = acquire_conn(&_spq)) != NULL) {
-		if (!spq_begin_life(c->conn, username, device_id) ||
-				!(retval = _spq_getFileMeta(c->conn,
-						rootdir, file, revision, uncompleted, fmeta, hint))
-				|| fmeta->empty) {
-			memset(fmeta, 0u, sizeof(struct spq_FileMeta));
-			fmeta->empty = true;
-			release_conn(&_spq, c);
-		} else {
-			fmeta->p = c;
-		}
-	}
-	return retval;
-}
-
 void
 spq_getFileMeta_free(struct spq_FileMeta *fmeta)
 {
 	if (fmeta->res) {
 		PQclear(fmeta->res);
 	}
-	if (fmeta->p) {
-		release_conn(&_spq, fmeta->p);
-	}
 	memset(fmeta, 0u, sizeof(struct spq_FileMeta));
 }
 
 bool
-_spq_insert_chunk(PGconn *pgc,
+spq_insert_chunk(struct spq_key *k,
 		guid_t *rootdir, guid_t *file, guid_t *revision, guid_t *chunk,
 		char *chunk_hash, uint32_t chunk_size, uint32_t chunk_offset,
 		char *address,
@@ -298,7 +254,7 @@ _spq_insert_chunk(PGconn *pgc,
 	val[6] = _offset;
 	val[7] = address;
 
-	res = PQexecParams(pgc, tb, 8, NULL, (const char *const*)val, len, NULL, 0);
+	res = PQexecParams(k->c, tb, 8, NULL, (const char *const*)val, len, NULL, 0);
 
 	if (PQresultStatus(res) != PGRES_TUPLES_OK) {
 		xsyslog(LOG_INFO, "exec insert_chunk error: %s",
@@ -334,111 +290,7 @@ _spq_insert_chunk(PGconn *pgc,
 }
 
 bool
-spq_insert_chunk(char *username, uint64_t device_id,
-		guid_t *rootdir, guid_t *file, guid_t *revision, guid_t *chunk,
-		char *chunk_hash, uint32_t chunk_size, uint32_t chunk_offset,
-		char *address,
-		bool *complete,
-		struct spq_hint *hint)
-{
-	bool r = false;
-	struct spq *c;
-	if ((c = acquire_conn(&_spq)) != NULL) {
-		r = spq_begin_life(c->conn, username, device_id) &&
-			_spq_insert_chunk(c->conn, rootdir, file, revision, chunk,
-				chunk_hash, chunk_size, chunk_offset, address, complete, hint);
-		release_conn(&_spq, c);
-	}
-	return r;
-}
-
-bool
-_spq_link_chunk(PGconn *pgc,
-		guid_t *rootdir, guid_t *file, guid_t *chunk,
-		guid_t *new_chunk, guid_t *new_revision,
-		bool *complete,
-		struct spq_hint *hint)
-{
-	PGresult *res;
-	ExecStatusType pqs;
-	const char tb[] = "SELECT * FROM link_chunk"
-		"("
-		"	$1::UUID,"
-		"	$2::UUID,"
-		"	$3::UUID,"
-		"	$4::UUID,"
-		"	$5::UUID"
-		");";
-	const int fmt[5] = {0, 0, 0, 0, 0};
-
-	char _rootdir[GUID_MAX + 1];
-	char _file[GUID_MAX + 1];
-	char _chunk[GUID_MAX + 1];
-	char _new_chunk[GUID_MAX + 1];
-	char _new_revision[GUID_MAX + 1];
-
-	char *val[5];
-	int len[5];
-
-	len[0] = guid2string(rootdir, PSIZE(_rootdir));
-	len[1] = guid2string(file, PSIZE(_file));
-	len[2] = guid2string(chunk, PSIZE(_chunk));
-	len[3] = guid2string(new_chunk, PSIZE(_new_chunk));
-	len[4] = guid2string(new_revision, PSIZE(_new_revision));
-
-	val[0] = _rootdir;
-	val[1] = _file;
-	val[2] = _chunk;
-	val[3] = _new_chunk;
-	val[4] = _new_revision;
-
-	res = PQexecParams(pgc, tb, 5, NULL, (const char *const*)val, len, fmt, 0);
-	pqs = PQresultStatus(res);
-	if (pqs != PGRES_TUPLES_OK) {
-		xsyslog(LOG_INFO, "exec link_chunk error: %s",
-				PQresultErrorMessage(res));
-		PQclear(res);
-		Q_LOGX(tb, sizeof(len) / sizeof(*len), val, len);
-		return false;
-	}
-
-	if (PQgetlength(res, 0, 0) > 0) {
-		xsyslog(LOG_INFO, "exec link_chunk error: %s",
-				PQgetvalue(res, 0, 0));
-		PQclear(res);
-		return false;
-	}
-
-	if (complete) {
-		if (PQgetlength(res, 0, 1) != 0) {
-			*complete = (PQgetvalue(res, 0, 1)[0] == 't');
-		} else *complete = false;
-	}
-
-	PQclear(res);
-	return true;
-}
-
-bool
-spq_link_chunk(char *username, uint64_t device_id,
-		guid_t *rootdir, guid_t *file, guid_t *chunk,
-		guid_t *new_chunk, guid_t *new_revision,
-		bool *complete,
-		struct spq_hint *hint)
-{
-	bool r = false;
-	struct spq *c;
-	if ((c = acquire_conn(&_spq)) != NULL) {
-		r = spq_begin_life(c->conn, username, device_id) &&
-			_spq_link_chunk(c->conn, rootdir, file, chunk,
-				new_chunk, new_revision, complete, hint);
-		release_conn(&_spq, c);
-	}
-	return r;
-}
-
-bool
-_spq_get_quota(PGconn *pgc, guid_t *rootdir, struct spq_QuotaInfo *qi,
+spq_get_quota(struct spq_key *k, guid_t *rootdir, struct spq_QuotaInfo *qi,
 		struct spq_hint *hint)
 {
 	PGresult *res;
@@ -458,7 +310,7 @@ _spq_get_quota(PGconn *pgc, guid_t *rootdir, struct spq_QuotaInfo *qi,
 
 	val[0] = _rootdir;
 
-	res = PQexecParams(pgc, tb, 1, NULL, (const char *const*)val, len, fmt, 0);
+	res = PQexecParams(k->c, tb, 1, NULL, (const char *const*)val, len, fmt, 0);
 	pqs = PQresultStatus(res);
 	if (pqs != PGRES_TUPLES_OK) {
 		m = PQresultErrorMessage(res);
@@ -485,22 +337,8 @@ _spq_get_quota(PGconn *pgc, guid_t *rootdir, struct spq_QuotaInfo *qi,
 	return false;
 }
 
-bool
-spq_get_quota(char *username, uint64_t device_id,
-		guid_t *rootdir, struct spq_QuotaInfo *qi, struct spq_hint *hint)
-{
-	bool r = false;
-	struct spq *c;
-	if ((c = acquire_conn(&_spq)) != NULL) {
-		r = spq_begin_life(c->conn, username, device_id) &&
-			_spq_get_quota(c->conn, rootdir, qi, hint);
-		release_conn(&_spq, c);
-	}
-	return r;
-}
-
 uint64_t
-_spq_directory_create(PGconn *pgc, guid_t *rootdir,
+spq_directory_create(struct spq_key *k, guid_t *rootdir,
 		guid_t *new_directory, char *new_dirname,
 		struct spq_hint *hint)
 {
@@ -526,7 +364,7 @@ _spq_directory_create(PGconn *pgc, guid_t *rootdir,
 	val[1] = _directory;
 	val[2] = new_dirname;
 
-	res = PQexecParams(pgc, tb, 3, NULL, (const char *const*)val, len, fmt, 0);
+	res = PQexecParams(k->c, tb, 3, NULL, (const char *const*)val, len, fmt, 0);
 	pqs = PQresultStatus(res);
 
 	if (pqs != PGRES_TUPLES_OK) {
@@ -574,24 +412,7 @@ _spq_directory_create(PGconn *pgc, guid_t *rootdir,
 }
 
 uint64_t
-spq_directory_create(char *username, uint64_t device_id,
-		guid_t *rootdir, guid_t *new_directory, char *new_dirname,
-		struct spq_hint *hint)
-{
-	uint64_t r = 0lu;
-	struct spq *c;
-	if ((c = acquire_conn(&_spq)) != NULL) {
-		if (spq_begin_life(c->conn, username, device_id)) {
-			r = _spq_directory_create(c->conn, rootdir,
-					new_directory, new_dirname, hint);
-		}
-		release_conn(&_spq, c);
-	}
-	return r;
-}
-
-uint64_t
-_spq_update_file(PGconn *pgc, guid_t *rootdir, guid_t *file,
+spq_update_file(struct spq_key *k, guid_t *rootdir, guid_t *file,
 		guid_t *new_directory, char *new_filename,
 		struct spq_hint *hint)
 {
@@ -626,7 +447,7 @@ _spq_update_file(PGconn *pgc, guid_t *rootdir, guid_t *file,
 	val[2] = len[2] ? _directory : NULL;
 	val[3] = len[3] ? new_filename : NULL;
 
-	res = PQexecParams(pgc, tb, 4, NULL, (const char *const*)val, len, fmt, 0);
+	res = PQexecParams(k->c, tb, 4, NULL, (const char *const*)val, len, fmt, 0);
 	pqs = PQresultStatus(res);
 
 	if (pqs != PGRES_TUPLES_OK) {
@@ -651,60 +472,7 @@ _spq_update_file(PGconn *pgc, guid_t *rootdir, guid_t *file,
 }
 
 uint64_t
-spq_update_file(char *username, uint64_t device_id,
-		guid_t *rootdir, guid_t *file,
-		guid_t *new_directory, char *new_filename,
-		struct spq_hint *hint)
-{
-	uint64_t r = 0lu;
-	struct spq *c;
-	if ((c = acquire_conn(&_spq)) != NULL) {
-		if(spq_begin_life(c->conn, username, device_id))
-			r = _spq_update_file(c->conn, rootdir, file,
-					new_directory, new_filename, hint);
-		release_conn(&_spq, c);
-	}
-	return r;
-}
-
-bool
-spq_feed_hint(const char *msg, size_t msglen, struct spq_hint *hint)
-{
-	size_t e;
-	if (!hint)
-		return false;
-
-	if (!msg || !msglen) {
-		hint->level = SPQ_ERR;
-		return true;
-	}
-
-	if (msglen >= 2u && msg[1] == ':') {
-		switch(msg[0]) {
-		case '2':
-			hint->level = SPQ_WARN;
-			break;
-		case '3':
-			hint->level = SPQ_NOTICE;
-			break;
-		default:
-			hint->level = SPQ_ERR;
-			break;
-		}
-		e = MIN(SPQ_ERROR_LEN, msglen - 2);
-		strncpy(hint->message, &msg[2], e);
-		hint->message[e] = '\0';
-	} else {
-		hint->level = SPQ_ERR;
-		e = MIN(SPQ_ERROR_LEN, msglen);
-		strncpy(hint->message, msg, e);
-		hint->message[e] = '\0';
-	}
-	return true;
-}
-
-uint64_t
-_spq_insert_revision(PGconn *pgc,
+spq_insert_revision(struct spq_key *k,
 		guid_t *rootdir, guid_t *file,
 		guid_t *revision, guid_t *parent_revision,
 		char *filename, char *pubkey,
@@ -764,7 +532,7 @@ _spq_insert_revision(PGconn *pgc,
 	val[7] = _chunks;
 	val[8] = prepare ? "TRUE" : "FALSE";
 
-	res = PQexecParams(pgc, tb, 9, NULL, (const char *const*)val, len, fmt, 0);
+	res = PQexecParams(k->c, tb, 9, NULL, (const char *const*)val, len, fmt, 0);
 	pqs = PQresultStatus(res);
 
 	if (pqs != PGRES_TUPLES_OK) {
@@ -792,32 +560,8 @@ _spq_insert_revision(PGconn *pgc,
 	return result;
 }
 
-uint64_t
-spq_insert_revision(char *username, uint64_t device_id,
-		guid_t *rootdir, guid_t *file,
-		guid_t *revision, guid_t *parent_revision,
-		char *filename, char *pubkey,
-		guid_t *dir,
-		unsigned chunks,
-		bool prepare,
-		bool *complete,
-		struct spq_hint *hint)
-{
-	uint64_t r = 0lu;
-	struct spq *c;
-	if ((c = acquire_conn(&_spq)) != NULL) {
-		if (spq_begin_life(c->conn, username, device_id)) {
-			r = _spq_insert_revision(c->conn, rootdir, file,
-					revision, parent_revision, filename, pubkey, dir, chunks,
-					prepare, complete, hint);
-		}
-		release_conn(&_spq, c);
-	}
-	return r;
-}
-
 bool
-_spq_chunk_prepare(PGconn *pg,
+spq_chunk_prepare(struct spq_key *k,
 		guid_t *rootdir,
 		char *chunk_hash, uint32_t chunk_size,
 		struct getChunkInfo *o,
@@ -844,7 +588,8 @@ _spq_chunk_prepare(PGconn *pg,
 	val[1] = chunk_hash;
 	val[2] = _chunk_size;
 
-	res = PQexecParams(pg, tb, 3, NULL, (const char *const*)val, len, NULL, 0);
+	res = PQexecParams(k->c,
+			tb, 3, NULL, (const char *const*)val, len, NULL, 0);
 
 	if (PQresultStatus(res) != PGRES_TUPLES_OK) {
 		xsyslog(LOG_INFO, "exec chunk_prepare error: %s",
@@ -876,24 +621,6 @@ _spq_chunk_prepare(PGconn *pg,
 	PQclear(res);
 
 	return true;
-}
-
-bool
-spq_chunk_prepare(char *username, uint64_t device_id,
-		guid_t *rootdir,
-		char *chunk_hash, uint32_t chunk_size,
-		struct getChunkInfo *o,
-		struct spq_hint *hint)
-{
-	bool r = false;
-	struct spq *c;
-	if ((c = acquire_conn(&_spq)) != NULL) {
-		r = spq_begin_life(c->conn, username, device_id) &&
-			_spq_chunk_prepare(c->conn, rootdir,
-				chunk_hash, chunk_size, o, hint);
-		release_conn(&_spq, c);
-	}
-	return r;
 }
 
 #include "complex/getRevisions.c"

@@ -39,24 +39,11 @@ _spq_f_logDirFile_exec(PGconn *pgc, guid_t *rootdir, uint64_t checkpoint)
 }
 
 bool
-spq_f_logDirFile(char *username, guid_t *rootdir, uint64_t checkpoint, uint64_t deviceid,
+spq_f_logDirFile(struct spq_key *k, guid_t *rootdir, uint64_t checkpoint,
 		struct logDirFile *state)
 {
-	struct spq *c;
-	if (!state->p && (state->p = acquire_conn(&_spq)) == NULL) {
-		return false;
-	}
-	c = (struct spq*)state->p;
-
-	if (!spq_begin_life(c->conn, username, deviceid)) {
-		release_conn(&_spq, c);
-		memset(state, 0u, sizeof(struct logDirFile));
-		return false;
-	}
-
-	if (!state->res && (state->res = _spq_f_logDirFile_exec(c->conn,
+	if (!state->res && (state->res = _spq_f_logDirFile_exec(k->c,
 					rootdir, checkpoint)) == NULL) {
-		release_conn(&_spq, c);
 		memset(state, 0u, sizeof(struct logDirFile));
 		return false;
 	}
@@ -177,8 +164,6 @@ spq_f_logDirFile_it(struct logDirFile *state)
 void
 spq_f_logDirFile_free(struct logDirFile *state)
 {
-	if (state->p)
-		release_conn(&_spq, state->p);
 	if (state->res)
 		PQclear(state->res);
 	memset(state, 0u, sizeof(struct logDirFile));

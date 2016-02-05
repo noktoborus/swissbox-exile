@@ -84,12 +84,12 @@ struct spq_hint {
 };
 
 uint64_t
-spq_update_file(char *username, uint64_t device_id,
+spq_update_file(struct spq_key *k,
 		guid_t *rootdir, guid_t *file,
 		guid_t *new_directory, char *new_filename,
 		struct spq_hint *hint);
 
-bool spq_insert_chunk(char *username, uint64_t device_id,
+bool spq_insert_chunk(struct spq_key *k,
 		guid_t *rootdir, guid_t *file, guid_t *revision, guid_t *chunk,
 		char *chunk_hash, uint32_t chunk_size, uint32_t chunk_offset,
 		char *address,
@@ -97,14 +97,7 @@ bool spq_insert_chunk(char *username, uint64_t device_id,
 		bool *complete,
 		struct spq_hint *hint);
 
-bool spq_link_chunk(char *username, uint64_t device_id,
-		guid_t *rootdir, guid_t *file, guid_t *chunk,
-		guid_t *new_chunk, guid_t *new_revision,
-		/* output */
-		bool *complete,
-		struct spq_hint *hint);
-
-uint64_t spq_insert_revision(char *username, uint64_t device_id,
+uint64_t spq_insert_revision(struct spq_key *k,
 		guid_t *rootdir, guid_t *file,
 		guid_t *revision, guid_t *parent_revision,
 		char *filename, char *pubkey,
@@ -115,7 +108,7 @@ uint64_t spq_insert_revision(char *username, uint64_t device_id,
 		bool *complete,
 		struct spq_hint *hint);
 
-uint64_t spq_directory_create(char *username, uint64_t device_id,
+uint64_t spq_directory_create(struct spq_key *k,
 		guid_t *rootdir, guid_t *new_directory, char *new_dirname,
 		struct spq_hint *hint);
 
@@ -129,7 +122,7 @@ struct getChunkInfo {
 	uint64_t group; /* location_group в sql */
 };
 
-bool spq_getChunkInfo(char *username, uint64_t device_id,
+bool spq_getChunkInfo(struct spq_key *k,
 		guid_t *rootdir, guid_t *file, guid_t *chunk,
 		struct getChunkInfo *o, struct spq_hint *hint);
 
@@ -190,19 +183,8 @@ struct getRevisions {
 	unsigned row;
 	unsigned max;
 };
-/* запрос ревизий
- * чтение полей:
- *	revision_guid
- * 	parent_revision_guid
- *
- * поиск по полям:
- * 	time
- * 	username
- * 	parent_revision_guid
- * 	rootdir_guid
- * 	file_guid
- */
-bool spq_getRevisions(char *username, uint64_t device_id,
+/* запрос ревизий */
+bool spq_getRevisions(struct spq_key *k,
 		guid_t *rootdir, guid_t *file,
 		unsigned depth, struct getRevisions *state);
 /* итерация результата */
@@ -235,8 +217,8 @@ struct logDirFile {
 };
 
 bool
-spq_f_logDirFile(char *username, guid_t *rootdir, uint64_t checkpoint,
-		uint64_t deviceid, struct logDirFile *state);
+spq_f_logDirFile(struct spq_key *k, guid_t *rootdir, uint64_t checkpoint,
+		struct logDirFile *state);
 bool
 spq_f_logDirFile_it(struct logDirFile *state);
 void
@@ -256,18 +238,8 @@ struct getChunks {
 	unsigned max;
 };
 
-/* запрос чанков и построчное изъятие результата
- * чтение полей:
- * 	chunk_hash
- * 	chunk_guid
- *
- * поиск по полям:
- *  username
- * 	rootdir_guid
- *	file_guid
- *	revision_guid
- */
-bool spq_getChunks(char *username, uint64_t device_id,
+/* запрос чанков и построчное изъятие результата */
+bool spq_getChunks(struct spq_key *k,
 		guid_t *rootdir, guid_t *file, guid_t *revision,
 		struct getChunks *state);
 /* прохождение по списку, возвращает false, если достигнут конец */
@@ -294,20 +266,20 @@ struct spq_FileMeta {
 	void *res;
 };
 
-/*
+/* TODO: ненужное говнище?
  * вызывается два раза -- первый раз для заполнения полей в fmeta,
  * второй раз для освобождения,
  * если в результате spq_FileMeta.empty == true, то второй вызов не требуется
  * аргумент *revision может быть == NULL, в таком случае возвращается
  * последняя ревизия
  */
-bool spq_getFileMeta(char *username, uint64_t device_id,
+bool spq_getFileMeta(struct spq_key *k,
 		guid_t *rootdir, guid_t *file,
 		guid_t *revision, bool uncompleted,
 		struct spq_FileMeta *fmeta, struct spq_hint *hint);
 void spq_getFileMeta_free(struct spq_FileMeta *fmeta);
 
-bool spq_store_save(char *username, uint64_t device_id,
+bool spq_store_save(struct spq_key *k,
 		bool share, uint32_t offset, uint32_t length,
 		uint8_t *data, uint32_t data_len,
 		struct spq_hint *hint);
@@ -324,7 +296,7 @@ struct spq_StoreData {
 	void *res;
 };
 
-bool spq_store_load(char *username, uint64_t device_id,
+bool spq_store_load(struct spq_key *k,
 		bool share, uint32_t offset, uint32_t length,
 		struct spq_StoreData *sd,
 		struct spq_hint *hint);
@@ -349,8 +321,6 @@ struct spq_UserInfo {
 	char next_server[PATH_MAX + 1];
 };
 
-bool spq_check_user(char *username, char *secret, uint64_t device_id,
-		struct spq_UserInfo *user, struct spq_hint *hint);
 
 /*
  * получение информаци по чанку (чанкам? по их chunk_hash)
@@ -360,7 +330,7 @@ bool spq_check_user(char *username, char *secret, uint64_t device_id,
  * освобождать структуру с помощью spq_getChunkInfo_free() требуется
  */
 bool
-spq_chunk_prepare(char *username, uint64_t device_id,
+spq_chunk_prepare(struct spq_key *k,
 		guid_t *rootdir,
 		char *chunk_hash, uint32_t chunk_size,
 		struct getChunkInfo *o,
@@ -375,7 +345,7 @@ struct spq_QuotaInfo {
  * в *qi результат запроса
  */
 bool
-spq_get_quota(char *username, uint64_t device_id,
+spq_get_quota(struct spq_key *k,
 		guid_t *rootdir, struct spq_QuotaInfo *qi, struct spq_hint *hint);
 
 struct spq_InitialUser {
@@ -386,6 +356,8 @@ struct spq_InitialUser {
  * получение начальных значений для пользователя
  */
 bool spq_initial_user(struct spq_InitialUser *iu, struct spq_hint *hint);
+bool spq_check_user(char *username, char *secret, uint64_t device_id,
+		struct spq_UserInfo *user, struct spq_hint *hint);
 
 /* костыли */
 bool spq_add_user(char *username, char *secret, struct spq_hint *hint);
