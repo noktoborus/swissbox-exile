@@ -99,7 +99,12 @@ c_auth_cb(struct client *c, uint64_t id, unsigned int msgtype, void *msg, void *
 		return lval;
 	}
 
-	/* TODO: отправка State */
+	if (!client_load(c)) {
+		/* отправляем сообщение и выходим */
+		send_error(c, id, "Can't load user info", 0);
+		return false;
+	}
+
 	c->state++;
 	c->status.auth_ok = true;
 	c->device_id = amsg->device_id;
@@ -112,42 +117,38 @@ c_auth_cb(struct client *c, uint64_t id, unsigned int msgtype, void *msg, void *
 	squeue_subscribe(&c->cum->broadcast, &c->broadcast_c);
 
 	/* проверка на подключённое устройство с тем же device_id */
-		pthread_mutex_lock(&c->cum->lock);
-		list_ptr(&c->cum->devices, &lp);
-		if (!list_find(&lp, c->device_id)) {
-			/* никаких данных не передаётся
-			 * вообще, список содержит только уникальные значения,
-			 * что проверить уникальность device_id
-			 * можно было бы и попыткой добавления в список,
-			 * но так подробнее
+	pthread_mutex_lock(&c->cum->lock);
+	list_ptr(&c->cum->devices, &lp);
+	if (!list_find(&lp, c->device_id)) {
+		/* никаких данных не передаётся
+		 * вообще, список содержит только уникальные значения,
+		 * что проверить уникальность device_id
+		 * можно было бы и попыткой добавления в список,
+		 * но так подробнее
+		 */
+		if (!list_alloc(&c->cum->devices, c->device_id, NULL) &&
+				c->options.unique_device_id) {
+			/*
+			 * если не получилось добавить в список при включенных
+			 * уникальных device_id, то нужно отключить клиента
 			 */
-			if (!list_alloc(&c->cum->devices, c->device_id, NULL) &&
-					c->options.unique_device_id) {
-				/*
-				 * если не получилось добавить в список при включенных
-				 * уникальных device_id, то нужно отключить клиента
-				 */
-				send_error(c, id, "Internal error 153", 0);
-				pthread_mutex_unlock(&c->cum->lock);
-				return false;
-			}
-		} else if (c->options.unique_device_id) {
-			char __e[80] = {0};
-			snprintf(__e, sizeof(__e),
-					"Device id (%"PRIX64") already taken", c->device_id);
-			send_error(c, id, __e, 0);
+			send_error(c, id, "Internal error 153", 0);
 			pthread_mutex_unlock(&c->cum->lock);
 			return false;
 		}
+	} else if (c->options.unique_device_id) {
+		char __e[80] = {0};
+		snprintf(__e, sizeof(__e),
+				"Device id (%"PRIX64") already taken", c->device_id);
+		send_error(c, id, __e, 0);
 		pthread_mutex_unlock(&c->cum->lock);
+		return false;
+	}
+	pthread_mutex_unlock(&c->cum->lock);
 
 	xsyslog(LOG_INFO, "client[%"SEV_LOG"] authorized as %s, device=%"PRIX64,
 			c->cev->serial, c->name, c->device_id);
-	if (!client_load(c)) {
-		/* отправляем сообщение и выходим */
-		send_error(c, id, "Can't load user info", 0);
-		return false;
-	}
+
 	if (!send_ok(c, id, C_OK_SIMPLE, NULL))
 		return false;
 	/* отправка сообщения State */
