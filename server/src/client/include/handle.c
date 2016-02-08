@@ -19,8 +19,8 @@
 #define REQS_SK_REL(c, reqs, sk) \
 {\
 	if (sk) {\
-		sk = NULL;\
 		spq_devote(sk);\
+		sk = NULL;\
 	}\
 	if (reqs) client_reqs_release(c, reqs);\
 }

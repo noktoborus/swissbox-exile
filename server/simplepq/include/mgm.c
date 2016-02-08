@@ -82,7 +82,15 @@ void
 spq_open(char *pgstring)
 {
 	xsyslog(LOG_INFO, "spq: init");
+
+	if (!pgstring) {
+		xsyslog(LOG_ERR, "spq: error: pgstring not setted");
+		return;
+	}
+
 	pthread_mutex_init(&_root.lock, NULL);
+	_root.inited = true;
+	_root.pgstring = strdup(pgstring);
 }
 
 static inline void _key_unlink(struct spq_key *key)
@@ -126,9 +134,14 @@ spq_close()
 	struct spq_key *keyn;
 
 	xsyslog(LOG_INFO, "spq: destroy");
+
+	if (!_root.inited) {
+		xsyslog(LOG_ERR, "spq: error: not inited");
+		return;
+	}
+
 	pthread_mutex_lock(&_root.lock);
-	pthread_mutex_unlock(&_root.lock);
-	pthread_mutex_destroy(&_root.lock);
+
 	if (_root.pgstring)
 		free(_root.pgstring);
 	/* внаглую всё отключаем */
@@ -157,12 +170,18 @@ spq_close()
 		free(key);
 	}
 
-	/* TODO: пройтись по всем подключениям и отключить их */
+	_root.inited = false;
+	pthread_mutex_unlock(&_root.lock);
+	pthread_mutex_destroy(&_root.lock);
 }
 
 void
 spq_set_log_failed_queries(bool enable)
 {
+	if (!_root.inited) {
+		xsyslog(LOG_ERR, "spq: error: not inited");
+		return;
+	}
 	pthread_mutex_lock(&_root.lock);
 	xsyslog(LOG_INFO,
 			"spq: set log_failed_queries = %s", enable ? "yes" : "no");
@@ -173,6 +192,10 @@ spq_set_log_failed_queries(bool enable)
 void
 spq_set_address(char *pgstring)
 {
+	if (!_root.inited) {
+		xsyslog(LOG_ERR, "spq: error: not inited");
+		return;
+	}
 	pthread_mutex_lock(&_root.lock);
 	xsyslog(LOG_INFO,
 			"spq: set address = %s", pgstring);
@@ -220,6 +243,11 @@ spq_vote(const char *username, uint64_t device_id)
 {
 	/* random key */
 	struct spq_key *key = NULL;
+	if (!_root.inited) {
+		xsyslog(LOG_ERR, "spq: error: not inited");
+		return NULL;
+	}
+
 	pthread_mutex_lock(&_root.lock);
 	/* 1. поиск свободного подключения */
 	for (key = _root.key; key; key = key->key) {
@@ -324,6 +352,11 @@ spq_vote(const char *username, uint64_t device_id)
 void
 spq_devote(struct spq_key *key)
 {
+	if (!_root.inited) {
+		xsyslog(LOG_ERR, "spq: error: not inited");
+		return;
+	}
+
 	if (!key->in_action) {
 		xsyslog(LOG_WARNING,
 				"spq: key[%p] devote, but not in action",

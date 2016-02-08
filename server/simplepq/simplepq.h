@@ -28,6 +28,7 @@ struct spq_key {
 };
 
 struct spq {
+	bool inited;
 	/* основная блокировка */
 	pthread_mutex_t lock;
 
