@@ -53,6 +53,8 @@ struct result_send {
 
 	void (*free)(void*);
 
+	struct spq_key *sk;
+
 	struct result_send *next;
 };
 

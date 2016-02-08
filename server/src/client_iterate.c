@@ -40,11 +40,22 @@ static struct result_send*
 rout_free(struct client *c)
 {
 	struct result_send *p;
+
 	if ((p = c->rout) != NULL) {
+		/* будем надеяться что сюда будут попадать только
+		 * полностью собранные структуры, без случайных не захваченных
+		 * ресурсов
+		 *
+		 */
+		if (c->rout->sk) {
+			client_reqs_release(c, H_REQS_SQL);
+			spq_devote(c->rout->sk);
+		}
 		if (p->free) {
 			p->free(&p->v);
 		}
 		c->rout = c->rout->next;
+		memset(p, 0, sizeof(*p));
 		free(p);
 	}
 	return c->rout;
@@ -223,6 +234,12 @@ _active_sync(struct client *c, guid_t *rootdir, uint64_t checkpoint,
 {
 	/* генерация списка последних обновлений директорий и файлов */
 	struct result_send *rs;
+	struct spq_key *sk = NULL;
+
+	if (!(sk = spq_vote(c->name, c->device_id))) {
+		return false;
+	}
+
 #if DEEPDEBUG
 	{
 		char _rootdir[GUID_MAX + 1];
@@ -242,15 +259,17 @@ _active_sync(struct client *c, guid_t *rootdir, uint64_t checkpoint,
 
 	rs = calloc(1, sizeof(struct result_send));
 	if (!rs) {
+		spq_devote(sk);
 		return false;
 	}
 
 	/* TODO: NULL для листинга rootdir,
 	 * с указанием rootdir_guid - для файлов/дир
 	 */
-	if (!spq_f_logDirFile(c->name, rootdir, checkpoint, c->device_id,
+	if (!spq_f_logDirFile(sk, rootdir, checkpoint,
 				&rs->v.df)) {
 		free(rs);
+		spq_devote(sk);
 		return false;
 	}
 
@@ -264,6 +283,7 @@ _active_sync(struct client *c, guid_t *rootdir, uint64_t checkpoint,
 	if (rootdir)
 		memcpy(&rs->rootdir, rootdir, sizeof(guid_t));
 
+	rs->sk = sk;
 	rs->id = session_id;
 	rs->type = RESULT_LOGDIRFILE;
 	rs->free = (void(*)(void*))spq_f_logDirFile_free;
@@ -788,7 +808,6 @@ _client_iterate_result_logdf(struct client *c, struct logDirFile *ldf)
 			if (c->rout->rootdir.not_null)
 				client_local_rootdir(c, &c->rout->rootdir, C_ROOTDIR_ACTIVATE);
 			rout_free(c);
-			client_reqs_release(c, H_REQS_SQL);
 			return send_end(c, sessid, packets);
 		} else {
 			rout_free(c);
@@ -941,8 +960,6 @@ _client_iterate_result(struct client *c)
 		uint8_t hash[HASH_MAX + 1];
 		size_t hash_len;
 		if (!spq_getChunks_it(&c->rout->v.c)) {
-			/* освобождаемся */
-			client_reqs_release(c, H_REQS_SQL);
 			/* итерироваться больше некуда, потому отправляем end и чистим
 			 *
 			 * если сообщение не отправится, то очередь подчиститься при
@@ -974,7 +991,6 @@ _client_iterate_result(struct client *c)
 		char guid[GUID_MAX + 1];
 		char parent[GUID_MAX + 1];
 		if (!spq_getRevisions_it(&c->rout->v.r)) {
-			client_reqs_release(c, H_REQS_SQL);
 			return send_end(c, c->rout->id, c->rout->packets) &&
 				(rout_free(c) || true);
 		}
@@ -1001,7 +1017,6 @@ _client_iterate_result(struct client *c)
 	} else if (c->rout->type == RESULT_DEVICES) {
 		Fep__ResultDevice msg = FEP__RESULT_DEVICE__INIT;
 		if (!spq_getDevices_it(&c->rout->v.d)) {
-			client_reqs_release(c, H_REQS_SQL);
 			return send_end(c, c->rout->id, c->rout->packets) &&
 				(rout_free(c) || true);
 		}
