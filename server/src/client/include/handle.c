@@ -449,13 +449,11 @@ _handle_end(struct client *c, unsigned type, Fep__End *end)
 		 */
 		{
 			bool _r = _file_complete(sk, c, wf, false);
-			REQS_SK_REL(c, H_REQS_SQL, sk);
 			if (!_r)
 				return false;
 		}
 		return send_ok(c, end->id, C_OK_SIMPLE, NULL);
 	} else {
-		REQS_SK_REL(c, H_REQS_SQL, sk);
 		/* чанк не нужен, клиент перетащит его заного */
 		return send_error(c, end->id, errmsg, -1);
 	}
