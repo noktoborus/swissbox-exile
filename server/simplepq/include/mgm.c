@@ -375,12 +375,12 @@ spq_devote(struct spq_key *key)
 	}
 	/* TODO: нужно заканчивать жизнь временным таблицам (begin_life/end_life) */
 	pthread_mutex_lock(&_root.lock);
+	key->in_action = false;
+	_root.active--;
 	xsyslog(LOG_INFO,
 			"spq: key[%p] release "
 			"(active: %"PRIuPTR", count: %"PRIuPTR", uses: %"PRIuPTR")",
 			(void*)key, _root.active, _root.count, key->uses);
-	key->in_action = false;
-	_root.active--;
 	pthread_mutex_unlock(&_root.lock);
 	/* освобождать структуру не нужно, может ещё пригодится */
 }
