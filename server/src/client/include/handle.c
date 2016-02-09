@@ -615,11 +615,13 @@ _read_ask__from_cache(struct client *c, Fep__ReadAsk *msg,
 	struct chunk_send *chs;
 
 	if (!(chs = calloc(1, sizeof(struct chunk_send)))) {
+		client_reqs_release(c, H_REQS_FD);
 		return send_error(c, msg->id, "Internal error 121", -1);
 	}
 
 	if (!fcac_open(&c->cev->pain->fcac, ci->group, &chs->p, 0)) {
 		free(chs);
+		client_reqs_release(c, H_REQS_FD);
 		return send_error(c, msg->id, "Internal error 1149", -1);
 	}
 
@@ -643,7 +645,6 @@ _read_ask__from_cache(struct client *c, Fep__ReadAsk *msg,
 
 		return send_message(c->cev, FEP__TYPE__tOkRead, &rdok);
 	}
-	return true;
 }
 
 bool
