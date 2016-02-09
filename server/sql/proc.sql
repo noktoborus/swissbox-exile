@@ -233,7 +233,6 @@ BEGIN
 		) SELECT id INTO _ur.revision_id FROM _x;
 	END IF;
 
-
 	-- 0.5 проверка наличия ревизии
 	SELECT id, revision
 	INTO _parent
@@ -266,9 +265,9 @@ BEGIN
 		return;
 	END IF;
 
-	-- если это подготовка, то выполнение всего следующего кода не нужно
 	-- prepare выполняется только для _chunks > 0
 	IF _prepare = TRUE AND _chunks > 0 THEN
+		RAISE NOTICE 'prepare ';
 		INSERT INTO file_temp SELECT
 			_ur.revision_id,
 			_dir_guid,
@@ -276,26 +275,36 @@ BEGIN
 			_filename,
 			_pubkey,
 			_chunks;
-		-- выход
-		r_complete := false;
-		return next;
-		return;
-	END IF;
+		/* после внесения временных данных можно сделать проверку на готовность
+			(процедура _revision_is_complete работает с таблицей "file_temp")
 
-	-- получение сохранённой информации о файле
-	SELECT * INTO _row
-	FROM file_temp
-	WHERE id = _ur.revision_id;
+		*/
+		r_complete := _revision_is_complete(_ur.revision_id);
+		IF NOT r_complete THEN
+			-- если ревизия не готова, смысла дальше выполнять код нет
+			return next;
+			return;
+		END IF;
+	ELSE
+		/* выборка временных данных */
+		SELECT * INTO _row
+		FROM file_temp
+		WHERE id = _ur.revision_id;
 
-	IF _row IS NOT NULL THEN
-		_dir_guid := COALESCE(_row.directory, _dir_guid);
-		_filename := COALESCE(_row.filename, _filename);
-		_pubkey := COALESCE(_row.pubkey, _pubkey);
-		_chunks := COALESCE(_row.chunks, _chunks);
+		IF _row IS NOT NULL THEN
+			_dir_guid := COALESCE(_row.directory, _dir_guid);
+			_filename := COALESCE(_row.filename, _filename);
+			_pubkey := COALESCE(_row.pubkey, _pubkey);
+			_chunks := COALESCE(_row.chunks, _chunks);
+		END IF;
+
+		/* если это не подготовка (prepare), то нужно обязательно
+		 проверить готовность
+		*/
+		r_complete := _revision_is_complete(_ur.revision_id);
 	END IF;
 
 	-- 2. проверка на собранность файла
-	r_complete := _revision_is_complete(_ur.revision_id);
 	IF NOT r_complete THEN
 		r_error := concat('1:file not completed ',
 			'(rootdir "', _rootdir_guid, '", ',
