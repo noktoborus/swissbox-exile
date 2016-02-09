@@ -114,8 +114,6 @@ c_auth_cb(struct client *c, uint64_t id, unsigned int msgtype, void *msg, void *
 		send_error(c, id, "Internal error 135", 0);
 		return false;
 	}
-	squeue_subscribe(&c->cum->broadcast, &c->broadcast_c);
-
 	/* проверка на подключённое устройство с тем же device_id */
 	pthread_mutex_lock(&c->cum->lock);
 	list_ptr(&c->cum->devices, &lp);
@@ -142,9 +140,16 @@ c_auth_cb(struct client *c, uint64_t id, unsigned int msgtype, void *msg, void *
 				"Device id (%"PRIX64") already taken", c->device_id);
 		send_error(c, id, __e, 0);
 		pthread_mutex_unlock(&c->cum->lock);
+		/* костыль: отделяемся от списка, что бы не проводить
+		 * полную отчистку в client_destroy()
+		 */
+		client_cum_free(c->cum);
+		c->cum = NULL;
 		return false;
 	}
 	pthread_mutex_unlock(&c->cum->lock);
+
+	squeue_subscribe(&c->cum->broadcast, &c->broadcast_c);
 
 	xsyslog(LOG_INFO, "client[%"SEV_LOG"] authorized as %s, device=%"PRIX64,
 			c->cev->serial, c->name, c->device_id);
