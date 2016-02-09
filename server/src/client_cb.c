@@ -70,7 +70,7 @@ c_auth_cb(struct client *c, uint64_t id, unsigned int msgtype, void *msg, void *
 		if (*hint.message)
 			errmsg = hint.message;
 		else
-			errmsg = "Internal error 96";
+			errmsg = "Internal error 96: may be invalid device_id";
 	} else if (!user.authorized && *user.next_server) {
 		/* TODO: выбор драйвера для авторизации */
 		if (!as3_auth(user.next_server, amsg->username, amsg->authtoken,
