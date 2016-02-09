@@ -25,6 +25,14 @@ enum cev_state
 	CEV_MORE
 };
 
+/* типы ресурсов, которые нужны для обработки пакета
+ * обрабатываются битово
+ */
+enum handle_reqs_t {
+	H_REQS_Z = 0,
+	H_REQS_SQL = 1,
+	H_REQS_FD = 2
+};
 
 typedef enum _result_send {
 	RESULT_CHUNKS = 1,
@@ -54,6 +62,7 @@ struct result_send {
 	void (*free)(void*);
 
 	struct spq_key *sk;
+	enum handle_reqs_t reqs;
 
 	struct result_send *next;
 };
@@ -217,14 +226,6 @@ typedef void(*handle_free_t)(void *, ProtobufCAllocator *);
 typedef size_t(*fep_get_packed_size_t)(void*);
 typedef size_t(*fep_pack_t)(void*, unsigned char*);
 
-/* типы ресурсов, которые нужны для обработки пакета
- * обрабатываются битово
- */
-enum handle_reqs_t {
-	H_REQS_Z = 0,
-	H_REQS_SQL = 1,
-	H_REQS_FD = 2
-};
 
 
 struct h_reqs_store_t {
@@ -349,6 +350,8 @@ typedef struct wait_store
 {
 	void *data;
 	c_cb_t cb;
+	enum handle_reqs_t reqs;
+	struct client *c;
 } wait_store_t;
 
 struct wait_xfer {

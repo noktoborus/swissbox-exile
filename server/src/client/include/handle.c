@@ -6,13 +6,21 @@
 /* не совсем очевидно что внутри может быть выход, но фиг с ним */
 #define REQS_SK_ACQ(c, reqs, sk, type, msg) \
 {\
-	if (!client_reqs_acquire(c, reqs) ||\
-			!(sk = spq_vote(c->name, c->device_id))) {\
-		if (!send_pending(c, msg->id)) {\
+	bool __w_q = client_reqs_acquire(c, reqs);\
+	if (__w_q) {\
+		/* if (sk) {\ */\
+			if (!(__w_q = (sk = spq_vote(c->name, c->device_id)) != NULL)) {\
+				client_reqs_release(c, reqs);\
+			}\
+		/* } \*/\
+		/* кладём в очередь и выходим */\
+	}\
+	if (!__w_q) {\
+		if (send_pending(c, msg->id)) {\
+			return client_reqs_queue(c, reqs, type, msg);\
+		} else {\
 			return false;\
 		}\
-		/* кладём в очередь и выходим */\
-		return client_reqs_queue(c, reqs, type, msg);\
 	}\
 }
 
@@ -266,14 +274,7 @@ _handle_file_meta(struct client *c, unsigned type, Fep__FileMeta *msg)
 	if (!c->status.auth_ok)
 		return send_error(c, msg->id, "Unauthorized", -1);
 
-	if (!client_reqs_acquire(c, H_REQS_SQL) ||
-			!(sk = spq_vote(c->name, c->device_id))) {
-		if (!send_pending(c, msg->id)) {
-			return false;
-		}
-		/* кладём в очередь и выходим */
-		return client_reqs_queue(c, H_REQS_SQL, type, msg);
-	}
+	REQS_SK_ACQ(c, H_REQS_SQL, sk, type, msg);
 
 	/* FIXME: ересь, прибраться после починки таблиц
 	 * если в FileMeta не указаны enc_filename и key,
@@ -294,13 +295,11 @@ _handle_file_meta(struct client *c, unsigned type, Fep__FileMeta *msg)
 #endif
 		if (!spq_getFileMeta(sk,
 					&rootdir, &file, NULL, false, &fmeta, NULL)) {
-			spq_devote(sk);
-			client_reqs_release(c, H_REQS_SQL);
+			REQS_SK_REL(c, H_REQS_SQL, sk);
 			return send_error(c, msg->id, "Internal error 1759", -1);
 		}
 		if (fmeta.empty) {
-			spq_devote(sk);
-			client_reqs_release(c, H_REQS_SQL);
+			REQS_SK_REL(c, H_REQS_SQL, sk);
 			return send_error(c, msg->id, "no origin file meta in db", -1);
 		}
 		need_clear = true;
@@ -316,8 +315,7 @@ _handle_file_meta(struct client *c, unsigned type, Fep__FileMeta *msg)
 	wf = _wait_file(c, &rootdir, &file, &revision);
 	if (!wf) {
 		spq_getFileMeta_free(&fmeta);
-		spq_devote(sk);
-		client_reqs_release(c, H_REQS_SQL);
+		REQS_SK_REL(c, H_REQS_SQL, sk);
 		return send_error(c, msg->id, "Internal error 1860", -1);
 	}
 
@@ -356,8 +354,7 @@ _handle_file_meta(struct client *c, unsigned type, Fep__FileMeta *msg)
 	}
 	{
 		bool _r = _file_complete(sk, c, wf, true);
-		spq_devote(sk);
-		client_reqs_release(c, H_REQS_SQL);
+		REQS_SK_REL(c, H_REQS_SQL, sk);
 		return _r;
 	}
 }
@@ -446,8 +443,6 @@ _handle_end(struct client *c, unsigned type, Fep__End *end)
 	}
 
 	sid_free(ws);
-	/* освобождаем захваченный в handle_write_ask() ресурс */
-	client_reqs_release(c, H_REQS_FD);
 	if (!*errmsg) {
 		/* нет смысла пытаться отправить "Ok" клиенту, если
 		 * соеденение отвалилось при отправке OkUpdate
@@ -544,9 +539,13 @@ _handle_want_sync(struct client *c, unsigned type, Fep__WantSync *msg)
 		return client_reqs_queue(c, H_REQS_SQL, type, msg);
 	}
 
+	/* FIXME: костыль на то, что внутри _active_sync
+	 * тоже происходит захват нужных ресурсов
+	 */
+	client_reqs_release(c, H_REQS_SQL);
+
 	if (!_active_sync(c, rootdir.not_null ? &rootdir : NULL, msg->checkpoint,
 				msg->session_id, 0lu)) {
-		client_reqs_release(c, H_REQS_SQL);
 		return send_error(c, msg->id, "Internal error 1653", -1);
 	}
 	c->status.log_active = true;
@@ -660,7 +659,7 @@ _handle_read_ask(struct client *c, unsigned type, Fep__ReadAsk *msg)
 	guid_t file;
 	guid_t chunk;
 
-	struct spq_key *sk;
+	struct spq_key *sk = NULL;
 	struct spq_hint hint;
 	struct getChunkInfo cnfo;
 
@@ -765,14 +764,7 @@ _handle_write_ask(struct client *c, unsigned type, Fep__WriteAsk *msg)
 
 	/* захват ресурса, освобождение должно происходить в
 	 */
-	if (!client_reqs_acquire(c, H_REQS_SQL | H_REQS_FD) ||
-			!(sk = spq_vote(c->name, c->device_id))) {
-		if (!send_pending(c, msg->id)) {
-			return false;
-		}
-		/* кладём в очередь и выходим */
-		return client_reqs_queue(c, H_REQS_SQL | H_REQS_FD, type, msg);
-	}
+	REQS_SK_ACQ(c, H_REQS_SQL | H_REQS_FD, sk, type, msg);
 
 	{
 		/* проверка доступного пространства
@@ -786,16 +778,14 @@ _handle_write_ask(struct client *c, unsigned type, Fep__WriteAsk *msg)
 		memset(&_hint, 0u, sizeof(struct spq_hint));
 		spq_get_quota(sk, &rootdir, &_qi, &_hint);
 		if (_hint.level == SPQ_ERR) {
-			spq_devote(sk);
-			client_reqs_release(c, H_REQS_SQL | H_REQS_FD);
+			REQS_SK_REL(c, H_REQS_SQL | H_REQS_FD, sk);
 			if (*_hint.message)
 				return send_error(c, msg->id, _hint.message, -1);
 			return send_error(c, msg->id, "Internal error 977", -1);
 		}
 		if (_qi.quota) {
 			if (_qi.used + msg->size > _qi.quota) {
-				spq_devote(sk);
-				client_reqs_release(c, H_REQS_SQL | H_REQS_FD);
+				REQS_SK_REL(c, H_REQS_SQL | H_REQS_FD, sk);
 				return send_error(c, msg->id, "No enough space", -1);
 			}
 		}
@@ -808,8 +798,7 @@ _handle_write_ask(struct client *c, unsigned type, Fep__WriteAsk *msg)
 
 	if (!spq_chunk_prepare(sk, &rootdir,
 			chunk_hash, msg->size, &_ci, &_hint)) {
-		spq_devote(sk);
-		client_reqs_release(c, H_REQS_SQL | H_REQS_FD);
+		REQS_SK_REL(c, H_REQS_SQL | H_REQS_FD, sk);
 		if (*_hint.message)
 			return send_error(c, msg->id, _hint.message, -1);
 		return send_error(c, msg->id, "Internal error 1175", -1);
@@ -817,7 +806,7 @@ _handle_write_ask(struct client *c, unsigned type, Fep__WriteAsk *msg)
 
 	/* структура файла нам нужна в любом случае */
 	if (!(wf = _wait_file(c, &rootdir, &file, &revision))) {
-		client_reqs_release(c, H_REQS_SQL | H_REQS_FD);
+		REQS_SK_REL(c, H_REQS_SQL | H_REQS_FD, sk);
 		return send_error(c, msg->id, "Internal error 1321", -1);
 	}
 
@@ -833,6 +822,7 @@ _handle_write_ask(struct client *c, unsigned type, Fep__WriteAsk *msg)
 					&rootdir, &file, &revision, &chunk,
 					chunk_hash, msg->size, msg->offset, _ci.address,
 					&_com, &hint)) {
+			REQS_SK_REL(c, H_REQS_SQL | H_REQS_FD, sk);
 			spq_getChunkInfo_free(&_ci);
 			if (*hint.message)
 				return send_error(c, msg->id, hint.message, -1);
@@ -841,8 +831,7 @@ _handle_write_ask(struct client *c, unsigned type, Fep__WriteAsk *msg)
 		}
 		spq_getChunkInfo_free(&_ci);
 		/* освобождаем оба ресурса, т.к. End не прийдёт */
-		spq_devote(sk);
-		client_reqs_release(c, H_REQS_SQL | H_REQS_FD);
+		REQS_SK_REL(c, H_REQS_SQL | H_REQS_FD, sk);
 		/* если сборка завершена, то выставляем соотвествующий флаг */
 		if (_com) {
 			wf->complete = true;
@@ -862,6 +851,8 @@ _handle_write_ask(struct client *c, unsigned type, Fep__WriteAsk *msg)
 		if (!ws) {
 			errmsg = "Internal error 1315";
 		} else {
+			ws->c = c; /* лёгкого вида костыль, что бы не потеряться *_free */
+			ws->reqs = H_REQS_SQL;
 			wx = (ws->data = ws + 1);
 			/* открытие/создание файла */
 			wx->size = msg->size;
@@ -892,8 +883,7 @@ _handle_write_ask(struct client *c, unsigned type, Fep__WriteAsk *msg)
 				"client[%"SEV_LOG"] open(%"PRIu64") failed: %s",
 				c->cev->serial, chunk_id, strerror(errno));
 		/* ошибка, End не прийдёт */
-		spq_devote(sk);
-		client_reqs_release(c, H_REQS_SQL | H_REQS_FD);
+		REQS_SK_REL(c, H_REQS_SQL | H_REQS_FD, sk);
 		return send_error(c, msg->id, errmsg, -1);
 	}
 	/* инициализируем polarssl */
@@ -921,8 +911,7 @@ _handle_write_ask(struct client *c, unsigned type, Fep__WriteAsk *msg)
 	/* в случае успеха освобождаем только ресурс SQL, но оставляем
 	 * захваченным fd, его нужно освободить только после прихода End
 	 */
-	client_reqs_release(c, H_REQS_SQL);
-	spq_devote(sk);
+	REQS_SK_REL(c, H_REQS_SQL, sk);
 	return send_message(c->cev, FEP__TYPE__tOkWrite, &wrok);
 }
 
@@ -1090,6 +1079,7 @@ _handle_query_revisions(struct client *c, unsigned type,
 	}
 	memcpy(&rs->v.r, &gr, sizeof(struct getRevisions));
 	rs->sk = sk;
+	rs->reqs = H_REQS_SQL;
 	rs->id = msg->session_id;
 	rs->type = RESULT_REVISIONS;
 	rs->free = (void(*)(void*))spq_getRevisions_free;
@@ -1124,12 +1114,15 @@ _handle_query_devices(struct client *c, unsigned type, Fep__QueryDevices *msg)
 	}
 
 	memset(&hint, 0u, sizeof(hint));
+	/* сейчас это один из немногих вызовов, которые не требуют spq_key */
 	if (!spq_getDevices(c->name, c->device_id, &rs->v.d, &hint)) {
 		free(rs);
 		client_reqs_release(c, H_REQS_SQL);
 		return send_error(c, msg->id, "Internal error 1010", -1);
 	}
 
+	/* освобождение SQL произойдёт в rout_free() */
+	rs->reqs = H_REQS_SQL;
 	rs->id = msg->session_id;
 	rs->type = RESULT_DEVICES;
 	rs->free = (void(*)(void*))spq_getDevices_free;
@@ -1218,6 +1211,7 @@ _handle_query_chunks(struct client *c, unsigned type, Fep__QueryChunks *msg)
 	/* заполнение списка, добавление в очередь */
 	memcpy(&rs->v.c, &gc, sizeof(struct getChunks));
 	rs->sk = sk;
+	rs->reqs = H_REQS_SQL;
 	rs->id = msg->session_id;
 	rs->type = RESULT_CHUNKS;
 	rs->free = (void(*)(void*))spq_getChunks_free;

@@ -47,8 +47,10 @@ rout_free(struct client *c)
 		 * ресурсов
 		 *
 		 */
+		if (c->rout->reqs) {
+			client_reqs_release(c, c->rout->reqs);
+		}
 		if (c->rout->sk) {
-			client_reqs_release(c, H_REQS_SQL);
 			spq_devote(c->rout->sk);
 		}
 		if (p->free) {
@@ -76,14 +78,26 @@ cout_free(struct client *c)
 }
 
 static void
-mid_free(void *data)
+mid_free(wait_store_t *ws)
 {
-	free(data);
+	if (ws->reqs) {
+		if (!ws->c) {
+			xsyslog(LOG_ERR, "wait_store without pointer to client");
+		}
+		client_reqs_release(ws->c, ws->reqs);
+	}
+	free(ws);
 }
 
 static void
 fid_free(wait_store_t *ws)
 {
+	if (ws->reqs) {
+		if (!ws->c) {
+			xsyslog(LOG_ERR, "wait_store without pointer to client");
+		}
+		client_reqs_release(ws->c, ws->reqs);
+	}
 	free(ws);
 }
 
@@ -103,6 +117,13 @@ sid_free(wait_store_t *ws)
 		sha256_free(&wx->sha256);
 #endif
 	}
+	if (ws->reqs) {
+		if (!ws->c) {
+			xsyslog(LOG_ERR, "wait_store without pointer to client");
+		}
+		client_reqs_release(ws->c, ws->reqs);
+	}
+
 	free(ws);
 }
 
@@ -236,8 +257,21 @@ _active_sync(struct client *c, guid_t *rootdir, uint64_t checkpoint,
 	struct result_send *rs;
 	struct spq_key *sk = NULL;
 
-	if (!(sk = spq_vote(c->name, c->device_id))) {
-		return false;
+	{
+		/* захват ресурса */
+		bool __g_r = false;
+		if ((__g_r = client_reqs_acquire(c, H_REQS_SQL))) {
+			__g_r = (sk = spq_vote(c->name, c->device_id)) != NULL;
+			if (!__g_r) {
+				client_reqs_release(c, H_REQS_SQL);
+			}
+
+		}
+		if (!__g_r) {
+			/* может вызвать слишком большое количество сообщений в логе */
+			xsyslog(LOG_WARNING, "warning: acquire while sync failed");
+			return false;
+		}
 	}
 
 #if DEEPDEBUG
@@ -270,6 +304,7 @@ _active_sync(struct client *c, guid_t *rootdir, uint64_t checkpoint,
 				&rs->v.df)) {
 		free(rs);
 		spq_devote(sk);
+		client_reqs_release(c, H_REQS_SQL);
 		return false;
 	}
 
@@ -284,6 +319,7 @@ _active_sync(struct client *c, guid_t *rootdir, uint64_t checkpoint,
 		memcpy(&rs->rootdir, rootdir, sizeof(guid_t));
 
 	rs->sk = sk;
+	rs->reqs = H_REQS_SQL;
 	rs->id = session_id;
 	rs->type = RESULT_LOGDIRFILE;
 	rs->free = (void(*)(void*))spq_f_logDirFile_free;
