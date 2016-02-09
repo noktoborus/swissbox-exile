@@ -89,6 +89,10 @@ mid_free(wait_store_t *ws)
 		}
 		client_reqs_release(ws->c, ws->reqs);
 	}
+
+	if(ws->sk) {
+		spq_devote(ws->sk);
+	}
 	free(ws);
 }
 
@@ -100,6 +104,10 @@ fid_free(wait_store_t *ws)
 			xsyslog(LOG_ERR, "wait_store without pointer to client");
 		}
 		client_reqs_release(ws->c, ws->reqs);
+	}
+
+	if(ws->sk) {
+		spq_devote(ws->sk);
 	}
 	free(ws);
 }
@@ -125,6 +133,10 @@ sid_free(wait_store_t *ws)
 			xsyslog(LOG_ERR, "wait_store without pointer to client");
 		}
 		client_reqs_release(ws->c, ws->reqs);
+	}
+
+	if (ws->sk) {
+		spq_devote(ws->sk);
 	}
 
 	free(ws);

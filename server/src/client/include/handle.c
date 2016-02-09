@@ -449,6 +449,7 @@ _handle_end(struct client *c, unsigned type, Fep__End *end)
 		 */
 		{
 			bool _r = _file_complete(sk, c, wf, false);
+			REQS_SK_REL(c, H_REQS_SQL, sk);
 			if (!_r)
 				return false;
 		}
@@ -856,8 +857,9 @@ _handle_write_ask(struct client *c, unsigned type, Fep__WriteAsk *msg)
 		if (!ws) {
 			errmsg = "Internal error 1315";
 		} else {
-			ws->c = c; /* лёгкого вида костыль, что бы не потеряться *_free */
-			ws->reqs = H_REQS_SQL;
+			/* лёгкого вида костыль, что бы не потеряться в *_free */
+			ws->c = c;
+			ws->reqs = H_REQS_FD;
 			wx = (ws->data = ws + 1);
 			/* открытие/создание файла */
 			wx->size = msg->size;
@@ -905,8 +907,13 @@ _handle_write_ask(struct client *c, unsigned type, Fep__WriteAsk *msg)
 	xsyslog(LOG_DEBUG, "client[%"SEV_LOG"] fd#%"PRIu64" for [%"PRIu32"]",
 			c->cev->serial, wx->p.id, wrok.session_id);
 #endif
-	/* инициализаци полей wait_file */
-	wait_id(c, &c->sid, wrok.session_id, ws);
+	/* добавление в очередь на ожидание */
+	if (!wait_id(c, &c->sid, wrok.session_id, ws)) {
+		fcac_close(&wx->p);
+		free(ws);
+		REQS_SK_REL(c, H_REQS_SQL | H_REQS_FD, sk);
+		return send_error(c, msg->id, "Internal error 1358", -1);
+	}
 
 	/* если запрос завершился неудачно, то файла, вероятнее всего нет
 	 * не помню зачем это нужно, какой-то костыль

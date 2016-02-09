@@ -354,6 +354,7 @@ typedef struct wait_store
 	void *data;
 	c_cb_t cb;
 	enum handle_reqs_t reqs;
+	struct spq_key *sk;
 	struct client *c;
 } wait_store_t;
 
