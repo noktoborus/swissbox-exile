@@ -22,8 +22,6 @@
 
 #include "fcac/fcac.h"
 
-#define SPQ_DEFAULT_POOLSIZE 3
-
 struct evptr {
 	union {
 		struct ev_io io;
@@ -187,7 +185,6 @@ struct main
 		char *user;
 		char *group;
 
-		long pg_poolsize;
 		char *bindline;
 		char *packet_verbose;
 		char *pg_connstr;

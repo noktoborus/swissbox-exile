@@ -1278,15 +1278,6 @@ cfg_load(struct main *pain)
 	snprintf(cfgpath, PATH_MAX, "/etc/%s.conf", pain->a_basename);
 	xsyslog(LOG_INFO, "read config: %s", cfgpath);
 	cfg_parse(pain->cfg, cfgpath);
-
-	/* небольшие проверки */
-	if (pain->options.pg_poolsize <= SPQ_DEFAULT_POOLSIZE) {
-		xsyslog(LOG_WARNING,
-				"ignore cfg's pg_poolsize value"
-				" (%ld <= "S(SPQ_DEFAULT_POOLSIZE)")",
-				pain->options.pg_poolsize);
-		pain->options.pg_poolsize = SPQ_DEFAULT_POOLSIZE;
-	}
 }
 
 /*
@@ -1299,14 +1290,33 @@ cfg_update(struct main *pain)
 
 	/* опции для перезагрузки:
 	 * packet_verbose
-	 * pg_poolsize
 	 */
 
-	/* изменение размера пула подключений */
+	/* включение/отключение лога */
 	spq_set_log_failed_queries((bool)pain->options.log_failed_queries);
 	/* инициализация лога сервера */
 	if (*pain->options.packet_verbose)
 		packet_verbose(pain->options.packet_verbose);
+
+	/* адрес кеша */
+	{
+		/* TODO: убрать код получения базовых значений клиента из send_hello()
+		 */
+		struct spq_InitialUser _ui;
+		struct spq_hint _hint;
+		char _epoch[GUID_MAX + 1] = {0};
+		char _path[PATH_MAX + 1] = {0};
+		size_t _path_l = 0u;
+		memset(&_ui, 0u, sizeof(_ui));
+		memset(&_hint, 0u, sizeof(_hint));
+		if (!spq_initial_user(&_ui, &_hint)) {
+			return false;
+		}
+		guid2string(&_ui.mark, _epoch, sizeof(_epoch));
+		_path_l = snprintf(_path, sizeof(_path), "%s/%s",
+				pain->options.cache_dir, _epoch);
+		fcac_set(&pain->fcac, FCAC_PATH, _path, _path_l);
+	}
 
 	/* TODO */
 	return true;
@@ -1337,7 +1347,7 @@ main(int argc, char *argv[])
 		}
 
 		pain.options.redis_chan = strdup("fep_broadcast");
-		pain.options.cache_dir = strdup("user/");
+		pain.options.cache_dir = strdup("fcac_data/");
 		pain.options.pidfile = strdup("");
 		pain.options.user = strdup("");
 		pain.options.group = strdup("");
@@ -1345,7 +1355,6 @@ main(int argc, char *argv[])
 		pain.options.bindline = strdup("0.0.0.0:5151");
 		pain.options.pg_connstr = strdup("dbname = fepserver");
 		pain.options.packet_verbose = strdup("");
-		pain.options.pg_poolsize = 10;
 		pain.options.unique_device_id = true;
 	}
 	/* получение конфигурации */
@@ -1353,7 +1362,6 @@ main(int argc, char *argv[])
 		cfg_opt_t opt[] = {
 			CFG_SIMPLE_STR("bind", &pain.options.bindline),
 			CFG_SIMPLE_STR("pg_connstr", &pain.options.pg_connstr),
-			CFG_SIMPLE_INT("pg_poolsize", &pain.options.pg_poolsize),
 			CFG_SIMPLE_BOOL("log_failed_queries",
 					&pain.options.log_failed_queries),
 			CFG_SIMPLE_STR("redis_chan", &pain.options.redis_chan),
