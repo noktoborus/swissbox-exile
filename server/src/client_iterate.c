@@ -1114,8 +1114,6 @@ _client_iterate_chunk(struct client *c)
 		uint32_t _packets = c->cout->packets;
 		bool _corrupt = c->cout->corrupt;
 		cout_free(c);
-		/* и освобождам ресурс */
-		client_reqs_release(c, H_REQS_FD);
 
 		if (!send_end(c, _sessid, _packets))
 			return false;
@@ -1447,7 +1445,7 @@ client_iterate(struct sev_ctx *cev, void *p)
 			}
 			pthread_mutex_unlock(&c->cum->lock);
 		}
-		/* обработка списка по доступным ресурсам */
+		/* обработка списка по доступным ресурсам в автоматическом режиме */
 		client_reqs_unqueue(c, H_REQS_Z);
 	}
 
