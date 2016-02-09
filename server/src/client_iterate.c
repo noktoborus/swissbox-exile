@@ -1133,6 +1133,7 @@ _client_iterate_chunk(struct client *c)
 				xsyslog(LOG_INFO, "client[%"SEV_LOG"] read wtf: %s",
 						c->cev->serial, strerror(errno));
 			}
+			 /* отмечаем что произошла ошибка при чтении */
 			c->cout->corrupt = true;
 		} else {
 			Fep__Xfer xfer_msg = FEP__XFER__INIT;
