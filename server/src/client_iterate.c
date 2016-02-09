@@ -68,6 +68,9 @@ cout_free(struct client *c)
 {
 	struct chunk_send *p;
 	if ((p = c->cout) != NULL) {
+		if (c->cout->reqs != H_REQS_Z) {
+			client_reqs_release(c, c->cout->reqs);
+		}
 		if (fcac_opened(&p->p)) {
 			fcac_close(&p->p);
 		}

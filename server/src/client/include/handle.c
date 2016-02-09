@@ -581,6 +581,11 @@ _read_ask__from_driver(struct client *c, Fep__ReadAsk *msg,
 	struct _bus_data *bd = calloc(1, sizeof(struct _bus_data));
 	almsg_init(&alm);
 
+	/* сразу освобождаем ресурс FD, т.к. его фактический захват нужно
+	 * проводить после получения ответа от драйвера
+	 */
+	client_reqs_release(c, H_REQS_FD);
+
 	bd->pain = c->cev->pain;
 	bd->msgid = msg->id;
 	bd->client_serial = c->cev->serial;
@@ -623,6 +628,7 @@ _read_ask__from_cache(struct client *c, Fep__ReadAsk *msg,
 	chs->next = c->cout;
 	chs->chunk_size = chs->size;
 	chs->file_offset = ci->offset;
+	chs->reqs = H_REQS_FD;
 	c->cout = chs;
 #if DEEPDEBUG
 	xsyslog(LOG_DEBUG, "client[%"SEV_LOG"] -> ReadAsk id = %"PRIu64,

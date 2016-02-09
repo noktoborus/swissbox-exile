@@ -103,6 +103,9 @@ struct chunk_send {
 	/* true если структуру нужно разобрать */
 	bool corrupt;
 
+	/* зарезервированные ресурсы */
+	enum handle_reqs_t reqs;
+
 	struct chunk_send *next;
 };
 
