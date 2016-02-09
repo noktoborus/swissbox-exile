@@ -255,7 +255,7 @@ spq_vote(const char *username, uint64_t device_id)
 		if (!key->in_action) {
 			/* метим как захваченные и выходим */
 			key->in_action = true;
-			_root->active++;
+			_root.active++;
 			xsyslog(LOG_INFO, "spq: key[%p] acquire", (void*)key);
 			break;
 		}
@@ -273,11 +273,11 @@ spq_vote(const char *username, uint64_t device_id)
 			return NULL;
 		}
 		key->in_action = true;
-		_root->active++;
+		_root.active++;
 		/* вписывание в список */
 		xsyslog(LOG_INFO,
 				"spq: key[%p]: new (active: %"PRIuPTR", count: %"PRIuPTR")",
-				(void*)key, _root->active, _root->count);
+				(void*)key, _root.active, _root.count);
 		pthread_mutex_lock(&_root.lock);
 		if ((key->key = _root.key) != NULL) {
 			_root.key->keyp = key;
@@ -350,7 +350,7 @@ spq_vote(const char *username, uint64_t device_id)
 	pthread_mutex_lock(&_root.lock);
 	/* сброс флага обязательно нужно выполнять в тред-безопасной зоне */
 	key->in_action = false;
-	_root->active--;
+	_root.active--;
 	pthread_mutex_unlock(&_root.lock);
 
 	return NULL;
@@ -373,7 +373,7 @@ spq_devote(struct spq_key *key)
 	/* TODO: нужно заканчивать жизнь временным таблицам (begin_life/end_life) */
 	pthread_mutex_lock(&_root.lock);
 	key->in_action = false;
-	_root->active--;
+	_root.active--;
 	pthread_mutex_unlock(&_root.lock);
 	/* освобождать структуру не нужно, может ещё пригодится */
 }
