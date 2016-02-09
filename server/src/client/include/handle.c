@@ -836,14 +836,18 @@ _handle_write_ask(struct client *c, unsigned type, Fep__WriteAsk *msg)
 				return send_error(c, msg->id, "Internal error 1240", -1);
 		}
 		spq_getChunkInfo_free(&_ci);
-		/* освобождаем оба ресурса, т.к. End не прийдёт */
-		REQS_SK_REL(c, H_REQS_SQL | H_REQS_FD, sk);
 		/* если сборка завершена, то выставляем соотвествующий флаг */
 		if (_com) {
+			register bool ___ra = true;
 			wf->complete = true;
 			/* и вызываем сценарий финализации */
-			if (!_file_complete(sk, c, wf, false))
+			___ra = _file_complete(sk, c, wf, false);
+			REQS_SK_REL(c, H_REQS_SQL | H_REQS_FD, sk);
+			if (!___ra)
 				return false;
+		} else {
+			/* освобождаем оба ресурса, т.к. End не прийдёт */
+			REQS_SK_REL(c, H_REQS_SQL | H_REQS_FD, sk);
 		}
 		return send_satisfied(c, msg->id);
 	}
