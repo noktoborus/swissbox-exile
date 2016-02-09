@@ -275,7 +275,9 @@ spq_vote(const char *username, uint64_t device_id)
 		key->in_action = true;
 		_root->active++;
 		/* вписывание в список */
-		xsyslog(LOG_INFO, "spq: key[%p]: new", (void*)key);
+		xsyslog(LOG_INFO,
+				"spq: key[%p]: new (active: %"PRIuPTR", count: %"PRIuPTR")",
+				(void*)key, _root->active, _root->count);
 		pthread_mutex_lock(&_root.lock);
 		if ((key->key = _root.key) != NULL) {
 			_root.key->keyp = key;
