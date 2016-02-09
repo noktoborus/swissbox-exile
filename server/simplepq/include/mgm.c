@@ -256,7 +256,10 @@ spq_vote(const char *username, uint64_t device_id)
 			/* метим как захваченные и выходим */
 			key->in_action = true;
 			_root.active++;
-			xsyslog(LOG_INFO, "spq: key[%p] acquire", (void*)key);
+			xsyslog(LOG_INFO,
+					"spq: key[%p] acquire "
+					"(active: %"PRIuPTR", count: %"PRIuPTR", uses: %"PRIuPTR")",
+					(void*)key, _root.active, _root.count, key->uses);
 			break;
 		}
 	}
@@ -372,6 +375,10 @@ spq_devote(struct spq_key *key)
 	}
 	/* TODO: нужно заканчивать жизнь временным таблицам (begin_life/end_life) */
 	pthread_mutex_lock(&_root.lock);
+	xsyslog(LOG_INFO,
+			"spq: key[%p] release "
+			"(active: %"PRIuPTR", count: %"PRIuPTR", uses: %"PRIuPTR")",
+			(void*)key, _root.active, _root.count, key->uses);
 	key->in_action = false;
 	_root.active--;
 	pthread_mutex_unlock(&_root.lock);
