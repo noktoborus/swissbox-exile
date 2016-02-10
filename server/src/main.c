@@ -1356,6 +1356,15 @@ main(int argc, char *argv[])
 		pain.options.pg_connstr = strdup("dbname = fepserver");
 		pain.options.packet_verbose = strdup("");
 		pain.options.unique_device_id = true;
+
+		/* конфигурация на одного клиента
+		 * TODO: лимиты подбирать динамически
+		 * в зависимости от значения _SC_OPEN_MAX
+		 */
+		pain.options.limit_global_sql_queries = 16;
+		pain.options.limit_global_fd_queries = 8;
+		pain.options.limit_local_sql_queries = 2;
+		pain.options.limit_local_fd_queries = 8;
 	}
 	/* получение конфигурации */
 	{
