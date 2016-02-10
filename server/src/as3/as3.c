@@ -90,7 +90,7 @@ as3_auth(char *path, char *name, char *secret, uint64_t device_id)
 		return false;
 	}
 	curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &rcode);
-
+	curl_slist_free_all(x_header);
 	curl_easy_cleanup(curl);
 
 	if (rcode == 200)
