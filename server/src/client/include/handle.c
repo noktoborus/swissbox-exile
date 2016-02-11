@@ -875,6 +875,10 @@ _handle_write_ask(struct client *c, unsigned type, Fep__WriteAsk *msg)
 				errmsg = "Internal error: cache not available";
 			}
 
+			if (fcac_is_ready(&wx->p) != FCAC_NO_READY) {
+				errmsg = "Cache damaged";
+			}
+
 			string2guid(msg->chunk_guid, strlen(msg->chunk_guid),
 					&wx->chunk_guid);
 			/* ссылаемся на wait_file и увеличиваем счётчик */
@@ -892,7 +896,7 @@ _handle_write_ask(struct client *c, unsigned type, Fep__WriteAsk *msg)
 			free(ws);
 		xsyslog(LOG_WARNING,
 				"client[%"SEV_LOG"] open(%"PRIu64") failed: %s",
-				c->cev->serial, chunk_id, strerror(errno));
+				c->cev->serial, chunk_id, errmsg);
 		/* ошибка, End не прийдёт */
 		REQS_SK_REL(c, H_REQS_SQL | H_REQS_FD, sk);
 		return send_error(c, msg->id, errmsg, -1);
@@ -1267,14 +1271,14 @@ _handle_xfer(struct client *c, unsigned type, Fep__Xfer *xfer)
 	ready = fcac_is_ready(&wx->p);
 	if (ready == FCAC_CLOSED) {
 		errmsg = "Cache closed, try again";
-	} else if (xfer->data.len + xfer->offset > wx->size) {
+	} else if (ready == FCAC_READY
+			|| xfer->data.len + xfer->offset > wx->size) {
 		errmsg = "Owerdose input data";
 	} else if ((ready != FCAC_READY &&
 		fcac_write(&wx->p, xfer->data.data, xfer->data.len) !=
 			xfer->data.len)) {
 		errmsg = "Write fail";
 	} else {
-		/* потенциально проблемное место при ready == FCAC_READY */
 		wx->filling += xfer->data.len;
 		sha256_update(&wx->sha256, xfer->data.data, xfer->data.len);
 		return true;

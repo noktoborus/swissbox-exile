@@ -83,7 +83,6 @@ struct fcac_ptr {
 	struct fcac *r;
 
 	uint64_t id; /* кешированное значение, что бы не лезть за локом */
-	bool ready;
 
 	int fd;
 	size_t offset;

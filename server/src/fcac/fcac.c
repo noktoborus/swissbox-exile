@@ -472,6 +472,7 @@ fcac_open(struct fcac *r, uint64_t id, struct fcac_ptr *p, enum fcac_options o)
 		char _path[PATH_MAX] = {0};
 		_format_filename(r->path, _path, sizeof(_path), id);
 
+		/* проверка финализации файла (нет флага u+w == финализирован) */
 		if (!stat(_path, &st) && !(st.st_mode & S_IWUSR)) {
 			/* открываем файл для указателя */
 			if ((fd = open(_path, O_RDONLY)) == -1) {
