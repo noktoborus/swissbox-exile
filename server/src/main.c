@@ -1353,7 +1353,7 @@ main(int argc, char *argv[])
 		pain.options.group = strdup("");
 
 		pain.options.bindline = strdup("0.0.0.0:5151");
-		pain.options.pg_connstr = strdup("dbname = fepserver");
+		pain.options.pg_connstr = strdup("");
 		pain.options.packet_verbose = strdup("");
 		pain.options.unique_device_id = true;
 
