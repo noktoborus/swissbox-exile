@@ -14,6 +14,34 @@
 #include <unistd.h>
 
 static inline bool
+_update_path(struct fcac *r)
+{
+	if (!r->path) {
+		return false;
+	}
+
+	if (r->path_full) {
+		free(r->path_full);
+	}
+
+	if (mkpath(r->path, S_IRWXU)) {
+		xsyslog(LOG_WARNING,
+				"fcac error: mkpath(%s) -> %s", r->path, strerror(errno));
+	}
+
+	if (!(r->path_full = realpath(r->path, NULL))) {
+		xsyslog(LOG_WARNING,
+				"fcac error: realpath(%s) -> %s", r->path, strerror(errno));
+		return false;
+	}
+
+	r->path_full_len = strlen(r->path_full);
+	xsyslog(LOG_DEBUG, "fcac: full path: %s", r->path_full);
+
+	return true;
+}
+
+static inline bool
 _lock(struct fcac *r, struct fcac_node *n)
 {
 	/* FIXME: добавить обязательный лок и необязательный
@@ -296,7 +324,11 @@ fcac_set(struct fcac *r, enum fcac_key key, ...)
 			}
 			memcpy(r->path, _path, _len);
 			r->path_len = (size_t)_len;
+
+			rval = _update_path(r);
+
 			xsyslog(LOG_INFO, "fcac[config]: set path to '%s'", _path);
+
 		}
 		break;
 	case FCAC_TIME_EXPIRE:
@@ -395,6 +427,10 @@ fcac_destroy(struct fcac *r)
 			/* не получилось захватить? Ну и ладно, всё равно крушим. */
 			pthread_mutex_destroy(&r->lock);
 		}
+	}
+
+	if (r->path_full) {
+		free(r->path_full);
 	}
 
 	if (r->path)
