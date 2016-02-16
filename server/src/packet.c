@@ -390,7 +390,7 @@ packet2syslog(const char *head,
 		{
 			Fep__End *_m = (void*)msg;
 			_l = snprintf(result, _e,
-					"id=%"PRIu64", session_i=%"PRIu32, _m->id, _m->session_id);
+					"id=%"PRIu64", session_id=%"PRIu32, _m->id, _m->session_id);
 			_value_or_null(_m, result, "%"PRIu32, packets, _l, _e);
 			break;
 		}
