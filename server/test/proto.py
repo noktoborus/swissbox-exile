@@ -885,30 +885,36 @@ def thread_entry(): # сервер вотчер ололо
     try: p.terminate()
     except: pass
 
-def run(addr, user, secret, devid):
+def run(addr, user, secret, devid, cmd = None):
     thx = threading.Thread(None, thread_entry, "ServerWatch")
     thx.start()
     try:
         c = server_q.get()
         if c:
-            connect(c, user, secret, devid)
+            connect(c, user, secret, devid, cmd)
     except KeyboardInterrupt:
         write_std("# interrupt\n")
     write_std("# exit\n")
 
 if __name__ == '__main__':
-    if len(sys.argv) != 5:
+    if len(sys.argv) < 5:
         print("use: %s <file|host[:port]> user secret device_id" %sys.argv[0])
         sys.exit(-1)
     addr = sys.argv[1]
     user = sys.argv[2]
     secret = sys.argv[3]
     devid = sys.argv[4]
+    
+    opts = sys.argv[5:]
+
+    if not opts:
+        opts = None
+
     if os.path.exists(addr):
         if not (os.path.isfile(addr) and os.access(addr, os.X_OK)):
             print("%s is not executable file", addr);
             sys.exit(-1)
-        run(addr, user, secret, devid)
+        run(addr, user, secret, devid, opts)
     else:
-        connect(addr, user, secret, devid)
+        connect(addr, user, secret, devid, opts)
 
