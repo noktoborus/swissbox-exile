@@ -282,6 +282,13 @@ packet2syslog(const char *head,
 					_m->revision_guid, _hash, _m->size, _m->offset);
 			break;
 		}
+	case FEP__TYPE__tPending:
+		{
+			Fep__Pending *_m = (void*)msg;
+			_l = snprintf(result, _e, "id=%"PRIu64, _m->id);
+			_value_or_nullS(_m, result, debug, _l, _e);
+			break;
+		}
 	case FEP__TYPE__tOk:
 		{
 			Fep__Ok *_m = (void*)msg;
