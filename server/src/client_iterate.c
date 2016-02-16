@@ -1472,3 +1472,38 @@ client_bus_input(struct sev_ctx *cev, void *p)
 	/* TODO */
 }
 
+#if DEEPDEBUG
+static const char *
+_ev_stat(int rev)
+{
+	if (rev & EV_READ && rev & EV_WRITE) {
+		return "EV_READ | EV_WRITE";
+	} else if (rev & EV_READ) {
+		return "EV_READ";
+	} else if (rev & EV_WRITE) {
+		return "EV_WRITE";
+	}
+	return "EV_NONE";
+}
+
+void
+cev_stat(struct sev_ctx *cev)
+{
+	struct client *c = cev->p;
+	char s[4096] = {0};
+
+	if (c) {
+		snprintf(s, sizeof(s),
+				"name: %s, device_id: %"PRIu64,
+				c->name, c->device_id
+				);
+	}
+
+	xsyslog(LOG_DEBUG,
+		"cev[%p:%"SEV_LOG"] fd: %d, ev: %s, is_free: %s client[%p]{%s} ",
+		(void*)cev, cev->serial, cev->fd, _ev_stat(cev->io.events),
+		(cev->isfree ? "yes" : "no"),
+		(void*)c, s);
+}
+#endif
+

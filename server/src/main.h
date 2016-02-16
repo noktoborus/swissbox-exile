@@ -43,6 +43,10 @@ struct evptr {
 /* событие на выход из треда */
 #define SEV_ACTION_EXIT 4
 
+#if DEEPDEBUG
+void cev_stat(struct sev_ctx *cev);
+#endif
+
 struct sev_ctx
 {
 	/* io */

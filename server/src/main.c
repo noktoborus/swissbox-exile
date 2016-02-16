@@ -1322,6 +1322,23 @@ cfg_update(struct main *pain)
 	return true;
 }
 
+#if DEEPDEBUG
+/* печать в лог состояние списка клиентов */
+void
+sev_stat(struct main *pain)
+{
+	struct sev_ctx *cev = NULL;
+	struct sev_main *sev = pain->sev;
+
+	for (; sev; sev = sev->next) {
+		xsyslog(LOG_DEBUG, "sev[%p] %s:%s", (void*)sev, sev->host, sev->port);
+		for (cev = sev->client; cev; cev = cev->next) {
+			cev_stat(cev);
+		}
+	}
+}
+#endif
+
 int
 main(int argc, char *argv[])
 {
