@@ -138,6 +138,9 @@ struct fcac {
 	/* путь к файловому кешу */
 	char *path;
 	size_t path_len;
+	/* полный путь к кешу */
+	char *path_full;
+	size_t path_full_len;
 
 
 	/* cчётчик узлов */
