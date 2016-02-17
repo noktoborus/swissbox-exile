@@ -129,6 +129,9 @@ spq_getFileMeta(struct spq_key *k, guid_t *rootdir, guid_t *file,
 	char *val[4];
 	int len[4];
 
+	char *_value = NULL;
+	int _length = 0u;
+
 	len[0] = guid2string(rootdir, _rootdir, sizeof(_rootdir));
 	len[1] = guid2string(file, _file, sizeof(_file));
 	len[2] = guid2string(revision, _revision, sizeof(_revision));
@@ -149,14 +152,10 @@ spq_getFileMeta(struct spq_key *k, guid_t *rootdir, guid_t *file,
 		return false;
 	}
 
-	if (PQgetlength(res, 0, 0)) {
-		char *_value = PQgetvalue(res, 0, 0);
+	if ((_length = PQgetlength(res, 0, 0))) {
+		_value = PQgetvalue(res, 0, 0);
 		xsyslog(LOG_INFO, "getFileMeta exec warning: %s", _value);
-		if (hint) {
-			strncpy(hint->message, _value, SPQ_ERROR_LEN);
-		}
-		PQclear(res);
-		return false;
+		spq_feed_hint(_value, _length, hint);
 	}
 
 	if (PQntuples(res) <= 0) {
