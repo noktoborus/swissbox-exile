@@ -1500,8 +1500,8 @@ cev_stat(struct sev_ctx *cev)
 	}
 
 	xsyslog(LOG_DEBUG,
-		"cev[%p:%"SEV_LOG"] fd: %d, ev: %s, is_free: %s client[%p]{%s} ",
-		(void*)cev, cev->serial, cev->fd, _ev_stat(cev->io.events),
+		"cev[%p:%"SEV_LOG"] fd: %d, ev: %s, host: %s is_free: %s client[%p]{%s}",
+		(void*)cev, cev->serial, cev->fd, _ev_stat(cev->io.events), cev->xaddr,
 		(cev->isfree ? "yes" : "no"),
 		(void*)c, s);
 }

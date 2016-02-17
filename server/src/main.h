@@ -55,6 +55,8 @@ struct sev_ctx
 	struct ev_async async;
 	struct ev_timer timer;
 
+	char xaddr[48];
+
 	/* ссылка на main->ev_lock */
 	pthread_mutex_t *ev_lock;
 

@@ -536,7 +536,6 @@ server_cb(struct ev_loop *loop, ev_io *w, int revents)
 	struct sev_ctx *ptx = NULL;
 	struct sev_main *sev = (struct sev_main*)w;
 
-	char xaddr[48];
 	int sock;
 	struct sockaddr_storage sa = {0};
 	socklen_t salen = sizeof(struct sockaddr_storage);
@@ -546,19 +545,20 @@ server_cb(struct ev_loop *loop, ev_io *w, int revents)
 			xsyslog(LOG_WARNING, "socket #%d client got away", sock);
 			return;
 		}
-		saddr_char(xaddr, sizeof(xaddr), sa.ss_family, (struct sockaddr*)&sa);
-		xsyslog(LOG_INFO, "accept(%s) -> fd#%d", xaddr, sock);
+		saddr_char(ptx->xaddr, sizeof(ptx->xaddr),
+				sa.ss_family, (struct sockaddr*)&sa);
+		xsyslog(LOG_INFO, "accept(%s) -> fd#%d", ptx->xaddr, sock);
 
 		ptx = client_alloc(loop, sock, sev->client, sev);
 		if (!ptx) {
 			xsyslog(LOG_WARNING, "accept(%s, fd#%d) allocation failed",
-					xaddr, sock);
+					ptx->xaddr, sock);
 			shutdown(sock, SHUT_RDWR);
 			close(sock);
 			return;
 		}
 		xsyslog(LOG_DEBUG, "client[%"SEV_LOG"] socket(%s, fd#%d)",
-				ptx->serial, xaddr, ptx->fd);
+				ptx->serial, ptx->xaddr, ptx->fd);
 		sev->client = ptx;
 	}
 }
