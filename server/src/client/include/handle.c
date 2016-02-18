@@ -128,6 +128,7 @@ _file_load(struct client *c, struct spq_key *sk, struct wait_file *wf)
 	struct spq_FileMeta fmeta;
 	memset(&fmeta, 0u, sizeof(struct spq_FileMeta));
 
+	/* TODO: костыль, устарел. Подумать как убрать */
 	if (spq_getFileMeta(sk,
 				&wf->rootdir, &wf->file, &wf->revision,
 				true, &fmeta, NULL)) {
@@ -136,17 +137,17 @@ _file_load(struct client *c, struct spq_key *sk, struct wait_file *wf)
 			wf->chunks = fmeta.chunks;
 			wf->chunks_ok = fmeta.stored_chunks;
 
-			if (fmeta.rev)
+			if (fmeta.rev && *fmeta.rev)
 				string2guid(PSLEN(fmeta.rev), &wf->revision);
-			if (fmeta.dir)
+			if (fmeta.dir && *fmeta.dir)
 				string2guid(PSLEN(fmeta.dir), &wf->dir);
-			if (fmeta.parent_rev)
+			if (fmeta.parent_rev && *fmeta.dir)
 				string2guid(PSLEN(fmeta.parent_rev), &wf->parent);
 
 			if (fmeta.key_len)
 				memcpy(wf->key, fmeta.key, fmeta.key_len);
 
-			if (fmeta.enc_filename)
+			if (fmeta.enc_filename && *fmeta.enc_filename)
 				strncpy(wf->enc_filename, fmeta.enc_filename, PATH_MAX);
 			spq_getFileMeta_free(&fmeta);
 		}
