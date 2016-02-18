@@ -92,6 +92,11 @@ _wait_file(struct client *c,
 		if (!wf->revision.not_null) {
 			memcpy(&wf->revision, revision, sizeof(*revision));
 		} else if(memcmp(&wf->revision, revision, sizeof(*revision))) {
+			/* если клиент пытается впихнуть новую ревизию,
+			 * не закончив работу со старой
+			 * FIXME: потенциальная проблема
+			 * старая ревизия может "повиснуть" пока клиент не переподключится
+			 */
 			char _file[GUID_MAX + 1];
 			char _rev_exists[GUID_MAX + 1];
 			char _rev_overlay[GUID_MAX + 1];
