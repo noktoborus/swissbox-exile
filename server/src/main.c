@@ -1315,6 +1315,7 @@ cfg_update(struct main *pain)
 			return false;
 		}
 		guid2string(&_ui.mark, _epoch, sizeof(_epoch));
+		xsyslog(LOG_INFO, "epoch: %s", _epoch);
 		_path_l = snprintf(_path, sizeof(_path), "%s/%s",
 				pain->options.cache_dir, _epoch);
 		fcac_set(&pain->fcac, FCAC_PATH, _path, _path_l);
@@ -1424,6 +1425,7 @@ main(int argc, char *argv[])
 
 		openlog(NULL, LOG_PERROR | LOG_PID, LOG_LOCAL0);
 		xsyslog(LOG_INFO, "--- START ---");
+		xsyslog(LOG_INFO, "version: %s", (char*)sev_version_string());
 
 		pain.cfg = cfg_init(opt, 0);
 		cfg_load(&pain);
