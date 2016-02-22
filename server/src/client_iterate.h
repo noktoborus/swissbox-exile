@@ -139,12 +139,33 @@ struct rootdir_g {
 	bool active; /* флаг необходимости отправки обновлений в этой рутдире */
 };
 
+/* статистика по пакетам */
+struct packet_stat {
+	/* счётчик входящих пакетов и размера */
+	uint64_t count_in;
+	uint64_t bytes_in;
+	/* исходящие пакеты */
+	uint64_t count_out;
+	uint64_t bytes_out;
+	/* счётчик попыток обработки выходящих пакетов
+	 * если он заметно больше count_in, значит пакеты часто
+	 * уходили в очередь ожидания (Pending...)
+	 */
+	uint64_t executed;
+	 /* именно на этом типе пакета прекратилась обработка
+	 */
+	bool errored;
+};
+
 struct client {
 	unsigned char *buffer;
 	size_t blen;
 	size_t bsz;
 
 	char name[C_NAMELEN];
+
+	/* жирнит структуру, но ладно */
+	struct packet_stat ps[FEP__TYPE__t_max];
 
 	struct client_cum *cum;
 	/* TODO: общий checkpoint для списка rootdir нужен

@@ -519,8 +519,18 @@ send_message(struct sev_ctx *cev, unsigned type, void *msg)
 				cev->serial, lval);
 		packet2syslog(_header, type, msg);
 	}
-
-	return (lval == len);
+	if (lval == len) {
+		/* заполнение статистики */
+		struct client *_c = NULL;
+		/* >_> */
+		if ((_c = cev->p) != NULL) {
+			/* размер заголовка тоже учитывается */
+			_c->ps[type].bytes_out += len;
+			_c->ps[type].count_out++;
+		}
+		return true;
+	}
+	return false;
 }
 
 void
@@ -581,6 +591,9 @@ exec_bufmsg(struct client *c, unsigned type, uint8_t *buf, size_t len)
 {
 	void *msg = NULL;
 
+	/* статистика */
+	c->ps[type].executed++;
+
 	if (!handle[type].f) {
 		/* проверять заполненность структуры нужно в компилтайме,
 		 * но раз такой возможности нет, то делаем это в рантайме
@@ -610,6 +623,7 @@ exec_bufmsg(struct client *c, unsigned type, uint8_t *buf, size_t len)
 				}
 				if (!handle[type].f(c, type, msg)) {
 					free_message(type, msg);
+					c->ps[type].errored = true;
 					return HEADER_STOP;
 				}
 				free_message(type, msg);
@@ -718,6 +732,9 @@ handle_header(unsigned char *buf, size_t size, struct client *c)
 		return HEADER_MORE;
 	/* извлечение пакета */
 	{
+		/* заполнение статистики, учитываем и размер заголовка */
+		c->ps[c->h_type].bytes_in += c->h_len + HEADER_OFFSET;
+		c->ps[c->h_type].count_in++;
 		int _r = exec_bufmsg(c, c->h_type, &buf[HEADER_OFFSET], c->h_len);
 		/* сброс типа сообщения, если всё нормально
 		 * иначе нужно прокинуть наверх на чём мы встали
@@ -774,6 +791,70 @@ client_load(struct client *c)
 	return send_ping(c);
 }
 
+void
+client_statistics(struct client *c)
+{
+	char buf_in[1024] = {0};
+	char buf_out[1024] = {0};
+	/* counters */
+	uint64_t cin = 0u;
+	uint64_t cout = 0u;
+	/* bytes */
+	uint64_t bin = 0u;
+	uint64_t bout = 0u;
+
+	uint64_t exec = 0u;
+
+	size_t n = 0u;
+	struct packet_stat model;
+
+	memset(&model, 0u, sizeof(model));
+	/* печат статистики */
+	for(; n < FEP__TYPE__t_max; n++) {
+		/* если статистики по пакету нет, то не нужно печатать */
+		if (!memcmp(&model, &c->ps[n], sizeof(model))) {
+			continue;
+		}
+		cin += c->ps[n].count_in;
+		bin += c->ps[n].bytes_in;
+		cout += c->ps[n].count_out;
+		bout += c->ps[n].bytes_out;
+		exec += c->ps[n].executed;
+
+		snprintf(buf_in, sizeof(buf_in),
+				"in: %"PRIu64" (%"PRIu64"B, exec: %"PRIu64")",
+				c->ps[n].count_in, c->ps[n].bytes_in, c->ps[n].executed);
+
+		snprintf(buf_out, sizeof(buf_out),
+				"out: %"PRIu64" (%"PRIu64"B), ",
+				c->ps[n].count_out, c->ps[n].bytes_out);
+
+		xsyslog(LOG_DEBUG,
+				"client[%"SEV_LOG"] Fep::%-16s -> %-40s %-40s %s",
+				c->cev->serial,
+				Fepstr(n),
+				buf_in, buf_out,
+				c->ps[n].errored ? "finish" : "");
+	}
+
+
+	snprintf(buf_in, sizeof(buf_in),
+			"in: %"PRIu64" (%"PRIu64"B, exec: %"PRIu64")", cin, bin, exec);
+
+	snprintf(buf_out, sizeof(buf_out),
+			"out: %"PRIu64" (%"PRIu64"B), ", cout, bout);
+
+
+	/* "overall" печатается костылём, что бы не выбиваться из общей
+	 * стилистики
+	 */
+	xsyslog(LOG_DEBUG,
+			"client[%"SEV_LOG"] Fep *%-16s -> %-40s %-40s",
+			c->cev->serial,
+			"overall",
+			buf_in, buf_out);
+}
+
 static inline void
 client_destroy(struct client *c)
 {
@@ -824,6 +905,8 @@ client_destroy(struct client *c)
 	free(c->rootdir.g);
 
 	client_reqs_release_all(c);
+
+	client_statistics(c);
 
 	free(c);
 }
