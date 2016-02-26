@@ -22,31 +22,60 @@ option optimize_for = SPEED;
  При удалении директории отправляется один OkUpdate.
  Сервер предполагает что клиент самостоятельно удалит вложенное дерево.
 
+ id: генерируется независимо клиентом и сервером,
+  это значит что в один момент времени сервер и клиент может отправить запрос
+  клиенту с тем же id, что и клиенту серверу.
+  Например, это происходит при авторизации (ReqAuth->Auth->Ok)
+
  checkpoint: средство для определения сервером продвижения пользователя по логу
  	изменений. Клиент должен хранить отдельный checkpoint для каждой rootdir
 
+ session_id: уникальный индетификатор списка, генерируется клиентом,
+  сервер его не проверяет, только передаёт.
+  Появляется (вместе с *no|*max) в списках на запросы типа
+  WantSync|WriteAsk|ReadAsk|Query*
+
  * Последовательности
  Последовательность авторизации:
- S: ReqAuth
- C: Auth
- S: [Ok|Error|Pending]
- S: State
+ S: ReqAuth (id=1)
+ C: Auth (id=1)
+ S: [Ok|Error|Pending] (id=1)
+ S: State (id=2, ...)
 
  Последовательность инициализации:
  до момента отправки WantSync клинтом сообщения об обновлении не отсылаются
- C: WantSync (id = 30, session_id = 400)
- S: RootdirUpdate (id = 31, session_id = 400, no = 1, max = 3)
- S: DirectoryUpdate (id = 32, session_id = 400, no = 2, max = 3)
- S: (DirectoryUpdate)
- S: ...
- S: FileUpdate (id = 33, session_id = 400, no = 2, max = 3)
- S: (FileUpdate)
- S: End (id = 34, session_id = 400)
- ...
+ session_id назначается клиентским приложением и не проверяется сервером
+ ; запрос списка rootdir
+ C: WantSync (id = 30, session_id = 400, checkpoint=0)
+ ; сообщает что запрос удовлетворён
+ S: Ok (id = 30)
+ ; и отсылает список рутдир
+ S: RootdirUpdate (id = 2, rootdir_guid={0...001}, checkpoint=1, session_id=400, no=1, max=2)
+ S: RootdirUpdate (id = 3, rootdir_guid={0...002}, checkpoint=10, session_id=400, no=2, max=2)
+ ; сервер сообщает что список закончился
+ ; End может приходить даже в том случае, если список пустой. В таком случае
+ ; packets будет иметь значение 0
+ S: End (id=4, session_id=400, packets=2)
+
+ После (или вместо) получения rootdir можно включить синхранизацию на каждой рутдире:
+ ; нужно учитывать что при checkpoint=0 отправляется состояние
+ ; но при checkpoint > 0 отправляется история
+ ; если требуется получить историю изменений от времени создания, то в качестве
+ ; checkpoint стоит указывать 1 или то значение, которое было получено из RootdirUpdate
+ С: WantSync(id=31, session_id = 401, checkpoint=0, rootdir_guid={0...001})
+ S: Ok(id=31)
+ S: DirectoryUpdate(id=5, no=1, max=3, session_id=401, ...)
+ S: FileUpdate(id=5, no=2, max=3, session_id=401, ...)
+ S: FileUpdate(id=6, no=3, max=3, session_id=401, ...)
+ S: End(id=7, ssession_id=400, packets=3)
+
+ после выполнения WantSync на rootdir будет включена онлайновая синхронизация и пакеты
+ FileUpdate/DirectoryUpdate будут приходить без полей session_id, no и max.
+
 
  Создание/удаление/переименование директории:
- C: DirectoryUpdate
- S: OkUpdate
+ C: DirectoryUpdate (id=32, ...)
+ S: OkUpdate (id=32, ...)
 
  Последовательность записи:
  C: WriteAsk (id = 1000)
@@ -560,7 +589,9 @@ message RootdirUpdate {
 	required string rootdir_guid = 24;
 	
 	optional string name = 90;
-
+	/* checkpoint отмечает с какой отметки отметки начинается история
+	 на этом ресурсе
+	*/
 	optional uint64 checkpoint = 100;
 
 	optional uint32 session_id = 201;
