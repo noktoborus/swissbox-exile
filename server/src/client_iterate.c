@@ -1577,7 +1577,7 @@ cev_stat(struct sev_ctx *cev)
 
 	if (c) {
 		snprintf(s, sizeof(s),
-				"name: %s, device_id: %"PRIu64,
+				"name: %s, device_id: %"PRIX64,
 				c->name, c->device_id
 				);
 	}
