@@ -750,7 +750,8 @@ BEGIN
 		file_revision.revision AS revision_guid,
 		file_revision.chunks AS chunks,
 		file_revision.stored_chunks AS stored_chunks,
-		parent_revision.revision AS parent_guid
+		parent_revision.revision AS parent_guid,
+		file_revision.id AS rev_id
 	INTO _rev
 	FROM file_revision
 	LEFT JOIN file_revision AS parent_revision
@@ -776,7 +777,7 @@ BEGIN
 		COALESCE(file_temp.pubkey, t.pubkey) AS pubkey
 	INTO _r
 	FROM (SELECT 1 WHERE NOT t IS NULL) AS x -- костыль
-	LEFT JOIN file_temp ON file_temp.id = t.file_id
+	LEFT JOIN file_temp ON file_temp.id = _rev.rev_id
 	LEFT JOIN directory ON directory.id = t.directory_id;
 
 	IF _r IS NULL THEN
