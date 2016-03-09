@@ -309,15 +309,29 @@ def sendFile(s, rootdir, directory, path, devid):
     fmsg = FEP.FileMeta()
     wmsg = FEP.WriteAsk()
 
+    zfmsg = FEP.FileMeta()
+    zfmsg.id = random.randint(1, 10000)
+    zfmsg.rootdir_guid = rootdir
+    zfmsg.directory_guid = directory
+    zfmsg.file_guid = str(uuid.UUID(bytes=hashlib.md5(path + "@" + str(devid)).digest()))
+    zfmsg.revision_guid = str(uuid.uuid4())
+    zfmsg.enc_filename = os.path.basename(path)
+    zfmsg.key = "0"
+    zfmsg.chunks = 0
+
+    # инициализация файла
+    send_message(s, zfmsg)
+
     # заполнение метаинформации файла
     fmsg.id = random.randint(1, 10000)
     fmsg.rootdir_guid = rootdir
     fmsg.directory_guid = directory
-    fmsg.file_guid = str(uuid.UUID(bytes=hashlib.md5(path + "@" + str(devid)).digest()))
+    fmsg.file_guid = zfmsg.file_guid
     fmsg.revision_guid = str(uuid.uuid4())
+    fmsg.parent_revision_guid = zfmsg.revision_guid
 
-    fmsg.enc_filename = os.path.basename(path)
-    fmsg.key = "0"
+    fmsg.enc_filename = zfmsg.enc_filename
+    fmsg.key = zfmsg.key
 
     fmsg.chunks = _chunks
 

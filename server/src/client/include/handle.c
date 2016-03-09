@@ -134,20 +134,34 @@ _file_load(struct client *c, struct spq_key *sk, struct wait_file *wf)
 				true, &fmeta, NULL)) {
 		/*  в другом случае нужно заполнить поля в wait_file */
 		if (!fmeta.empty) {
+			/* спорно оставлять перезапись значений без проверки
+			 * понадеемся на судьбу.
+			 * Тем более, что эти счётчики больше не используются (9.03.2016)
+			 */
 			wf->chunks = fmeta.chunks;
 			wf->chunks_ok = fmeta.stored_chunks;
 
-			if (fmeta.rev && *fmeta.rev)
+			if (!wf->revision.not_null && fmeta.rev && *fmeta.rev)
 				string2guid(PSLEN(fmeta.rev), &wf->revision);
-			if (fmeta.dir && *fmeta.dir)
+			if (!wf->dir.not_null && fmeta.dir && *fmeta.dir)
 				string2guid(PSLEN(fmeta.dir), &wf->dir);
-			if (fmeta.parent_rev && *fmeta.dir)
+			/* последствия костылинга:
+			 * содержание структур добирается в неожиданных местах
+			 * и перезаписывается в ещё менее ожидаемых
+			 * потому возникает необходимость проверять на not_null
+			 */
+			if (!wf->parent.not_null && fmeta.parent_rev && *fmeta.dir)
 				string2guid(PSLEN(fmeta.parent_rev), &wf->parent);
 
+			/* ключ в любом случае должен быть одним,
+			 * потому пусть он загребаетя из бд
+			 */
 			if (fmeta.key_len)
 				memcpy(wf->key, fmeta.key, fmeta.key_len);
 
-			if (fmeta.enc_filename && *fmeta.enc_filename)
+			/* зачем подгружать старое имя файла, когда прислали новое? */
+			if (!*wf->enc_filename &&
+					fmeta.enc_filename && *fmeta.enc_filename)
 				strncpy(wf->enc_filename, fmeta.enc_filename, PATH_MAX);
 			spq_getFileMeta_free(&fmeta);
 		}
