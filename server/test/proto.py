@@ -299,10 +299,13 @@ def updateRevision(s, rootdir, file_guid, directory, revision_guid, chunks, devi
     return r
 
 def sendFile(s, rootdir, directory, path, devid):
-    _chunk_size = 1048576 # размер чанка
+    _chunk_size = 65536 # размер чанка
     _hash = None
 
-    _size = os.path.getsize(path)
+    try: _size = os.path.getsize(path)
+    except:
+        write_std("send file '%s': file not found" %path)
+        return False
     _chunks = math.trunc(math.ceil(float(_size) / _chunk_size))
 
     write_std("send file '%s' into %s\n" %(path, rootdir))
@@ -337,7 +340,6 @@ def sendFile(s, rootdir, directory, path, devid):
 
     # OkUpdate приходит в самом конце, бессмысленно его ждать сразу
     # после отправки FileMeta
-    send_message(s, fmsg)
 
     # заполнение информации о чанке
     # общая информация для всех чанков файла
@@ -396,6 +398,7 @@ def sendFile(s, rootdir, directory, path, devid):
                 write_std("send chunk complete\n")
     if file_descr.tell() == _size or _ok:
         # после отправки всех чанков должен прийти OkUpdate
+        send_message(s, fmsg)
         # если отправка завершилась успешно
         rmsg = recv_message(s, ["OkUpdate", "Error"])
         if rmsg.__class__.__name__ == 'Error':
@@ -629,6 +632,7 @@ def proto(s, user, secret, devid, cmd = None):
     while (type(cmd) == list and cmd and r) or cmd is None:
         g = ""
         c = ""
+        a = ""
         write_std('input queue len: %s\n' %(len(_input_queue)))
         if cmd:
             c = cmd.pop()
@@ -637,6 +641,10 @@ def proto(s, user, secret, devid, cmd = None):
             g = ""
         elif cmd is None:
             c = input('help> ');
+            if ' ' in c:
+                c = c.split(' ', 1)
+                a = c[1]
+                c = c[0]
 
         if c == "help":
             write_std("ping, wait sync write mkdir remove roar\n")
@@ -740,6 +748,16 @@ def proto(s, user, secret, devid, cmd = None):
                         break
             except KeyboardInterrupt:
                 continue
+        if c == "send":
+            if not X_rootdir or not X_directory:
+                r = False
+                write_std("# try to cmd `sync` or `mkdir` (rootdir: %s, directory: %s)\n" %(X_rootdir, X_directory))
+                continue
+            if not a:
+                write_std("# try to add path to file (exp: send filename)\n")
+                continue
+            r = sendFile(s, X_rootdir, X_directory, a, devid)
+            continue
         if c == "write":
             if not X_rootdir or not X_directory:
                 r = False
