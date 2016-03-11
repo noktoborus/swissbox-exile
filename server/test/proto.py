@@ -162,6 +162,7 @@ def recvFileChunk(s, rootdir, file_, chunk):
     write_std("get chunk '%s' from file '%s'\n" %(chunk, file_))
     msg = FEP.ReadAsk()
     msg.id = random.randint(1, 10000)
+    msg.session_id = random.randint(10000, 20000)
     msg.rootdir_guid = rootdir
     msg.file_guid = file_
     msg.chunk_guid = chunk
@@ -353,6 +354,7 @@ def sendFile(s, rootdir, directory, path, devid):
     _ok = True
     for chunk_data in iter(lambda: file_descr.read(int(_chunk_size)), ""):
         wmsg.id = random.randint(1, 10000)
+        wmsg.session_id = random.randint(10000, 20000)
         wmsg.chunk_guid = str(uuid.uuid4())
         wmsg.chunk_hash = hashlib.sha256(chunk_data).digest()
         wmsg.size = len(chunk_data)
@@ -373,10 +375,10 @@ def sendFile(s, rootdir, directory, path, devid):
         elif rmsg.__class__.__name__ == "OkWrite":
             # отправка чанков цельными кусками (по одному xfer)
             _i += 1
-            write_std("send chunk no=%s with sid=%s\n" %(_i, rmsg.session_id))
+            write_std("send chunk no=%s with sid=%s\n" %(_i, wmsg.session_id))
             xmsg = FEP.xfer()
             xmsg.id = random.randint(1, 10000)
-            xmsg.session_id = rmsg.session_id
+            xmsg.session_id = wmsg.session_id
             xmsg.offset = 0
             xmsg.data = chunk_data
             send_message(s, xmsg)
@@ -384,7 +386,7 @@ def sendFile(s, rootdir, directory, path, devid):
             # (только один пакет в сесcии был отправлен
             xmsg = FEP.End()
             xmsg.id = random.randint(1, 10000)
-            xmsg.session_id = rmsg.session_id
+            xmsg.session_id = wmsg.session_id
             xmsg.packets = 1
             send_message(s, xmsg)
             # после отправки End должен прийти Ok или Error
