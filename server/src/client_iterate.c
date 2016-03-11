@@ -86,8 +86,9 @@ mid_free(wait_store_t *ws)
 	if (ws->reqs) {
 		if (!ws->c) {
 			xsyslog(LOG_ERR, "wait_store without pointer to client");
+		} else {
+			client_reqs_release(ws->c, ws->reqs);
 		}
-		client_reqs_release(ws->c, ws->reqs);
 	}
 
 	if(ws->sk) {
@@ -99,11 +100,13 @@ mid_free(wait_store_t *ws)
 static void
 fid_free(wait_store_t *ws)
 {
+	/* TODO */
 	if (ws->reqs) {
 		if (!ws->c) {
 			xsyslog(LOG_ERR, "wait_store without pointer to client");
+		} else {
+			client_reqs_release(ws->c, ws->reqs);
 		}
-		client_reqs_release(ws->c, ws->reqs);
 	}
 
 	if(ws->sk) {
@@ -131,8 +134,9 @@ sid_free(wait_store_t *ws)
 	if (ws->reqs) {
 		if (!ws->c) {
 			xsyslog(LOG_ERR, "wait_store without pointer to client");
+		} else {
+			client_reqs_release(ws->c, ws->reqs);
 		}
-		client_reqs_release(ws->c, ws->reqs);
 	}
 
 	if (ws->sk) {
