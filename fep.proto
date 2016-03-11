@@ -133,7 +133,7 @@ enum Type {
 	tEnd = 11;
 	tOkWrite = 12;
 	tFileUpdate = 13;
-	tRenameChunk = 14;
+	tRenameChunk = 14; /* depracted */
 	tQueryChunks = 15;
 	tResultChunk = 16;
 	tQueryRevisions = 17;
@@ -347,6 +347,12 @@ message FileMeta {
 */
 message WriteAsk {
 	required uint64 id = 1 [default = 0];
+	/*
+		Номер сессии, внутри которой передаются куски чанка
+		этот id используется в сообщении xfer, для того, что бы можно
+		было передавать несколько файлов одновременно
+	*/
+	required uint32 session_id = 2;
 	/* название рутдиры */
 	required string rootdir_guid = 3;
 	required string file_guid = 5;
@@ -361,7 +367,6 @@ message WriteAsk {
 	*/
 	required uint32 size = 20;
 	required uint32 offset = 21;
-
 }
 
 /* Направление: S->C
@@ -370,13 +375,8 @@ message WriteAsk {
 message OkWrite {
 	required uint64 id = 1 [default = 0];
 
-	/*
-		Номер сессии, внутри которой передаются куски чанка
-		этот id используется в сообщении xfer, для того, что бы можно
-		было передавать несколько файлов одновременно
-	*/
-	required uint32 session_id = 2;
-
+	/* дополнительное поле для отладки */
+	optional string message = 99;
 }
 
 /* Направление: S->C, C->S
@@ -399,11 +399,12 @@ message End {
    ответ на запрос чтения */
 message OkRead {
 	required uint64 id = 1 [default = 0];
-	
-	required uint32 session_id = 2;
 
 	required uint32 size = 5;
 	required uint32 offset = 6;
+
+	/* дополнительное поле для отладки */
+	optional string message = 99;
 }
 
 /* Направление: C->S, S->C
@@ -432,6 +433,8 @@ message xfer {
 */
 message ReadAsk {
 	required uint64 id = 1 [default = 0];
+
+	required uint32 session_id = 2;
 
 	required string rootdir_guid = 3;
 	required string file_guid = 4;
@@ -498,7 +501,7 @@ message ResultChunk {
 	required bytes chunk_hash = 10;
 }
 
-/* Направление: C->S
+/* deprecated
   используется для переноса чанка из другой ревизии в указанную
   Ответы:
   Ok, Error, Satisfied, Pending
