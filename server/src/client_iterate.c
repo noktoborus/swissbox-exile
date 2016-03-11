@@ -418,12 +418,6 @@ generate_id(struct client *c)
 	return ++c->genid;
 }
 
-uint32_t
-generate_sid(struct client *c)
-{
-	return ++c->gensid;
-}
-
 #include "src/client/include/send.c"
 #include "src/client/include/handle.c"
 static struct handle handle[FEP__TYPE__t_max] =

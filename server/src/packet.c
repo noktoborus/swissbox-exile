@@ -274,11 +274,12 @@ packet2syslog(const char *head,
 			bin2hex(_m->chunk_hash.data, _m->chunk_hash.len,
 					_hash, sizeof(_hash));
 			snprintf(result, _e,
-					"id=%"PRIu64
+					"id=%"PRIu64", session_id=%"PRIu32
 					", rootdir_guid=%s, file_guid=%s, chunk_guid=%s"
 					", revision_guid=%s, chunk_hash=%s"
 					", size=%"PRIu32", offset=%"PRIu32,
-					_m->id, _m->rootdir_guid, _m->file_guid, _m->chunk_guid,
+					_m->id, _m->session_id, _m->rootdir_guid,
+					_m->file_guid, _m->chunk_guid,
 					_m->revision_guid, _hash, _m->size, _m->offset);
 			break;
 		}
@@ -398,16 +399,18 @@ packet2syslog(const char *head,
 		{
 			Fep__OkWrite *_m = (void*)msg;
 			_l = snprintf(result, _e,
-					"id=%"PRIu64", session_id=%"PRIu32, _m->id, _m->session_id);
+					"id=%"PRIu64, _m->id);
+			_value_or_nullS(_m, result, message, _l, _e);
 			break;
 		}
 	case FEP__TYPE__tOkRead:
 		{
 			Fep__OkRead *_m = (void*)msg;
 			_l = snprintf(result, _e,
-					"id=%"PRIu64", session_id=%"PRIu32
+					"id=%"PRIu64
 					", size=%"PRIu32", offset=%"PRIu32,
-					_m->id, _m->session_id, _m->size, _m->offset);
+					_m->id, _m->size, _m->offset);
+			_value_or_nullS(_m, result, message, _l, _e);
 			break;
 		}
 	case FEP__TYPE__txfer:
@@ -424,9 +427,9 @@ packet2syslog(const char *head,
 		{
 			Fep__ReadAsk *_m = (void*)msg;
 			_l = snprintf(result, _e,
-					"id=%"PRIu64
+					"id=%"PRIu64", session_id=%"PRIu32
 					", rootdir_guid=%s, file_guid=%s, chunk_guid=%s",
-					_m->id,
+					_m->id, _m->session_id,
 					_m->rootdir_guid, _m->file_guid, _m->chunk_guid);
 			break;
 		}

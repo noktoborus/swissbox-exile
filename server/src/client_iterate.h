@@ -210,7 +210,6 @@ struct client {
 	uint32_t h_len;
 
 	uint64_t genid;
-	uint32_t gensid;
 	enum cev_state state;
 
 	/* всякие очереди для экономии ресурсов */
@@ -335,7 +334,6 @@ size_t sizeof_message(unsigned type, void *msg);
 int exec_bufmsg(struct client *c, unsigned type, uint8_t *buf, size_t len);
 
 uint64_t generate_id(struct client*);
-uint32_t generate_sid(struct client*);
 
 /*
  * Отсылает сообщение об ошибке

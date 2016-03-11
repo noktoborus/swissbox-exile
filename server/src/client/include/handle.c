@@ -644,7 +644,7 @@ _read_ask__from_cache(struct client *c, Fep__ReadAsk *msg,
 		return send_error(c, msg->id, "Internal error 1149", -1);
 	}
 
-	chs->session_id = generate_sid(c);
+	chs->session_id = msg->session_id;
 	chs->size = ci->size;
 	chs->next = c->cout;
 	chs->chunk_size = chs->size;
@@ -658,7 +658,6 @@ _read_ask__from_cache(struct client *c, Fep__ReadAsk *msg,
 	{
 		Fep__OkRead rdok = FEP__OK_READ__INIT;
 		rdok.id = msg->id;
-		rdok.session_id = chs->session_id;
 		rdok.size = ci->size;
 		rdok.offset = ci->offset;
 
@@ -929,14 +928,14 @@ _handle_write_ask(struct client *c, unsigned type, Fep__WriteAsk *msg)
 
 	/* пакуем структуры */
 	wrok.id = msg->id;
-	wrok.session_id = generate_sid(c);
+	/*wrok.session_id = msg->session_id;*/
 
 #if DEEPDEBUG
 	xsyslog(LOG_DEBUG, "client[%"SEV_LOG"] fd#%"PRIu64" for [%"PRIu32"]",
-			c->cev->serial, wx->p.id, wrok.session_id);
+			c->cev->serial, wx->p.id, msg->session_id);
 #endif
 	/* добавление в очередь на ожидание */
-	if (!wait_id(c, &c->sid, wrok.session_id, ws)) {
+	if (!wait_id(c, &c->sid, msg->session_id, ws)) {
 		fcac_close(&wx->p);
 		free(ws);
 		REQS_SK_REL(c, H_REQS_SQL | H_REQS_FD, sk);
