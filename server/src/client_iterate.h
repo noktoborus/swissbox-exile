@@ -391,6 +391,24 @@ struct wait_xfer {
 	sha256_context sha256;
 };
 
+struct wait_file_index {
+	/* указатель на текущую структуру
+	 * т.к. код линейный, то можно и так
+	 */
+	struct wait_file *cur;
+
+	/* поиска в списке */
+	uint64_t id;
+
+	/* указатель на первую и последнии структуры
+	 * (новые структуры нужно добавлять в конец списка)
+	 */
+	struct wait_file *first;
+	struct wait_file *last;
+	/* считчик структур в списке */
+	size_t count;
+};
+
 struct wait_file {
 	unsigned chunks;
 	unsigned chunks_ok;
@@ -401,7 +419,8 @@ struct wait_file {
 	uint64_t msg_id;
 
 	/* meta */
-	uint64_t id;
+	uint32_t file_hash; /* pjw(file_guid) */
+	uint32_t revision_hash; /* pjw(revision_guid) */
 	guid_t rootdir;
 	guid_t file;
 	guid_t revision;
@@ -415,6 +434,10 @@ struct wait_file {
 	bool complete;
 
 	char enc_filename[PATH_MAX];
+
+	struct wait_file *next;
+	struct wait_file *prev;
+	struct wait_file_index *index;
 };
 
 /* получение привязанных к id данных */

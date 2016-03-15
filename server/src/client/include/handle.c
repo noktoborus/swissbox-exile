@@ -34,23 +34,63 @@
 }
 
 static inline struct wait_file *
+_wait_file_index(struct client *c,
+		struct wait_file_index *wfi, guid_t *revision)
+{
+	struct wait_file *wf = NULL;
+	uint32_t hash = 0u;
+	if (!wfi) {
+		return NULL;
+	}
+	hash = hash_pjw((char*)revision, sizeof(*revision));
+
+	for (wf = wfi->first; wf; wf = wf->next) {
+		if (wf->revision_hash == hash) {
+			break;
+		}
+	}
+
+	if (!wf) {
+		if (!(wf = calloc(1, sizeof(struct wait_file)))) {
+			xsyslog(LOG_WARNING,
+					"client[%"SEV_LOG"] error: calloc(%"PRIuPTR") failed in %s",
+					c->cev->serial, sizeof(struct wait_file), __func__);
+			return NULL;
+		}
+		wf->revision_hash = hash;
+
+		/* добавление в список */
+		wf->index = wfi;
+		if (!wfi->first) {
+			wfi->last = wfi->first = wf;
+		} else if ((wf->prev = wfi->last) != NULL) {
+			wfi->last->next = wf;
+		}
+		wfi->count++;
+	}
+
+	wfi->cur = wf;
+
+	return wf;
+}
+
+static inline struct wait_file_index *
 _wait_file(struct client *c,
 		guid_t *rootdir, guid_t *file, guid_t *revision)
 {
+	/* возвращает wait_file_index
+	 * с заполненной wait_file_index.cur или NULL
+	 */
 	register bool exists = false;
 	uint64_t hash = 0u;
 	struct wait_store *ws = NULL;
+	struct wait_file_index *wfi = NULL;
 	struct wait_file *wf = NULL;
-	guid_t hash_s[2];
 
-	const int wssize = sizeof(struct wait_store) + sizeof(struct wait_file);
+	const int wssize =
+		sizeof(struct wait_store) + sizeof(struct wait_file_index);
 
-	memcpy(hash_s, revision, sizeof(*revision));
-	memcpy(hash_s + 1, file, sizeof(*file));
-	/*memcpy(hash_s + 2, rootdir, sizeof(rootdir));*/
-
-	hash = ((uint64_t)hash_pjw((char*)hash_s, sizeof(guid_t) * 2)) << 32;
-	hash |= (uint64_t)hash_pjw((char*)revision, sizeof(*revision));
+	hash = (uint64_t)hash_pjw((char*)file, sizeof(*file));
 
 	if (!hash) {
 		char _rootdir[GUID_MAX + 1] = {0};
@@ -78,37 +118,23 @@ _wait_file(struct client *c,
 		}
 		ws->data = ws + 1;
 	}
-	wf = ws->data;
+	wfi = ws->data;
+	wfi->id = hash;
 
-	wf->id = hash;
+	if (!(wf = _wait_file_index(c, wfi, revision))) {
+		if (!exists) {
+			free(ws);
+		}
+		return NULL;
+	}
+
+	wf->file_hash = hash;
 	if (!wf->rootdir.not_null)
 		memcpy(&wf->rootdir, rootdir, sizeof(*rootdir));
 	if (!wf->file.not_null)
 		memcpy(&wf->file, file, sizeof(*file));
-	if (revision) {
-		/* проверка на вшивость, не может загружаться
-		 * больше одной ревизии к файлу
-		 */
-		if (!wf->revision.not_null) {
-			memcpy(&wf->revision, revision, sizeof(*revision));
-		} else if(memcmp(&wf->revision, revision, sizeof(*revision))) {
-			/* если клиент пытается впихнуть новую ревизию,
-			 * не закончив работу со старой
-			 * FIXME: потенциальная проблема
-			 * старая ревизия может "повиснуть" пока клиент не переподключится
-			 */
-			char _file[GUID_MAX + 1];
-			char _rev_exists[GUID_MAX + 1];
-			char _rev_overlay[GUID_MAX + 1];
-			guid2string(file, PSIZE(_file));
-			guid2string(&wf->revision, PSIZE(_rev_exists));
-			guid2string(revision, PSIZE(_rev_overlay));
-			xsyslog(LOG_WARNING, "client[%"SEV_LOG"] "
-					"attempt to make chaos in file '%s': "
-					"work with rev'%s', new rev'%s'",
-					c->cev->serial, _file, _rev_exists, _rev_overlay);
-			return NULL;
-		}
+	if (!wf->revision.not_null) {
+		memcpy(&wf->revision, revision, sizeof(*revision));
 	}
 
 	/* добавляем в очередь, если нет ещё */
@@ -118,7 +144,43 @@ _wait_file(struct client *c,
 			return NULL;
 		}
 	}
-	return wf;
+	return wfi;
+}
+
+static inline void
+_happen_file(struct client *c, struct wait_file *wf)
+{
+	/* почистить запись */
+	struct wait_store *ws = NULL;
+	struct wait_file_index *wfi = wf->index;
+
+	/* не отчищаем, если на структуру есть ссылки (из wait_xfer) */
+	if (wf->ref)
+		return;
+
+	/* отвязывание узла из списка */
+	if (wf->next) {
+		wf->next->prev = wf->prev;
+	}
+	if (wf->prev) {
+		wf->prev->next = wf->next;
+	}
+	if (wfi->last == wf) {
+		wfi->last = wf->prev;
+	}
+	if (wfi->first == wf) {
+		wfi->first = wf->next;
+	}
+	wfi->count--;
+
+	/* FIXME: чистка wait_file дублируется в fid_free() */
+	free(wf);
+
+	if (!wfi->count) {
+		if ((ws = query_id(c, &c->fid, wfi->id)) != NULL) {
+			fid_free(ws);
+		}
+	}
 }
 
 /* подгрузка имеющейся информации о файле */
@@ -174,7 +236,7 @@ _file_load(struct client *c, struct spq_key *sk, struct wait_file *wf)
  * т.е. при положительном результате wait_file будет освобождён
  * возвращает состояние линии
  */
-static bool
+static bool inline
 _file_complete(struct spq_key *sk,
 		struct client *c, struct wait_file *wf, bool prepare)
 {
@@ -182,6 +244,7 @@ _file_complete(struct spq_key *sk,
 	struct spq_hint hint;
 	bool retval = true;
 	bool _com = wf->complete;
+
 	/* если файл не завершён, пытаемся сделать предварительную запись
 	 * предварительная запись происходит в случае, если
 	 * FileMeta приходит раньше чанков
@@ -200,14 +263,7 @@ _file_complete(struct spq_key *sk,
 				&hint);
 		/* выход */
 		if (hint.level == SPQ_ERR) {
-			/* если произошла ошибка, то нужно выйти и убрать запись из
-			 * очереди
-			 */
-			if (!wf->ref) {
-				void *d;
-				if ((d = query_id(c, &c->fid, wf->id)) != NULL)
-					fid_free(d);
-			}
+			_happen_file(c, wf);
 			if (*hint.message)
 				return send_error(c, wf->msg_id, hint.message, -1);
 			return send_error(c, wf->msg_id, "Internal error 934", -1);
@@ -220,50 +276,62 @@ _file_complete(struct spq_key *sk,
 		/* кладём статус в струтуру */
 		wf->complete = true;
 	}
-	/* файл собрался */
-	{
-		size_t pkeysize = wf->key_len * 2 + 1;
-		char *pkeyhex = NULL;
-		memset(&hint, 0, sizeof(struct spq_hint));
-		if (wf->key_len) {
-			pkeyhex = alloca(pkeysize);
-			memset(pkeyhex, 0, pkeysize);
-			bin2hex(wf->key, wf->key_len, pkeyhex, pkeysize);
+	do {
+		/* если ревизия не первая в списке, то её нужно пропустить */
+		if (wf->index->first != wf) {
+			return true;
 		}
-		/* нужно получить чекпоинт */
-		checkpoint = spq_insert_revision(sk,
-				&wf->rootdir, &wf->file, &wf->revision, &wf->parent,
-				wf->enc_filename, pkeyhex, &wf->dir, wf->chunks, false,
-				&_com,
-				&hint);
-	}
-	if (!checkpoint) {
-		if (*hint.message)
-			retval = send_error(c, wf->msg_id, hint.message, -1);
-		else
-			retval = send_error(c, wf->msg_id, "Internal error 1785", -1);
-	} else {
-		/* рассылаем приглашение обновиться соседям */
-		client_share_checkpoint(c, &wf->rootdir, checkpoint);
 
-		if (*hint.message)
-			retval = send_ok(c, wf->msg_id, checkpoint, hint.message);
-		else
-			retval = send_ok(c, wf->msg_id, checkpoint, NULL);
-	}
+		/* файл собрался */
+		{
+			size_t pkeysize = wf->key_len * 2 + 1;
+			char *pkeyhex = NULL;
+			memset(&hint, 0, sizeof(struct spq_hint));
+			if (wf->key_len) {
+				pkeyhex = alloca(pkeysize);
+				memset(pkeyhex, 0, pkeysize);
+				bin2hex(wf->key, wf->key_len, pkeyhex, pkeysize);
+			}
+			/* нужно получить чекпоинт */
+			checkpoint = spq_insert_revision(sk,
+					&wf->rootdir, &wf->file, &wf->revision, &wf->parent,
+					wf->enc_filename, pkeyhex, &wf->dir, wf->chunks, false,
+					&_com,
+					&hint);
+		}
+		if (!checkpoint) {
+			if (*hint.message)
+				retval = send_error(c, wf->msg_id, hint.message, -1);
+			else
+				retval = send_error(c, wf->msg_id, "Internal error 1785", -1);
+		} else {
+			/* рассылаем приглашение обновиться соседям */
+			client_share_checkpoint(c, &wf->rootdir, checkpoint);
+
+			if (*hint.message)
+				retval = send_ok(c, wf->msg_id, checkpoint, hint.message);
+			else
+				retval = send_ok(c, wf->msg_id, checkpoint, NULL);
+		}
 #if DEEPDEBUG
-		xsyslog(LOG_DEBUG, "client[%"SEV_LOG"] file complete with ref=%u, "
-				" chunks=%u/%u (chunks_fail=%u) and status=%s",
-				c->cev->serial, wf->ref,
-				wf->chunks_ok, wf->chunks, wf->chunks_fail,
-				retval ? "Ok" : "Error");
+			xsyslog(LOG_DEBUG, "client[%"SEV_LOG"] file complete with ref=%u, "
+					" chunks=%u/%u (chunks_fail=%u) and status=%s",
+					c->cev->serial, wf->ref,
+					wf->chunks_ok, wf->chunks, wf->chunks_fail,
+					retval ? "Ok" : "Error");
 #endif
-	/* чистка */
-	if (!wf->ref) {
-		void *d;
-		if ((d = query_id(c, &c->fid, wf->id)) != NULL)
-			fid_free(d);
-	}
+		/* чистка */
+		{
+			struct wait_file *_nwf = wf->next;
+			_happen_file(c, wf);
+			if ((wf = _nwf) != NULL && !wf->complete) {
+				/* нет смысла дальше продолжать обработку,
+				 * если где-то в середине есть незаконченная ревизия
+				 */
+				wf = NULL;
+			}
+		}
+	} while (retval && wf);
 
 	return retval;
 }
@@ -271,7 +339,7 @@ _file_complete(struct spq_key *sk,
 bool
 _handle_file_meta(struct client *c, unsigned type, Fep__FileMeta *msg)
 {
-	struct wait_file *wf;
+	struct wait_file_index *wfi = NULL;
 	struct spq_FileMeta fmeta;
 
 	guid_t rootdir;
@@ -332,31 +400,31 @@ _handle_file_meta(struct client *c, unsigned type, Fep__FileMeta *msg)
 		}
 	}
 
-	wf = _wait_file(c, &rootdir, &file, &revision);
-	if (!wf) {
+	wfi = _wait_file(c, &rootdir, &file, &revision);
+	if (!wfi) {
 		spq_getFileMeta_free(&fmeta);
 		REQS_SK_REL(c, H_REQS_SQL, sk);
 		return send_error(c, msg->id, "Internal error 1860", -1);
 	}
 
 	/* заполнение оставшихся полей */
-	if (!wf->msg_id)
-		wf->msg_id = msg->id;
+	if (!wfi->cur->msg_id)
+		wfi->cur->msg_id = msg->id;
 
-	if (!wf->parent.not_null && msg->parent_revision_guid)
-		string2guid(PSLEN(msg->parent_revision_guid), &wf->parent);
-	if (!wf->dir.not_null)
-		string2guid(PSLEN(msg->directory_guid), &wf->dir);
+	if (!wfi->cur->parent.not_null && msg->parent_revision_guid)
+		string2guid(PSLEN(msg->parent_revision_guid), &wfi->cur->parent);
+	if (!wfi->cur->dir.not_null)
+		string2guid(PSLEN(msg->directory_guid), &wfi->cur->dir);
 	/* вообще их обрезать нельзя и нужно выдавать ошибку типа
 	 * strlen(enc_filename) > PATH_MAX
 	 * TODO: добавить обработку размера ключа и имени файла
 	 */
-	strncpy(wf->enc_filename, enc_filename,
+	strncpy(wfi->cur->enc_filename, enc_filename,
 			MIN(PATH_MAX, strlen(enc_filename)));
-	memcpy(wf->key, key, key_len);
-	wf->key_len = key_len;
+	memcpy(wfi->cur->key, key, key_len);
+	wfi->cur->key_len = key_len;
 
-	wf->chunks = msg->chunks;
+	wfi->cur->chunks = msg->chunks;
 
 	if (need_clear)
 		spq_getFileMeta_free(&fmeta);
@@ -364,16 +432,16 @@ _handle_file_meta(struct client *c, unsigned type, Fep__FileMeta *msg)
 	xsyslog(LOG_DEBUG, "client[%"SEV_LOG"] FileMeta: enc_filename: \"%s\", "
 			"file_guid: \"%s\", revision_guid: \"%s\", key_len: %"PRIuPTR,
 			c->cev->serial,
-			enc_filename, msg->file_guid, msg->revision_guid, key_len);
+			wfi->cur->enc_filename, msg->file_guid, msg->revision_guid, key_len);
 #endif
 	/* если чанков нет, то собирать нечего, потому сразу выставляем
 	 * флаг готовности
 	 */
-	if (!wf->chunks) {
-		wf->complete = true;
+	if (!wfi->cur->chunks) {
+		wfi->cur->complete = true;
 	}
 	{
-		bool _r = _file_complete(sk, c, wf, true);
+		bool _r = _file_complete(sk, c, wfi->cur, true);
 		REQS_SK_REL(c, H_REQS_SQL, sk);
 		return _r;
 	}
@@ -417,8 +485,9 @@ _handle_end(struct client *c, unsigned type, Fep__End *end)
 	}
 #if DEEPDEBUG
 	xsyslog(LOG_DEBUG, "client[%"SEV_LOG"] close fd#%"PRIu64", id %"PRIu32" "
-			"file meta hash: %"PRIu64,
-			c->cev->serial, wx->p.id, end->session_id, wf->id);
+			"file meta hash: %"PRIu32"+%"PRIu32,
+			c->cev->serial, wx->p.id, end->session_id,
+			wf->file_hash, wf->revision_hash);
 #endif
 	/* размеры не совпали */
 	if (wx->filling != wx->size) {
@@ -758,7 +827,7 @@ _handle_write_ask(struct client *c, unsigned type, Fep__WriteAsk *msg)
 	char chunk_hash[PATH_MAX];
 
 	uint64_t chunk_id = 0;
-	struct wait_file *wf;
+	struct wait_file_index *wfi = NULL;
 	Fep__OkWrite wrok = FEP__OK_WRITE__INIT;
 
 	if (!c->status.auth_ok)
@@ -830,7 +899,7 @@ _handle_write_ask(struct client *c, unsigned type, Fep__WriteAsk *msg)
 	}
 
 	/* структура файла нам нужна в любом случае */
-	if (!(wf = _wait_file(c, &rootdir, &file, &revision))) {
+	if (!(wfi = _wait_file(c, &rootdir, &file, &revision))) {
 		REQS_SK_REL(c, H_REQS_SQL | H_REQS_FD, sk);
 		return send_error(c, msg->id, "Internal error 1321", -1);
 	}
@@ -858,9 +927,9 @@ _handle_write_ask(struct client *c, unsigned type, Fep__WriteAsk *msg)
 		/* если сборка завершена, то выставляем соотвествующий флаг */
 		if (_com) {
 			register bool ___ra = true;
-			wf->complete = true;
+			wfi->cur->complete = true;
 			/* и вызываем сценарий финализации */
-			___ra = _file_complete(sk, c, wf, false);
+			___ra = _file_complete(sk, c, wfi->cur, false);
 			REQS_SK_REL(c, H_REQS_SQL | H_REQS_FD, sk);
 			if (!___ra)
 				return false;
@@ -901,7 +970,7 @@ _handle_write_ask(struct client *c, unsigned type, Fep__WriteAsk *msg)
 			string2guid(msg->chunk_guid, strlen(msg->chunk_guid),
 					&wx->chunk_guid);
 			/* ссылаемся на wait_file и увеличиваем счётчик */
-			wx->wf = wf;
+			wx->wf = wfi->cur;
 			wx->wf->ref++;
 			wx->hash_len = msg->chunk_hash.len;
 			memcpy(wx->hash, (void*)msg->chunk_hash.data, msg->chunk_hash.len);
@@ -945,7 +1014,7 @@ _handle_write_ask(struct client *c, unsigned type, Fep__WriteAsk *msg)
 	/* если запрос завершился неудачно, то файла, вероятнее всего нет
 	 * не помню зачем это нужно, какой-то костыль
 	 */
-	_file_load(c, sk, wf);
+	_file_load(c, sk, wfi->cur);
 
 	/* в случае успеха освобождаем только ресурс SQL, но оставляем
 	 * захваченным fd, его нужно освободить только после прихода End

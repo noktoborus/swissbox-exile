@@ -101,17 +101,40 @@ static void
 fid_free(wait_store_t *ws)
 {
 	/* TODO */
-	if (ws->reqs) {
-		if (!ws->c) {
-			xsyslog(LOG_ERR, "wait_store without pointer to client");
-		} else {
-			client_reqs_release(ws->c, ws->reqs);
-		}
+
+	/* для wait_file не выполняется никаких долговременных
+	 * захватов ресурса
+	 */
+	if (ws->reqs || ws->sk) {
+		/* просто создаём предупреждение,
+		 * если поля оказались заполненными, то это какой-то косяк
+		 * и пытаться их освобождать не стоит
+		 */
+		xsyslog(LOG_ERR,
+				"error: wait_file has reqs: %d, spq: %p",
+				(int)ws->reqs, (void*)ws->sk);
 	}
 
-	if(ws->sk) {
-		spq_devote(ws->sk);
+	if (ws->data) {
+		struct wait_file_index *wfi = ws->data;
+		struct wait_file *wf = wfi->first;
+		struct wait_file *wfp = NULL;
+		/* грубая отчистка списка */
+		for (; wf; wf = wfp) {
+			wfp = wf->next;
+			/* FIXME: чистка wait_file дублируется в _happen_file() */
+			free(wf);
+		}
+	} else {
+		/* пустая ссылка data это ошибка,
+		 * но что с ней делать и откуда оно могло появиться
+		 */
+		xsyslog(LOG_WARNING,
+				"error: wait_store for wait_file has no data: ws pointer: %p",
+				(void*)ws);
 	}
+
+
 	free(ws);
 }
 
