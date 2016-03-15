@@ -310,7 +310,6 @@ def sendFile(s, rootdir, directory, path, devid):
     _chunks = math.trunc(math.ceil(float(_size) / _chunk_size))
 
     write_std("send file '%s' into %s\n" %(path, rootdir))
-    fmsg = FEP.FileMeta()
     wmsg = FEP.WriteAsk()
 
     zfmsg = FEP.FileMeta()
@@ -327,6 +326,7 @@ def sendFile(s, rootdir, directory, path, devid):
     send_message(s, zfmsg)
 
     # заполнение метаинформации файла
+    fmsg = FEP.FileMeta()
     fmsg.id = random.randint(1, 10000)
     fmsg.rootdir_guid = rootdir
     fmsg.directory_guid = directory
@@ -338,6 +338,25 @@ def sendFile(s, rootdir, directory, path, devid):
     fmsg.key = zfmsg.key
 
     fmsg.chunks = _chunks
+
+    # после отправки всех чанков должен прийти OkUpdate
+    send_message(s, fmsg)
+
+    nfmsg = FEP.FileMeta()
+    nfmsg.id = random.randint(1, 10000)
+    nfmsg.rootdir_guid = fmsg.rootdir_guid
+    nfmsg.directory_guid = fmsg.directory_guid
+    nfmsg.file_guid = fmsg.file_guid
+    nfmsg.revision_guid = str(uuid.uuid4())
+    nfmsg.parent_revision_guid = fmsg.revision_guid
+    nfmsg.chunks = 0
+
+    # отправка перекрывающего сообщения, что бы воспроизвести DDB-235
+    # заключается в том, что если отправлять первую ревизию (rev1)
+    # с большим количеством чанков, а следом отправить ещё одну (rev2) с parent_revision=rev1
+    # то rev2 получит отказ, т.к. rev1 ещё не собрана на сервере
+    send_message(s, nfmsg)
+
 
     # OkUpdate приходит в самом конце, бессмысленно его ждать сразу
     # после отправки FileMeta
@@ -399,14 +418,14 @@ def sendFile(s, rootdir, directory, path, devid):
             elif rmsg.__class__.__name__ == "Ok":
                 write_std("send chunk complete\n")
     if file_descr.tell() == _size or _ok:
-        # после отправки всех чанков должен прийти OkUpdate
-        send_message(s, fmsg)
         # если отправка завершилась успешно
-        rmsg = recv_message(s, ["OkUpdate", "Error"])
-        if rmsg.__class__.__name__ == 'Error':
-            write_std("file compilation failed: %s\n" %rmsg.message)
-            return False
-        write_std("send file ok, checkpoint=%s\n" %(rmsg.checkpoint))
+        for x in (1, 2):
+            # должно прийти два OkUpdate
+            rmsg = recv_message(s, ["OkUpdate", "Error"])
+            if rmsg.__class__.__name__ == 'Error':
+                write_std("file compilation failed: %s\n" %rmsg.message)
+                return False
+            write_std("send file ok, checkpoint=%s\n" %(rmsg.checkpoint))
         return True
     return False
 
