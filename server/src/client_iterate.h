@@ -195,7 +195,8 @@ struct client {
 
 	/* отложенные входящие пакеты по причине достижения лимита обработки */
 	struct listRoot msg_delayed;
-
+	/* инкремент для отложившихся сообщений */
+	uint64_t delay_serial;
 	/* курсор по списку сообщений */
 	struct squeue_cursor broadcast_c;
 	/* счётчик ошибок
@@ -253,7 +254,13 @@ typedef size_t(*fep_pack_t)(void*, unsigned char*);
 
 struct h_reqs_store_t {
 	unsigned type;
+	/* id сообщения (для лога) */
+	uint64_t id;
+	/* серийник пакета для отображения в логе */
+	uint64_t serial;
+	/* ожидаемые ресурсы */
 	enum handle_reqs_t reqs;
+	/* длина msg */
 	size_t len;
 	/*
 	 * конечно это какое-то безумие паковать сообщение обратно
@@ -278,9 +285,10 @@ void client_reqs_release_all(struct client *c);
 
 /* поклажа сообщения в очередь обработки на потом
  * должно вызываться после неудачного client_reqs_acquire()
+ * в id указывается идентификатор сообщения (msg->id)
  */
 bool client_reqs_queue(struct client *c, enum handle_reqs_t reqs,
-		unsigned type, void *msg);
+		unsigned type, void *msg, uint64_t id);
 
 /* обработка сообщений в очереди (по одному за вызов)
  * в качестве reqs передаётся битовая маска свободных ресурсов

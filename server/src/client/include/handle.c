@@ -17,7 +17,7 @@
 	}\
 	if (!__w_q) {\
 		if (send_pending(c, msg->id)) {\
-			return client_reqs_queue(c, reqs, type, msg);\
+			return client_reqs_queue(c, reqs, type, msg, msg->id);\
 		} else {\
 			return false;\
 		}\
@@ -624,7 +624,7 @@ _handle_want_sync(struct client *c, unsigned type, Fep__WantSync *msg)
 	if (!client_reqs_acquire(c, H_REQS_SQL)) {
 		if (!send_pending(c, msg->id))
 			return false;
-		return client_reqs_queue(c, H_REQS_SQL, type, msg);
+		return client_reqs_queue(c, H_REQS_SQL, type, msg, msg->id);
 	}
 
 	/* FIXME: костыль на то, что внутри _active_sync
@@ -1218,7 +1218,7 @@ _handle_query_devices(struct client *c, unsigned type, Fep__QueryDevices *msg)
 	if (!client_reqs_acquire(c, H_REQS_SQL)) {
 		if (!send_pending(c, msg->id))
 			return false;
-		return client_reqs_queue(c, H_REQS_SQL, type, msg);
+		return client_reqs_queue(c, H_REQS_SQL, type, msg, msg->id);
 	}
 
 	memset(&hint, 0u, sizeof(hint));

@@ -103,7 +103,7 @@ client_reqs_release(struct client *c, enum handle_reqs_t reqs)
 
 bool
 client_reqs_queue(struct client *c, enum handle_reqs_t reqs,
-		unsigned type, void *msg)
+		unsigned type, void *msg, uint64_t id)
 {
 	struct h_reqs_store_t *hrs = NULL;
 	size_t len = 0u;
@@ -118,6 +118,12 @@ client_reqs_queue(struct client *c, enum handle_reqs_t reqs,
 		return false;
 	}
 
+	/* упаковка сообщения в буфер
+	 * топорно, но работает
+	 * оптимально было бы хранить обработанную структуру
+	 * с состоянием (стадией обработки).
+	 * есть пространство для оптимизации
+	 */
 	if (!pack_message(type, msg, hrs->msg)) {
 		free(hrs);
 		return false;
@@ -126,16 +132,22 @@ client_reqs_queue(struct client *c, enum handle_reqs_t reqs,
 	hrs->len = len;
 	hrs->type = type;
 	hrs->reqs = reqs;
+	hrs->serial = ++c->delay_serial;
+	hrs->id = id;
 
 	if (!list_alloc(&c->msg_delayed, 0, (void*)hrs)) {
 		free(hrs);
 		return false;
 	}
 
+	/* DL = delay */
 	xsyslog(LOG_DEBUG,
-			"client[%"SEV_LOG"] message type %s delayed (sql: %ld, fd: %ld)",
-			c->cev->serial, Fepstr(type),
-			c->values.sql_queries_count, c->values.fd_queries_count);
+			"client[%"SEV_LOG"] DL %"PRIuPTR" >> {%s? id=%"PRIu64", ...} "
+			"(sql: %ld, fd: %ld) "
+			"[delay serial: %"PRIu64"]",
+			c->cev->serial, hrs->len, Fepstr(type), hrs->id,
+			c->values.sql_queries_count, c->values.fd_queries_count,
+			hrs->serial);
 
 	return true;
 }
@@ -185,6 +197,15 @@ client_reqs_unqueue(struct client *c, enum handle_reqs_t reqs)
 		return true;
 	}
 	h = n->data;
+
+	/* DP = dispatch */
+	xsyslog(LOG_DEBUG,
+			"client[%"SEV_LOG"] DP %"PRIuPTR" << {%s? id=%"PRIu64", ...} "
+			"(sql: %ld, fd: %ld) "
+			"[delay serial: %"PRIu64"]",
+			c->cev->serial, h->len, Fepstr(h->type), h->id,
+			c->values.sql_queries_count, c->values.fd_queries_count,
+			h->serial);
 
 	/* пытаемся вызвать процедурку */
 	r = exec_bufmsg(c, h->type, h->msg, h->len);
