@@ -82,6 +82,7 @@ CREATE TABLE IF NOT EXISTS "user"
 	created timestamp with time zone NOT NULL DEFAULT now(),
 	username varchar(1024) NOT NULL CHECK(char_length(username) > 0),
 	secret varchar(96) NOT NULL,
+	-- хранилище данных для одного пользователя
 	store bytea NOT NULL DEFAULT E'',
 	UNIQUE(username)
 );
@@ -95,6 +96,7 @@ CREATE TABLE IF NOT EXISTS device
 	reg_time timestamp with time zone NOT NULL DEFAULT now(),
 	last_time timestamp with time zone NOT NULL DEFAULT now(),
 	device bigint NOT NULL,
+	-- хранилище данных для одного устройства
 	store bytea NOT NULL DEFAULT E'',
 	UNIQUE(device, user_id)
 );
