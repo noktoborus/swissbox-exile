@@ -794,8 +794,10 @@ fcac_set_ready(struct fcac_ptr *p)
 		if (p->n->type == FCAC_FILE) {
 			char _path[PATH_MAX] = {0};
 			_format_filename(p->r->path, _path, sizeof(_path), p->n->id);
-			/* закрытие дескрипторов */
-			close(p->n->s.file.fd);
+			if (p->n->s.file.fd != -1) {
+				/* закрытие дескрипторов */
+				close(p->n->s.file.fd);
+			}
 			/* финализация файлов в кеше заключается в удалении флага "u+w" */
 			if (chmod(_path, S_IRUSR)) {
 				xsyslog(LOG_WARNING,
