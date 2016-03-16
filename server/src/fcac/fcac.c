@@ -127,14 +127,13 @@ static void
 _fcac_node_remove(struct fcac *r, struct fcac_node *n)
 {
 	struct fcac_ptr *p = NULL;
-	struct fcac_ptr *pnext = NULL;
 #if FCAC_DEEPDEBUG
 	xsyslog(LOG_DEBUG, "fcac remove[id#%"PRIu64"]", n->id);
 #endif
 	if (_lock(r, n)) {
 		/* делаем все ссылки (fcac_ptr*) инвалидными */
-		for (p = n->ref; p; p = pnext) {
-			pnext = p->next;
+		for (p = n->ref; p; p = n->ref) {
+			n->ref = p->next;
 			p->n = NULL;
 			/* не заморачиваемся с ссылками,
 			 * просто ломаем список
