@@ -39,12 +39,40 @@ void
 client_timeout_cb(struct ev_loop *loop, ev_timer *w, int revents)
 {
 	struct sev_ctx *cev = ev_userdata(loop);
+	ev_tstamp now = ev_now(loop);
+
+	/* проверка таймаута */
+	if (cev->options.timeout_idle &&
+			now - cev->last_activity > cev->options.timeout_idle) {
+		ev_break(loop, EVBREAK_ALL);
+		xsyslog(LOG_DEBUG,
+				"client[%"SEV_LOG"] thread[%p] exit on timeout (%lus)",
+				cev->serial, (void*)cev->thread,
+				(unsigned long)(now - cev->last_activity));
+		return;
+	}
 
 	if (!client_iterate(cev, cev->p)) {
 		ev_break(loop, EVBREAK_ALL);
 		xsyslog(LOG_DEBUG, "client[%"SEV_LOG"] thread[%p] exit in timer",
 				cev->serial, (void*)cev->thread);
+		return;
 	}
+}
+
+void
+client_config_cb(struct ev_loop *loop, ev_async *w, int revents)
+{
+	struct sev_ctx *cev = ev_userdata(loop);
+	/* правильно было бы использовать семафор */
+	pthread_mutex_lock(&cev->pain->options.lock);
+
+	/* инициализируем базовые структуры */
+	cev->options.timeout_idle = (unsigned long)cev->pain->options.timeout_idle;
+	/* если клиент проинициализировался, то можно и его дёрнуть */
+	if (cev->p)
+		client_load(cev->p);
+	pthread_mutex_unlock(&cev->pain->options.lock);
 }
 
 void
@@ -101,6 +129,8 @@ client_io_read(struct ev_loop *loop, struct ev_io *w, struct sev_ctx *cev)
 			 */
 			cev->recv.eof = true;
 		} else {
+			/* обновляем значение последней активности */
+			cev->last_activity = ev_now(loop);
 			/* иначе дёргаем счётчик полученных байт */
 			cev->recv.len += lval;
 		}
@@ -133,6 +163,8 @@ client_io_write(struct ev_loop *loop, struct ev_io *w, struct sev_ctx *cev)
 			/* ошибка при записи, выход */
 			cev->send.eof = true;
 		} else {
+			/* обновляем значение последней активности */
+			cev->last_activity = ev_now(loop);
 			/* перемещаем данные в начало буфера
 			 * FIXME: использовать memmove жирно, пристроить ring buffer
 			 * FIXME: или не позволять пихать в буфер, пока не освободится
@@ -190,20 +222,28 @@ client_main(struct sev_ctx *cev)
 	/* регистрация событий */
 	ev_io_init(&cev->io, client_io_cb, cev->fd, EV_NONE);
 	ev_async_init(&cev->async, client_alarm_cb);
+	ev_async_init(&cev->reload, client_config_cb);
 	ev_timer_init(&cev->timer, client_timeout_cb, 0., 1.);
 
 	ev_io_start(cev->loop, &cev->io);
 	ev_async_start(cev->loop, &cev->async);
+	ev_async_start(cev->loop, &cev->reload);
 	ev_timer_start(cev->loop, &cev->timer);
 
-	/* запуск цикла */
+	/* инициализация счётчика */
+	cev->last_activity = ev_now(cev->loop);
+	/* инициализация базовой конфигурации */
+	ev_async_send(cev->loop, &cev->reload);
+	/* инициализация клиента */
 	cev->p = client_begin(cev);
+	/* запуск цикла */
 	ev_run(cev->loop, 0);
 	client_end(cev, cev->p);
 
 	/* чистка */
 	ev_io_stop(cev->loop, &cev->io);
 	ev_async_stop(cev->loop, &cev->async);
+	ev_async_stop(cev->loop, &cev->reload);
 	ev_timer_stop(cev->loop, &cev->timer);
 
 	cev->isfree = true;
@@ -1288,6 +1328,7 @@ cfg_load(struct main *pain)
 static inline bool
 cfg_update(struct main *pain)
 {
+	pthread_mutex_lock(&pain->options.lock);
 	cfg_load(pain);
 
 	/* опции для перезагрузки:
@@ -1322,6 +1363,7 @@ cfg_update(struct main *pain)
 	}
 
 	/* TODO */
+	pthread_mutex_unlock(&pain->options.lock);
 	return true;
 }
 
@@ -1416,7 +1458,8 @@ main(int argc, char *argv[])
 					&pain.options.limit_local_sql_queries),
 			CFG_SIMPLE_INT("limit_local_fd_queries",
 					&pain.options.limit_local_fd_queries),
-
+			/* таймауты */
+			CFG_SIMPLE_INT("timeout_idle", &pain.options.timeout_idle),
 			CFG_END()
 		};
 
@@ -1460,6 +1503,7 @@ main(int argc, char *argv[])
 			/*  */
 			fcac_init(&pain.fcac, true);
 			pthread_mutex_init(&pain.sev_lock, NULL);
+			pthread_mutex_init(&pain.options.lock, NULL);
 			pthread_mutex_init(&pain.values.lock, NULL);
 			/* мультисокет */
 			{
@@ -1497,6 +1541,7 @@ main(int argc, char *argv[])
 				}
 			}
 			pthread_mutex_destroy(&pain.values.lock);
+			pthread_mutex_destroy(&pain.options.lock);
 			pthread_mutex_destroy(&pain.ev_lock);
 			pthread_mutex_destroy(&pain.rs_lock);
 			pthread_cond_destroy(&pain.rs_wait);

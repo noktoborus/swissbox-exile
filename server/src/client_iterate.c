@@ -782,11 +782,13 @@ client_load(struct client *c)
 		free(c->options.home);
 		c->options.home = NULL;
 	}
+
 	/* + sizeof('/') + sizeof('\0') */
 	size_t len = strlen(c->name) + strlen(c->cev->pain->options.cache_dir) + 2;
 	c->options.home = calloc(1, len + 1);
-	if (!c->options.home)
+	if (!c->options.home) {
 		return false;
+	}
 	snprintf(c->options.home, len, "%s/%s",
 			c->cev->pain->options.cache_dir, c->name);
 	if (mkdir(c->options.home, S_IRWXU) == -1 && errno != EEXIST) {
@@ -1412,9 +1414,6 @@ void *
 client_begin(struct sev_ctx *cev)
 {
 	struct client *c = client_alloc(cev);
-	if (c) {
-		c->cev->recv_timeout = 2;
-	}
 	return (void*)c;
 }
 

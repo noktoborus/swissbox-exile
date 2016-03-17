@@ -47,12 +47,12 @@ struct evptr {
 void cev_stat(struct sev_ctx *cev);
 #endif
 
-struct sev_ctx
-{
+struct sev_ctx {
 	/* io */
 	struct ev_loop *loop;
 	struct ev_io io;
 	struct ev_async async;
+	struct ev_async reload;
 	struct ev_timer timer;
 
 	char xaddr[48];
@@ -99,22 +99,28 @@ struct sev_ctx
 	/* генератор id для шины */
 	uint64_t bus_idgen;
 
-	time_t recv_timeout;
-	time_t send_timeout;
-
 	int fd;
 
 	bool isfree;
 
 	size_t serial;
 
+	struct {
+		unsigned long timeout_idle;
+	} options;
+
+	/* время последней активности (в сокете), для timeout_idle
+	 * обновляется только при чтении/записи в сокет по факту
+	 * т.е. только при send()/recv() > 0
+	 */
+	ev_tstamp last_activity;
+
 	struct sev_ctx *prev;
 	struct sev_ctx *next;
 };
 
 /* server socket */
-struct sev_main
-{
+struct sev_main {
 	ev_io evio;
 
 	int fd;
@@ -142,8 +148,7 @@ struct redis_c {
 };
 
 #define	REDIS_C_MAX 5
-struct main
-{
+struct main {
 	ev_signal sigint;
 	ev_signal sigterm;
 	ev_signal sigpipe;
@@ -184,6 +189,7 @@ struct main
 	char *a_basename;
 	/* параметры */
 	struct {
+		pthread_mutex_t lock;
 		char *name;
 		char *redis_chan;
 		char *cache_dir;
@@ -207,6 +213,8 @@ struct main
 		/* локальные ограния (на весь сервер) */
 		long limit_local_sql_queries;
 		long limit_local_fd_queries;
+
+		long timeout_idle;
 	} options;
 
 	/* значения для всякой херни */
