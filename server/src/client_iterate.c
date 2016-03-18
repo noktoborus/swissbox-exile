@@ -642,12 +642,19 @@ exec_bufmsg(struct client *c, unsigned type, uint8_t *buf, size_t len)
 							c->cev->serial, len);
 					packet2syslog(_header, type, msg);
 				}
+				/* запускаем обработку пакета */
 				if (!handle[type].f(c, type, msg)) {
+					/* чистка ресурсов и выставление флага что пакет вызвал
+					 * ошибку
+					 */
 					free_message(type, msg);
 					c->ps[type].errored = true;
 					return HEADER_STOP;
 				}
+				/* освобождение результата анпакера */
 				free_message(type, msg);
+				/* дёргаем таймер, что пакет обработан */
+				ev_async_send(c->cev->loop, &c->cev->async);
 			} else {
 				char _errormsg[1024];
 				snprintf(_errormsg, sizeof(_errormsg),
