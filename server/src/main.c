@@ -9,6 +9,10 @@
 #include <pwd.h>
 #include <grp.h>
 
+#if __linux__
+# include <sys/resource.h>
+#endif
+
 #include <libgen.h>
 #include <sys/utsname.h>
 #include <curl/curl.h>
@@ -1390,6 +1394,13 @@ main(int argc, char *argv[])
 	bool _r;
 	struct ev_loop *loop;
 	struct main pain;
+#if __linux__
+	{	/* снимаем ограничение на размер дампа памяти */
+		struct rlimit core_limits;
+		core_limits.rlim_cur = core_limits.rlim_max = RLIM_INFINITY;
+		setrlimit(RLIMIT_CORE, &core_limits);
+	}
+#endif
 	/* base configuration */
 
 	memset(&pain, 0, sizeof(struct main));
