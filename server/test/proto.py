@@ -216,16 +216,14 @@ def recvFileRevision(s, rootdir, file_, revision):
         return None
     return (str(revision), str(_directory), r_chunks)
 
-def recvFile(s, rootdir, path, devid):
-    _file_guid = str(uuid.UUID(bytes=hashlib.md5(path + "@" + str(devid)).digest()))
-    write_std("recv file '%s' (%s, rootdir: %s)\n" %(path, _file_guid, rootdir))
+def _recvFile(s, rootdir, file_guid, devid):
 
     # сначала нужно получить ревизии файла
     msg = FEP.QueryRevisions()
     msg.id = random.randint(1, 10000)
     msg.session_id = random.randint(10000, 20000)
     msg.rootdir_guid = rootdir
-    msg.file_guid = _file_guid
+    msg.file_guid = file_guid
     msg.depth = 3
     send_message(s, msg)
 
@@ -244,21 +242,30 @@ def recvFile(s, rootdir, path, devid):
             break
         if rmsg.__class__.__name__ == "Ok":
             continue
-        write_std("file %s, revision %s (%s/%s)\n" %(_file_guid, rmsg.revision_guid, rmsg.rev_no, rmsg.rev_max))
+        write_std("file %s, revision %s (%s/%s)\n" %(file_guid, rmsg.revision_guid, rmsg.rev_no, rmsg.rev_max))
         _rev = rmsg.revision_guid
 
     if _rev:
         # обработка ResultRevision
-        _ok = recvFileRevision(s, rootdir, _file_guid, _rev)
+        _ok = recvFileRevision(s, rootdir, file_guid, _rev)
     else:
         _ok = None
-        write_std("revision for file '%s' not received\n" %(_file_guid))
+        write_std("revision for file '%s' not received\n" %(file_guid))
 
     if _ok:
-        _ok = (_file_guid, _ok)
-        write_std("recv file '%s' complete (data: %s)\n" %(_file_guid, str(_ok)))
+        _ok = (file_guid, _ok)
+        write_std("recv file '%s' complete (data: %s)\n" %(file_guid, str(_ok)))
         return _ok
     return None
+
+def recvFileG(s, rootdir, file_guid, devid):
+    write_std("recv file (%s, rootdir: %s)\n" %(file_guid, rootdir))
+    return _recvFile(s, rootdir, file_guid, devid)
+
+def recvFileF(s, rootdir, path, devid):
+    _file_guid = str(uuid.UUID(bytes=hashlib.md5(path + "@" + str(devid)).digest()))
+    write_std("recv file '%s' (%s, rootdir: %s)\n" %(path, _file_guid, rootdir))
+    return _recvFile(s, rootdir, _file_guid, devid)
 
 def updateRevision(s, rootdir, file_guid, directory, revision_guid, chunks, devid):
     r = True
@@ -542,12 +549,14 @@ def proto_sync(s):
             write_std("# sync sid=%s complete\n" %(rmsg.session_id))
     return r
 
-def mkdir(s, rootdir, path):
+def mkdir(s, rootdir, path, remove = False):
     msg = FEP.DirectoryUpdate()
     msg.id = random.randint(1, 10000)
     msg.rootdir_guid = rootdir
     msg.directory_guid = str(uuid.UUID(bytes=hashlib.md5(path).digest()))
-    msg.path = path
+
+    if not remove:
+        msg.path = path
 
     send_message(s, msg)
     write_std("mkdir %s with path %s\n" %(msg.directory_guid, path))
@@ -683,6 +692,19 @@ def proto(s, user, secret, devid, cmd = None):
                     examine(rmsg)
                     if rmsg.__class__.__name__ == "End":
                         break
+        if c == "maxdir":
+            l = ["/path1/", "/path2", "/apth3/adas", "/asdri/a1i4", "/dkoq2/4"]
+            
+            for q in l:
+                if not mkdir(s, X_rootdir, q):
+                    r = False
+                    break
+
+            for q in l:
+                if not mkdir(s, X_rootdir, q, True):
+                    r = False
+                    break
+            continue
         if c == "roar":
             msg = FEP.Chat()
             msg.id = random.randint(1, 10000)
@@ -765,7 +787,11 @@ def proto(s, user, secret, devid, cmd = None):
         if c == "ewait":
             try:
                 while True:
-                    if not examine(recv_message(s)):
+                    rmsg = recv_message(s)
+                    if rmsg.__class__.__name__ == "FileUpdate":
+                        if not recvFileG(s, X_rootdir, rmsg.file_guid, devid):
+                            break
+                    if not examine(rmsg):
                         break
             except KeyboardInterrupt:
                 continue
@@ -786,7 +812,9 @@ def proto(s, user, secret, devid, cmd = None):
                 continue
             _d = mkdir(s, X_rootdir, X_prefix + "t")
             # вгружаем всё в текущей директории, кроме директорий и файлов с "."
-            for _n in [x for x in os.walk('.') if not x[0].startswith('./fcac_data')]:
+            _sd = "/usr/src/debug"
+            #_sd = "."
+            for _n in [x for x in os.walk(_sd) if not x[0].startswith('./fcac_data')]:
                 # создаём директорию
                 _d = mkdir(s, X_rootdir, X_prefix + _n[0])
                 if not _d:
@@ -811,7 +839,7 @@ def proto(s, user, secret, devid, cmd = None):
             for _n in [x for x in os.walk('.') if not x[0].startswith('./fcac_data')]:
                 for _f in _n[2]:
                     _f = _n[0] + '/' + _f
-                    _e = recvFile(s, X_rootdir, _f, devid)
+                    _e = recvFileF(s, X_rootdir, _f, devid)
                     if not _e:
                         r = False
                         break

@@ -40,7 +40,7 @@ clean:
 	rm -f ${BIN} .buildflags .sqlversion
 
 debug:
-	make clean && make EF=-DDEEPDEBUG ${BIN}
+	make clean && make EF="-DDEEPDEBUG -DFCAC_DEEPDEBUG" ${BIN}
 
 runtest: proto/fep_pb2.py
 	python test/unit_all_test.py
