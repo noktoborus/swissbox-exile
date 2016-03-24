@@ -141,7 +141,7 @@ def proto_bootstrap(s, user, secret, devid):
                 msg.domain = "it-grad.ru"
                 msg.username = user
                 msg.authToken = secret
-                msg.device_id = int(hashlib.md5(socket.gethostname() + str(devid)).hexdigest()[:16], 16)
+                msg.device_id = int(devid)
                 send_message(s, msg)
             elif rmsg.__class__.__name__ == "Ok":
                 write_std("# auth ok\n")
