@@ -208,6 +208,7 @@ BEGIN
 	-- 2. удаление самой директории
 	IF new.path IS NULL THEN
 		-- проверяем что не хотят удалить системную директорию
+		-- TODO: вынести проверку в proc.sql (directory_create)
 		IF (SELECT COUNT(*)
 				FROM options
 				WHERE
