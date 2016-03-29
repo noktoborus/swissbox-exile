@@ -674,13 +674,37 @@ BEGIN
 	INTO _ur
 	FROM life_data(_rootdir);
 
-	-- проверка существования директории (и это не переименование)
+	-- причёсывание пути, если вдруг прислали ошмёток (как?)
+	IF substring(_dirname from 1 for 1) != '/' THEN
+		_dirname = concat('/', _dirname);
+	END IF;
+
+	IF _dirname IS NULL THEN
+		-- проверяем что не хотят удалить системную директорию
+		-- переименовывать можно, удалять нельзя
+		IF (SELECT COUNT(*)
+				FROM options
+				WHERE
+					"key" LIKE '%\_dir' AND
+					value_u = _directory) != 0 THEN
+			r_error := 'system directory guard dissatisfied';
+			return next;
+			return;
+		END IF;
+	END IF;
+
+	-- проверка последней операции над директорией
 	WITH _row AS (
-		SELECT directory_log.* FROM directory, directory_log
-		WHERE directory.rootdir_id = _ur.rootdir_id AND
-			directory.directory = _directory AND
-			directory.path = _dirname AND
-			directory_log.id = directory.log_id
+		SELECT path, checkpoint FROM (
+			SELECT path, checkpoint FROM directory_log
+			WHERE rootdir_id = _ur.rootdir_id AND
+				directory = _directory
+			ORDER BY checkpoint DESC
+			LIMIT 1
+		) AS sub1
+		WHERE
+			(_dirname IS NULL AND path IS NULL) OR
+				(_dirname IS NOT NULL AND path IS NOT NULL AND _dirname = path)
 	) SELECT checkpoint INTO r_checkpoint FROM _row;
 
 	IF r_checkpoint IS NOT NULL THEN

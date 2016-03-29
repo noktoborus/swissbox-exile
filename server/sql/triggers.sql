@@ -193,12 +193,8 @@ DECLARE
 	_trash_id bigint;
 	i integer;
 BEGIN
-	-- причёсывание пути, если вдруг прислали ошмёток (как?)
-	IF substring(NEW.path from 1 for 1) != '/' THEN
-		NEW.path = concat('/', NEW.path);
-	END IF;
-
 	-- если финализация, то дальнейшая обработка не нужна
+	-- FIXME: нихрина не понял зачем
 	IF new.fin = TRUE THEN
 		return new;
 	END IF;
@@ -207,17 +203,6 @@ BEGIN
 	-- 1. пометка всех файлов как "deleted" и перенос их в .Trash
 	-- 2. удаление самой директории
 	IF new.path IS NULL THEN
-		-- проверяем что не хотят удалить системную директорию
-		-- TODO: вынести проверку в proc.sql (directory_create)
-		IF (SELECT COUNT(*)
-				FROM options
-				WHERE
-					"key" LIKE '%\_dir' AND
-					value_u = new.directory) != 0 THEN
-			RAISE EXCEPTION 'system directory guard dissatisfied';
-			return new;
-		END IF;
-
 		-- получение id треша
 		SELECT directory.id FROM options, directory
 		INTO _trash_id
@@ -249,6 +234,7 @@ BEGIN
 		SELECT array_agg(id) INTO _dirs
 		FROM directory
 		WHERE
+			rootdir_id = new.rootdir_id AND
 			directory.path LIKE new.path || '%' AND
 			directory.id != new.directory_id;
 
@@ -258,6 +244,7 @@ BEGIN
 			directory_id = _trash_id,
 			deleted = TRUE
 		WHERE
+			rootdir_id = new.rootdir_id AND
 			file.directory_id = ANY(_dirs::bigint[]) OR
 			file.directory_id = new.directory_id;
 	
