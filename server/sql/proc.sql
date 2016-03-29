@@ -687,7 +687,7 @@ BEGIN
 				WHERE
 					"key" LIKE '%\_dir' AND
 					value_u = _directory) != 0 THEN
-			r_error := 'system directory guard dissatisfied';
+			r_error := '1:system directory guard dissatisfied';
 			return next;
 			return;
 		END IF;
