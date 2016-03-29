@@ -70,6 +70,7 @@ spq_getChunkInfo(struct spq_key *k,
 	} else if ((_l = PQgetlength(res, 0, 0)) > 0u) {
 		_m = PQgetvalue(res, 0, 0);
 		spq_feed_hint(_m, _l, hint);
+		Q_LOGX(tb, sizeof(len) / sizeof(*len), val, len);
 		xsyslog(LOG_INFO, "exec getChunkInfo warning: %s", _m);
 	}
 
@@ -147,6 +148,7 @@ spq_getFileMeta(struct spq_key *k, guid_t *rootdir, guid_t *file,
 	if (pqs != PGRES_TUPLES_OK && pqs != PGRES_EMPTY_QUERY) {
 		xsyslog(LOG_INFO, "getFileMeta exec error: %s",
 			PQresultErrorMessage(res));
+		spq_feed_hint(NULL, 0u, hint);
 		PQclear(res);
 		Q_LOGX(tb, sizeof(len) / sizeof(*len), val, len);
 		return false;
@@ -156,6 +158,7 @@ spq_getFileMeta(struct spq_key *k, guid_t *rootdir, guid_t *file,
 		_value = PQgetvalue(res, 0, 0);
 		xsyslog(LOG_INFO, "getFileMeta exec warning: %s", _value);
 		spq_feed_hint(_value, _length, hint);
+		Q_LOGX(tb, sizeof(len) / sizeof(*len), val, len);
 	}
 
 	if (PQntuples(res) <= 0) {
@@ -235,6 +238,8 @@ spq_insert_chunk(struct spq_key *k,
 	char *val[8];
 	int len[8];
 
+	int r_len = 0;
+
 	len[0] = guid2string(rootdir, PSIZE(_rootdir));
 	len[1] = guid2string(file, PSIZE(_file));
 	len[2] = guid2string(revision, PSIZE(_revision));
@@ -258,6 +263,7 @@ spq_insert_chunk(struct spq_key *k,
 	if (PQresultStatus(res) != PGRES_TUPLES_OK) {
 		xsyslog(LOG_INFO, "exec insert_chunk error: %s",
 				PQresultErrorMessage(res));
+		spq_feed_hint(NULL, 0u, hint);
 		PQclear(res);
 		Q_LOGX(tb, sizeof(len) / sizeof(*len), val, len);
 		return false;
@@ -267,13 +273,15 @@ spq_insert_chunk(struct spq_key *k,
 	 * только в случае контролируемого r_error,
 	 * а не случайного EXCEPTION
 	 */
-	if (PQgetlength(res, 0, 0) != 0) {
+	if ((r_len = PQgetlength(res, 0, 0)) != 0) {
 		char *_error = PQgetvalue(res, 0, 0);
 		xsyslog(LOG_INFO, "exec insert_chunk warning: %s", _error);
-		if (hint) {
-			strncpy(hint->message, _error, SPQ_ERROR_LEN);
-		}
+		spq_feed_hint(_error, r_len, hint);
 		PQclear(res);
+		Q_LOGX(tb, sizeof(len) / sizeof(*len), val, len);
+		/* устаревший код, предупреждения (warning) можно пропускать
+		 * дальше с данными, но пока неизвестно к чему это может привести
+		 */
 		return false;
 	}
 
@@ -322,6 +330,7 @@ spq_get_quota(struct spq_key *k, guid_t *rootdir, struct spq_QuotaInfo *qi,
 		m = PQgetvalue(res, 0, 0);
 		spq_feed_hint(m, ml, hint);
 		xsyslog(LOG_INFO, "exec check_quota warning: %s", m);
+		Q_LOGX(tb, sizeof(len) / sizeof(*len), val, len);
 	}
 
 	if ((ml = PQgetlength(res, 0, 1)) > 0) {
@@ -368,8 +377,10 @@ spq_directory_create(struct spq_key *k, guid_t *rootdir,
 
 	if (pqs != PGRES_TUPLES_OK) {
 		_m = PQresultErrorMessage(res);
+		spq_feed_hint(NULL, 0u, hint);
 		xsyslog(LOG_INFO, "exec directory_create error: %s", _m);
 		PQclear(res);
+		Q_LOGX(tb, sizeof(len) / sizeof(*len), val, len);
 		return 0lu;
 	}
 
@@ -377,28 +388,9 @@ spq_directory_create(struct spq_key *k, guid_t *rootdir,
 		unsigned r_len;
 		if ((r_len = PQgetlength(res, 0, 0))) {
 			_m = PQgetvalue(res, 0, 0);
-			if (_m && hint) {
-				if (r_len > 2u && _m[1] == ':') {
-					switch (_m[0]) {
-					case '2':
-						hint->level = SPQ_WARN;
-						break;
-					case '3':
-						hint->level = SPQ_NOTICE;
-						break;
-					default:
-						hint->level = SPQ_ERR;
-					}
-					if (_m[0] == '3')
-						hint->level = SPQ_NOTICE;
-					r_len = 2u;
-				} else {
-					r_len = 0u;
-				}
-				strncpy(hint->message, &_m[r_len], SPQ_ERROR_LEN);
-			}
-			if (_m)
-				xsyslog(LOG_INFO, "exec directory_create warning: %s", _m);
+			spq_feed_hint(_m, r_len, hint);
+			xsyslog(LOG_INFO, "exec directory_create warning: %s", _m);
+			Q_LOGX(tb, sizeof(len) / sizeof(*len), val, len);
 		}
 
 		if (PQgetlength(res, 0, 1)) {
@@ -435,6 +427,7 @@ spq_update_file(struct spq_key *k, guid_t *rootdir, guid_t *file,
 	const char *_m = NULL;
 	char *val[4];
 	int len[4];
+	int r_len = 0;
 
 	len[0] = guid2string(rootdir, PSIZE(_rootdir));
 	len[1] = guid2string(file, PSIZE(_file));
@@ -451,12 +444,14 @@ spq_update_file(struct spq_key *k, guid_t *rootdir, guid_t *file,
 
 	if (pqs != PGRES_TUPLES_OK) {
 		_m = PQresultErrorMessage(res);
+		spq_feed_hint(NULL, 0u, hint);
 		xsyslog(LOG_INFO, "exec update_file error: %s", _m);
-	} else if (PQgetlength(res, 0, 0)) {
+		Q_LOGX(tb, sizeof(len) / sizeof(*len), val, len);
+	} else if ((r_len = PQgetlength(res, 0, 0)) != 0) {
 		_m = PQgetvalue(res, 0, 0);
-		if (_m && hint)
-			strncpy(hint->message, _m, SPQ_ERROR_LEN);
+		spq_feed_hint(_m, r_len, hint);
 		xsyslog(LOG_INFO, "exec update_file warning: %s", _m);
+		Q_LOGX(tb, sizeof(len) / sizeof(*len), val, len);
 	}
 
 	if (_m) {
@@ -545,6 +540,7 @@ spq_insert_revision(struct spq_key *k,
 		_m = PQgetvalue(res, 0, 0);
 		spq_feed_hint(_m, _mlen, hint);
 		xsyslog(LOG_INFO, "exec insert_revision warning: %s", hint->message);
+		Q_LOGX(tb, sizeof(len) / sizeof(*len), val, len);
 	}
 
 	result = strtoul(PQgetvalue(res, 0, 1), NULL, 10);
@@ -591,6 +587,7 @@ spq_chunk_prepare(struct spq_key *k,
 			tb, 3, NULL, (const char *const*)val, len, NULL, 0);
 
 	if (PQresultStatus(res) != PGRES_TUPLES_OK) {
+		spq_feed_hint(NULL, 0u, hint);
 		xsyslog(LOG_INFO, "exec chunk_prepare error: %s",
 				PQresultErrorMessage(res));
 		PQclear(res);
@@ -600,6 +597,7 @@ spq_chunk_prepare(struct spq_key *k,
 		_m = PQgetvalue(res, 0, 0);
 		spq_feed_hint(_m, _l, hint);
 		xsyslog(LOG_INFO, "exec chunk_prepare warning: %s", _m);
+		Q_LOGX(tb, sizeof(len) / sizeof(*len), val, len);
 	}
 
 
