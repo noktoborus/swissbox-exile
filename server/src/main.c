@@ -649,22 +649,33 @@ server_bind(struct ev_loop *loop, struct sev_main *sev)
 		if (fd == -1) {
 			xsyslog(LOG_WARNING, "server bind(%p) -> socket() fail: %s",
 					(void*)sev, strerror(errno));
-		} else if (bind(fd, pres->ai_addr, pres->ai_addrlen) == -1) {
-			xsyslog(LOG_WARNING, "server bind(%p) -> bind() fail: %s, fd#%d",
-					(void*)sev, strerror(errno), fd);
-			close(fd);
-		} else if (listen(fd, 32) == -1) {
-			xsyslog(LOG_WARNING,
-					"server bind(%p) -> listen() fail: %s, fd#%d",
-					(void*)sev, strerror(errno), fd);
-			close(fd);
 		} else {
-			xsyslog(LOG_INFO, "server bind(%p) -> entry in %s, fd#%d",
-					(void*)sev, xaddr, fd);
-			sev->fd = fd;
-			ev_io_init(&sev->evio, server_cb, sev->fd, EV_READ);
-			ev_io_start(loop, &sev->evio);
-			break;
+			if (setsockopt(fd, SOL_SOCKET, SO_REUSEADDR,
+						&(int){1}, sizeof(int)) == -1) {
+				xsyslog(LOG_WARNING,
+						"server bind(%p) "
+						"-> setsockopt(SO_REUSEADDR) error: %s, fd#%d",
+					   (void*)sev, strerror(errno), fd);
+			}
+
+			if (bind(fd, pres->ai_addr, pres->ai_addrlen) == -1) {
+				xsyslog(LOG_WARNING,
+						"server bind(%p) -> bind() fail: %s, fd#%d",
+						(void*)sev, strerror(errno), fd);
+				close(fd);
+			} else if (listen(fd, 32) == -1) {
+				xsyslog(LOG_WARNING,
+						"server bind(%p) -> listen() fail: %s, fd#%d",
+						(void*)sev, strerror(errno), fd);
+				close(fd);
+			} else {
+				xsyslog(LOG_INFO, "server bind(%p) -> entry in %s, fd#%d",
+						(void*)sev, xaddr, fd);
+				sev->fd = fd;
+				ev_io_init(&sev->evio, server_cb, sev->fd, EV_READ);
+				ev_io_start(loop, &sev->evio);
+				break;
+			}
 		}
 	}
 	if (res)
