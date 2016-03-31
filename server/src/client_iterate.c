@@ -818,7 +818,7 @@ client_load(struct client *c)
 	c->options.limit_local_fd_queries =
 		c->cev->pain->options.limit_local_fd_queries;
 	/* FIXME: при массовой перезагрузке конфига можно опрокинуться */
-	return send_ping(c);
+	return true;
 }
 
 void
