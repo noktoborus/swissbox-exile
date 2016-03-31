@@ -52,7 +52,7 @@ _spq_log_expand(const char *query,
 }
 
 
-static const char const *
+static const char *const
 pqstatus2string(ConnStatusType t) {
 	switch (t) {
 	case CONNECTION_OK:

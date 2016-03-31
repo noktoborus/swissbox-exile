@@ -5,10 +5,10 @@
 static inline PGresult*
 _spq_f_logDirFile_exec(PGconn *pgc, guid_t *rootdir, uint64_t checkpoint)
 {
+	/* TODO: код устарел, использовать spq_hint */
 	PGresult *res;
 	ExecStatusType pqs;
-	char *tb =
-	"SELECT * FROM log_list($1::UUID, $2::bigint);";
+	char *tb = "SELECT * FROM log_list($1::UUID, $2::bigint);";
 	const int fmt[2] = {0, 0};
 
 	char _rootdir[GUID_MAX + 1];
@@ -26,10 +26,8 @@ _spq_f_logDirFile_exec(PGconn *pgc, guid_t *rootdir, uint64_t checkpoint)
 	res = PQexecParams(pgc, tb, 2, NULL, (const char *const*)val, len, fmt, 0);
 	pqs = PQresultStatus(res);
 	if (pqs != PGRES_COMMAND_OK && pqs != PGRES_TUPLES_OK) {
-		char errstr[1024];
-		snprintf(errstr, sizeof(errstr), "spq: logDirFile exec error: %s",
-				PQresultErrorMessage(res));
-		syslog(LOG_INFO, errstr);
+		char *_m = PQresultErrorMessage(res);
+		xsyslog(LOG_INFO, "spq: logDirFile exec error: %s", _m);
 		PQclear(res);
 		Q_LOGX(tb, sizeof(len) / sizeof(*len), val, len);
 		return NULL;

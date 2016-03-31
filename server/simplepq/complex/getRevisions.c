@@ -6,12 +6,9 @@ static inline PGresult*
 _spq_getRevisions_exec(PGconn *pgc,
 		guid_t *rootdir, guid_t *file, unsigned depth)
 {
+	/* TODO: код устарел, реализовать полностью spq_hint */
 	PGresult *res;
 	ExecStatusType pqs;
-	char errstr[1024];
-	/* TODO: запрос делает какую-то ерунду
-	 * нужно строить список по parent_revision_guid
-	 */
 	const char *tbq = "SELECT * FROM revision_list"
 		"("
 		"	$1::UUID,"
@@ -28,6 +25,8 @@ _spq_getRevisions_exec(PGconn *pgc,
 
 	char ndepth[16];
 
+	char *m = NULL;
+
 	len[0] = guid2string(rootdir, _rootdir_guid, sizeof(_rootdir_guid));
 	len[1] = guid2string(file, _file_guid, sizeof(_file_guid));
 	len[2] = snprintf(ndepth, sizeof(ndepth), "%"PRIu32, depth);
@@ -40,9 +39,9 @@ _spq_getRevisions_exec(PGconn *pgc,
 
 	pqs = PQresultStatus(res);
 	if (pqs != PGRES_COMMAND_OK && pqs != PGRES_TUPLES_OK) {
-		snprintf(errstr, sizeof(errstr), "spq: getRevisions exec error: %s",
-				PQresultErrorMessage(res));
-		syslog(LOG_INFO, errstr);
+		m = PQresultErrorMessage(res);
+		xsyslog(LOG_INFO, "spq: getRevisions exec error: %s", m);
+		/*spq_hint_feed(NULL, 0, hint);*/
 		PQclear(res);
 		Q_LOGX(tbq, sizeof(len) / sizeof(*len), val, len);
 		return NULL;

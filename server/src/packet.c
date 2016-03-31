@@ -206,10 +206,10 @@ packet_verbose(const char *packet_string)
 					"packet2syslog: unset %s", packet_type_to_name(type));
 		} else {
 			if (_packet_verbose[type] & PACKET_FIELD) {
-				strncat(format, ":field", sizeof(format) - strlen(format));
+				strncat(format, ":field", sizeof(format) - strlen(format) - 1);
 			}
 			if (_packet_verbose[type] & PACKET_HEX) {
-				strncat(format, ":hex", sizeof(format) - strlen(format));
+				strncat(format, ":hex", sizeof(format) - strlen(format) - 1);
 			}
 			/* и печать в лог */
 			xsyslog(LOG_DEBUG, "packet2syslog: set %s to %s",

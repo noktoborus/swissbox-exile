@@ -6,9 +6,9 @@ static inline PGresult*
 _spq_getChunks_exec(PGconn *pgc,
 		guid_t *rootdir, guid_t *file, guid_t *revision)
 {
+	/* TODO: код устарел, использовать spq_hint */
 	PGresult *res;
 	ExecStatusType pqs;
-	char errstr[1024];
 	const char *tb = "SELECT * FROM chunk_list($1::UUID, $2::UUID, $3::UUID);";
 	const int fmt[3] = {0, 0, 0};
 
@@ -30,9 +30,8 @@ _spq_getChunks_exec(PGconn *pgc,
 	res = PQexecParams(pgc, tb, 3, NULL, (const char *const*)val, len, fmt, 0);
 	pqs = PQresultStatus(res);
 	if (pqs != PGRES_COMMAND_OK && pqs != PGRES_TUPLES_OK) {
-		snprintf(errstr, sizeof(errstr), "spq: getChunks exec error: %s",
-				PQresultErrorMessage(res));
-		syslog(LOG_INFO, errstr);
+		char *m = PQresultErrorMessage(res);
+		xsyslog(LOG_INFO, "spq: getChunks exec error: %s", m);
 		PQclear(res);
 		Q_LOGX(tb, sizeof(len) / sizeof(*len), val, len);
 		return NULL;

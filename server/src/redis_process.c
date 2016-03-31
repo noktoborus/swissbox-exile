@@ -166,8 +166,8 @@ action_accept(struct main *pain, struct almsg_parser *alm, char *action)
 static bool
 action_files(struct main *pain, struct almsg_parser *alm, char *action)
 {
-	const char *tmp;
-	const char *chan;
+	const char *tmp = NULL;
+	const char *chan = NULL;
 	unsigned long split = 0u;
 	if ((tmp = almsg_get(alm, PSLEN("split"), ALMSG_ALL)) != NULL) {
 		split = strtoul(tmp, NULL, 10);

@@ -531,7 +531,7 @@ _handle_end(struct client *c, unsigned type, Fep__End *end)
 					wx->size, wx->offset, "xxx", &_com, &hint)) {
 			/* запись чанка не удалась */
 			if (*hint.message)
-				snprintf(errmsg, sizeof(errmsg), hint.message);
+				snprintf(errmsg, sizeof(errmsg), "%s", hint.message);
 			else
 				snprintf(errmsg, sizeof(errmsg), "Internal error 2023");
 		}

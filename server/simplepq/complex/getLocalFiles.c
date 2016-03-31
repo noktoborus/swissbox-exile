@@ -39,6 +39,7 @@ spq_getLocalFiles_it(struct getLocalFiles *state)
 static inline PGresult*
 _s_exec(PGconn *pgc, struct spq_hint *hint)
 {
+	/* TODO: wtf? */
 	PGresult *res;
 	ExecStatusType pqs;
 	const char *tb = "SELECT "
@@ -60,10 +61,9 @@ _s_exec(PGconn *pgc, struct spq_hint *hint)
 	res = PQexec(pgc, tb);
 	pqs = PQresultStatus(res);
 	if (pqs != PGRES_TUPLES_OK) {
-		char errstr[1024];
-		snprintf(errstr, sizeof(errstr), "spq: getLocalFiles exec error: %s",
-				PQresultErrorMessage(res));
-		syslog(LOG_INFO, errstr);
+		char *_m = PQresultErrorMessage(res);
+		spq_feed_hint(NULL, 0u, hint);
+		xsyslog(LOG_INFO, "spq: getLocalFiles exec error: %s", _m);
 		PQclear(res);
 		Q_LOG(tb);
 		return NULL;

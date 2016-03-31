@@ -1237,7 +1237,7 @@ check_args(int argc, char **argv)
 {
 	if (argc > 1 || !argc) {
 		if (!strcmp(argv[1], "-V") || !strcmp(argv[1], "--version")) {
-			printf(sev_version_string());
+			printf("%s", sev_version_string());
 		}
 		return true;
 	}
