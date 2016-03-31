@@ -19,7 +19,7 @@
 		if (send_pending(c, msg->id)) {\
 			return client_reqs_queue(c, reqs, type, msg, msg->id);\
 		} else {\
-			return false;\
+			return HEADER_R_FAIL;\
 		}\
 	}\
 }
@@ -336,7 +336,7 @@ _file_complete(struct spq_key *sk,
 	return retval;
 }
 
-bool
+enum header_result
 _handle_file_meta(struct client *c, unsigned type, Fep__FileMeta *msg)
 {
 	struct wait_file_index *wfi = NULL;
@@ -447,17 +447,21 @@ _handle_file_meta(struct client *c, unsigned type, Fep__FileMeta *msg)
 	}
 }
 
-bool
+enum header_result
 _handle_invalid(struct client *c, unsigned type, void *msg)
 {
-	if (send_error(c, 0, "Unknown packet", c->count_error)
-			|| c->count_error <= 0)
-		return false;
+	char r[1024] = {0};
+	snprintf(r, sizeof(r), "Unknown packet type %u", type);
+	/* если лимит ошибок закончился или сообщение об ошибке не отправилось,
+	 * то дропаем клиента
+	 */
+	if (send_error(c, 0, r, c->count_error) || c->count_error <= 0)
+		return HEADER_R_FAIL;
 	else
-		return true;
+		return HEADER_R_OK;
 }
 
-bool
+enum header_result
 _handle_end(struct client *c, unsigned type, Fep__End *end)
 {
 	struct wait_store *ws;
@@ -468,6 +472,13 @@ _handle_end(struct client *c, unsigned type, Fep__End *end)
 	bool _com = false;
 	struct spq_key *sk = NULL;
 
+	/* как костыль, захватываем ресурс сразу же
+	 * в правильном варианте нужно:
+	 * 1. получить из очереди c->sid информацию
+	 * 2. захватить ресурс, если это требуется
+	 * FIXME: думаю что без серьёзной переработки кода это не поправят
+	 */
+	REQS_SK_ACQ(c, H_REQS_SQL, sk, type, end);
 
 	ws = query_id(c, &c->sid, end->session_id);
 	if (!ws) {
@@ -475,12 +486,14 @@ _handle_end(struct client *c, unsigned type, Fep__End *end)
 		xsyslog(LOG_DEBUG, "client[%"SEV_LOG"] End not found for id %"PRIu32,
 				c->cev->serial, end->session_id);
 #endif
+		REQS_SK_REL(c, H_REQS_SQL, sk);
 		return send_error(c, end->id, "Unexpected End message", -1);
 	}
 	if (!(wx = ws->data) || !(wf = wx->wf)) {
 		snprintf(errmsg, sizeof(errmsg), "Internal error 1928 wx=%c, wf=%c",
 				wx ? 'y' : 'n', wx ? 'y' : 'n');
 		sid_free(ws->data);
+		REQS_SK_REL(c, H_REQS_SQL, sk);
 		return send_error(c, end->id, "Internal error 1928", -1);
 	}
 #if DEEPDEBUG
@@ -495,8 +508,6 @@ _handle_end(struct client *c, unsigned type, Fep__End *end)
 				"Infernal sizes. received: %"PRIu64", expected: %"PRIu64,
 				wx->filling, wx->size);
 	}
-
-	REQS_SK_ACQ(c, H_REQS_SQL, sk, type, end);
 
 	if (!*errmsg) {
 		struct spq_hint hint;
@@ -549,7 +560,7 @@ _handle_end(struct client *c, unsigned type, Fep__End *end)
 	}
 }
 
-bool
+enum header_result
 _handle_ping(struct client *c, unsigned type, Fep__Ping *ping)
 {
 	Fep__Pong pong = FEP__PONG__INIT;
@@ -598,7 +609,7 @@ _handle_ping(struct client *c, unsigned type, Fep__Ping *ping)
 	return send_message(c->cev, FEP__TYPE__tPong, &pong);
 }
 
-bool
+enum header_result
 _handle_want_sync(struct client *c, unsigned type, Fep__WantSync *msg)
 {
 	guid_t rootdir;
@@ -734,7 +745,7 @@ _read_ask__from_cache(struct client *c, Fep__ReadAsk *msg,
 	}
 }
 
-bool
+enum header_result
 _handle_read_ask(struct client *c, unsigned type, Fep__ReadAsk *msg)
 {
 	/*
@@ -808,7 +819,7 @@ _handle_read_ask(struct client *c, unsigned type, Fep__ReadAsk *msg)
 	}
 }
 
-bool
+enum header_result
 _handle_write_ask(struct client *c, unsigned type, Fep__WriteAsk *msg)
 {
 	/* FIXME: говнище, переработать */
@@ -1023,7 +1034,7 @@ _handle_write_ask(struct client *c, unsigned type, Fep__WriteAsk *msg)
 	return send_message(c->cev, FEP__TYPE__tOkWrite, &wrok);
 }
 
-bool
+enum header_result
 _handle_chat(struct client *c, unsigned type, Fep__Chat *msg)
 {
 	struct chat_store *rs;
@@ -1072,7 +1083,7 @@ _handle_chat(struct client *c, unsigned type, Fep__Chat *msg)
 }
 
 /* переименование/перемещение или удаление файла */
-bool
+enum header_result
 _handle_file_update(struct client *c, unsigned type, Fep__FileUpdate *msg)
 {
 	uint64_t checkpoint;
@@ -1116,8 +1127,7 @@ _handle_file_update(struct client *c, unsigned type, Fep__FileUpdate *msg)
 	return send_ok(c, msg->id, checkpoint, NULL);
 }
 
-
-bool
+enum header_result
 _handle_directory_update(struct client *c, unsigned type,
 		Fep__DirectoryUpdate *msg)
 {
@@ -1152,7 +1162,7 @@ _handle_directory_update(struct client *c, unsigned type,
 	return send_ok(c, msg->id, checkpoint, NULL);
 }
 
-bool
+enum header_result
 _handle_query_revisions(struct client *c, unsigned type,
 		Fep__QueryRevisions *msg)
 {
@@ -1201,7 +1211,7 @@ _handle_query_revisions(struct client *c, unsigned type,
 	return send_ok(c, msg->id, C_OK_SIMPLE, NULL);
 }
 
-bool
+enum header_result
 _handle_query_devices(struct client *c, unsigned type, Fep__QueryDevices *msg)
 {
 	struct result_send *rs;
@@ -1245,7 +1255,7 @@ _handle_query_devices(struct client *c, unsigned type, Fep__QueryDevices *msg)
 	return send_ok(c, msg->id, C_OK_SIMPLE, NULL);
 }
 
-bool
+enum header_result
 _handle_query_chunks(struct client *c, unsigned type, Fep__QueryChunks *msg)
 {
 	Fep__FileMeta meta = FEP__FILE_META__INIT;
@@ -1334,7 +1344,7 @@ _handle_query_chunks(struct client *c, unsigned type, Fep__QueryChunks *msg)
 	}
 }
 
-bool
+enum header_result
 _handle_xfer(struct client *c, unsigned type, Fep__Xfer *xfer)
 {
 	/* делать захват ресурса (client_reqs_acquire()) не нужно
@@ -1389,7 +1399,7 @@ _handle_xfer(struct client *c, unsigned type, Fep__Xfer *xfer)
 	return send_error(c, xfer->id, errmsg, -1);
 }
 
-bool
+enum header_result
 _handle_store_save(struct client *c, unsigned type, Fep__StoreSave *msg)
 {
 	struct spq_hint hint;
@@ -1417,7 +1427,7 @@ _handle_store_save(struct client *c, unsigned type, Fep__StoreSave *msg)
 	return send_ok(c, msg->id, C_OK_SIMPLE, NULL);
 }
 
-bool
+enum header_result
 _handle_store_load(struct client *c, unsigned type, Fep__StoreLoad *msg)
 {
 	Fep__StoreValue rmsg = FEP__STORE_VALUE__INIT;

@@ -98,6 +98,14 @@ mid_free(wait_store_t *ws)
 }
 
 static void
+delayed_free(struct h_reqs_store_t *hrs)
+{
+	if (hrs->msg)
+		free_message(hrs->type, hrs->msg);
+	free(hrs);
+}
+
+static void
 fid_free(wait_store_t *ws)
 {
 	/* TODO */
@@ -607,6 +615,24 @@ pack_message(unsigned type, void *msg, uint8_t *out)
 	return true;
 }
 
+bool
+exec_message(struct client *c, unsigned type, void *msg)
+{
+	enum header_result hr = HEADER_R_FAIL;
+	/* вызываем обработчик + освобождаем память от сообщения */
+	if ((hr = handle[type].f(c, type, msg)) == HEADER_R_FAIL) {
+		/* ставим флаг, что пакет вызвал ошибку */
+		c->ps[type].errored = true;
+		free_message(type, msg);
+		return false;
+	} else if (hr == HEADER_R_OK) {
+		/* сообщение обработано, можно почистить память */
+		free_message(type, msg);
+	}
+	/* HEADER_R_DELAED, никаких действий не требуется */
+	return true;
+}
+
 int
 exec_bufmsg(struct client *c, unsigned type, uint8_t *buf, size_t len)
 {
@@ -643,17 +669,10 @@ exec_bufmsg(struct client *c, unsigned type, uint8_t *buf, size_t len)
 					packet2syslog(_header, type, msg);
 				}
 				/* запускаем обработку пакета */
-				if (!handle[type].f(c, type, msg)) {
-					/* чистка ресурсов и выставление флага что пакет вызвал
-					 * ошибку
-					 */
-					free_message(type, msg);
-					c->ps[type].errored = true;
+				if (!exec_message(c, type, msg)) {
 					return HEADER_STOP;
 				}
-				/* освобождение результата анпакера */
-				free_message(type, msg);
-				/* дёргаем таймер, что пакет обработан */
+				/* сообщаем что пакет обработан */
 				ev_async_send(c->cev->loop, &c->cev->async);
 			} else {
 				char _errormsg[1024];
@@ -903,7 +922,7 @@ client_destroy(struct client *c)
 	while (list_free_root(&c->mid, (void(*)(void*))&mid_free));
 	while (list_free_root(&c->sid, (void(*)(void*))&sid_free));
 	while (list_free_root(&c->fid, (void(*)(void*))&fid_free));
-	while (list_free_root(&c->msg_delayed, free));
+	while (list_free_root(&c->msg_delayed, (void(*)(void*))&delayed_free));
 
 	/* убираем себя из списка подключённых */
 	if (c->cum) {

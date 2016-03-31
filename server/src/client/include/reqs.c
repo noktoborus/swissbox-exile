@@ -101,35 +101,20 @@ client_reqs_release(struct client *c, enum handle_reqs_t reqs)
 	}
 }
 
-bool
+enum header_result
 client_reqs_queue(struct client *c, enum handle_reqs_t reqs,
 		unsigned type, void *msg, uint64_t id)
 {
 	struct h_reqs_store_t *hrs = NULL;
-	size_t len = 0u;
 
-	if (!(len = sizeof_message(type, msg)))
-		return false;
-
-	hrs = calloc(1, sizeof(*hrs) + len);
+	hrs = calloc(1, sizeof(*hrs));
 	if (!hrs) {
 		xsyslog(LOG_WARNING, "reqs error calloc(%"PRIuPTR") -> %s",
-				sizeof(*hrs) + len, strerror(errno));
-		return false;
+				sizeof(*hrs), strerror(errno));
+		return HEADER_R_FAIL;
 	}
 
-	/* упаковка сообщения в буфер
-	 * топорно, но работает
-	 * оптимально было бы хранить обработанную структуру
-	 * с состоянием (стадией обработки).
-	 * есть пространство для оптимизации
-	 */
-	if (!pack_message(type, msg, hrs->msg)) {
-		free(hrs);
-		return false;
-	}
-
-	hrs->len = len;
+	hrs->msg = msg;
 	hrs->type = type;
 	hrs->reqs = reqs;
 	hrs->serial = ++c->delay_serial;
@@ -137,19 +122,19 @@ client_reqs_queue(struct client *c, enum handle_reqs_t reqs,
 
 	if (!list_alloc(&c->msg_delayed, 0, (void*)hrs)) {
 		free(hrs);
-		return false;
+		return HEADER_R_FAIL;
 	}
 
 	/* DL = delay */
 	xsyslog(LOG_DEBUG,
-			"client[%"SEV_LOG"] DL %"PRIuPTR" >> {%s? id=%"PRIu64", ...} "
+			"client[%"SEV_LOG"] DL >> {%s? id=%"PRIu64", ...} "
 			"(sql: %ld, fd: %ld) "
 			"[delay serial: %"PRIu64"]",
-			c->cev->serial, hrs->len, Fepstr(type), hrs->id,
+			c->cev->serial, Fepstr(type), hrs->id,
 			c->values.sql_queries_count, c->values.fd_queries_count,
 			hrs->serial);
 
-	return true;
+	return HEADER_R_DELAED;
 }
 
 static bool
@@ -169,8 +154,8 @@ client_reqs_unqueue(struct client *c, enum handle_reqs_t reqs)
 	struct listPtr p = {0};
 	struct listNode *n = NULL;
 	struct h_reqs_store_t *h = NULL;
-	int r = 0;
 
+	/* сборка маски */
 	if (reqs == H_REQS_Z) {
 		if (!c->options.limit_local_sql_queries ||
 				c->values.sql_queries_count + 1 <=
@@ -191,6 +176,7 @@ client_reqs_unqueue(struct client *c, enum handle_reqs_t reqs)
 		}
 	}
 
+	/* поиск по маске */
 	list_ptr(&c->msg_delayed, &p);
 	n = list_find_val(&p, (list_cmp_cb)_find_val_cb, &reqs);
 	if (!n) {
@@ -200,26 +186,16 @@ client_reqs_unqueue(struct client *c, enum handle_reqs_t reqs)
 
 	/* DP = dispatch */
 	xsyslog(LOG_DEBUG,
-			"client[%"SEV_LOG"] DP %"PRIuPTR" << {%s? id=%"PRIu64", ...} "
+			"client[%"SEV_LOG"] DP << {%s? id=%"PRIu64", ...} "
 			"(sql: %ld, fd: %ld) "
 			"[delay serial: %"PRIu64"]",
-			c->cev->serial, h->len, Fepstr(h->type), h->id,
+			c->cev->serial, Fepstr(h->type), h->id,
 			c->values.sql_queries_count, c->values.fd_queries_count,
 			h->serial);
 
 	/* пытаемся вызвать процедурку */
-	r = exec_bufmsg(c, h->type, h->msg, h->len);
-
-	if (r == HEADER_STOP) {
-		list_free_node(n, free);
-		return false;
-	}
-
-	if (r == HEADER_INVALID || r == HEADER_MORE) {
-		xsyslog(LOG_WARNING,
-				"reqs_unqueue error: handle_header() returns %s",
-				(r == HEADER_INVALID ? "HEADER_INVALID" :
-				 (r == HEADER_STOP ? "HEADER_STOP" : "UNKNOWN")));
+	if (!exec_message(c, h->type, h->msg)) {
+		/* если ошибка -> выходим, чистимся */
 		list_free_node(n, free);
 		return false;
 	}

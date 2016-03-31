@@ -239,82 +239,6 @@ struct client {
 	} values;
 };
 
-bool client_load(struct client *c);
-/* обработчик возвращает булёвое значение,
- * позитивное для продолжения работы и негативное для прерывания
- */
-typedef bool(*handle_t)(struct client *, unsigned, void *);
-typedef void*(*handle_unpack_t)(ProtobufCAllocator *, size_t, const uint8_t *);
-typedef void(*handle_free_t)(void *, ProtobufCAllocator *);
-
-typedef size_t(*fep_get_packed_size_t)(void*);
-typedef size_t(*fep_pack_t)(void*, unsigned char*);
-
-
-
-struct h_reqs_store_t {
-	unsigned type;
-	/* id сообщения (для лога) */
-	uint64_t id;
-	/* серийник пакета для отображения в логе */
-	uint64_t serial;
-	/* ожидаемые ресурсы */
-	enum handle_reqs_t reqs;
-	/* длина msg */
-	size_t len;
-	/*
-	 * конечно это какое-то безумие паковать сообщение обратно
-	 * в массив, что бы снова его распаковать, но всё же...
-	 */
-	uint8_t msg[1];
-};
-
-/*
- * захват и освобождение
- * счётчики "тупые", потому использовать их нужно аккуратно
- *
- */
-/* захват и отпуск счётчика ресурсов
- * возвращает false в случае, если счётчик дальнейшая обработка пакета
- * нежелательна
- */
-bool client_reqs_acquire(struct client *c, enum handle_reqs_t reqs);
-void client_reqs_release(struct client *c, enum handle_reqs_t reqs);
-/* освобождение всех глобальных ресурсов, захваченные клиентом */
-void client_reqs_release_all(struct client *c);
-
-/* поклажа сообщения в очередь обработки на потом
- * должно вызываться после неудачного client_reqs_acquire()
- * в id указывается идентификатор сообщения (msg->id)
- */
-bool client_reqs_queue(struct client *c, enum handle_reqs_t reqs,
-		unsigned type, void *msg, uint64_t id);
-
-/* обработка сообщений в очереди (по одному за вызов)
- * в качестве reqs передаётся битовая маска свободных ресурсов
- *
- * false возвращается в случае, если не удалось вызвать хандлер сообщения
- * или хандлер вернул false
- *
- * во всех остальных случаях, включая пустую очередь, возвращается true
- *
- * если reqs == H_REQS_Z, то процедурка сама определяет какие ресурсы
- * доступны
- */
-bool client_reqs_unqueue(struct client *c, enum handle_reqs_t reqs);
-
-struct handle
-{
-	unsigned short type;
-	char text[16];
-	handle_t f;
-	handle_unpack_t p;
-	handle_free_t e;
-	fep_get_packed_size_t f_sizeof;
-	fep_pack_t f_pack;
-};
-
-const char *Fepstr(unsigned type);
 #define HEADER_OFFSET 6
 /* header:
  * |a|a|b|b|b|_|
@@ -329,6 +253,42 @@ const char *Fepstr(unsigned type);
 #define HEADER_INVALID 	-1
 #define HEADER_STOP 	-2
 
+/* результат обработки пакета
+ * TODO: совместимо с bool, но лучше исправить все _handle* на новое значение
+ */
+enum header_result {
+	/* обработка сообщения провалилась */
+	HEADER_R_FAIL	= 0,
+	/* обработка сообщения успешна */
+	HEADER_R_OK		= 1,
+	/* обработка сообщения отложена */
+	HEADER_R_DELAED	= 2,
+};
+
+bool client_load(struct client *c);
+/* обработчик возвращает булёвое значение,
+ * позитивное для продолжения работы и негативное для прерывания
+ */
+typedef enum header_result(*handle_t)(struct client *, unsigned, void *);
+typedef void*(*handle_unpack_t)(ProtobufCAllocator *, size_t, const uint8_t *);
+typedef void(*handle_free_t)(void *, ProtobufCAllocator *);
+
+typedef size_t(*fep_get_packed_size_t)(void*);
+typedef size_t(*fep_pack_t)(void*, unsigned char*);
+
+struct handle
+{
+	unsigned short type;
+	char text[16];
+	handle_t f;
+	handle_unpack_t p;
+	handle_free_t e;
+	fep_get_packed_size_t f_sizeof;
+	fep_pack_t f_pack;
+};
+
+const char *Fepstr(unsigned type);
+
 unsigned char *pack_header(unsigned type, size_t *len);
 bool send_message(struct sev_ctx *cev, unsigned type, void *msg);
 
@@ -340,6 +300,13 @@ size_t sizeof_message(unsigned type, void *msg);
  * HEADER_STOP если хандлер сообщения вернул false
  */
 int exec_bufmsg(struct client *c, unsigned type, uint8_t *buf, size_t len);
+/*
+ * непосредственный вызов обработчика пакета
+ * возвращает true, если обработка успешна и
+ * false, если обработка с условной успешностью
+ * после вызова освобождать память *msg не требуется
+ */
+bool exec_message(struct client *c, unsigned type, void *msg);
 
 uint64_t generate_id(struct client*);
 
@@ -454,6 +421,56 @@ wait_store_t *touch_id(struct client *c, struct listRoot *list, uint64_t id);
 wait_store_t *query_id(struct client *c, struct listRoot *list, uint64_t id);
 /* добавить новый элемент в список */
 bool wait_id(struct client *c, struct listRoot *list, uint64_t id, wait_store_t *s);
+
+/*
+ * захват и освобождение
+ * счётчики "тупые", потому использовать их нужно аккуратно
+ * FIXME: что за счётчики?
+ */
+struct h_reqs_store_t {
+	unsigned type;
+	/* id сообщения (для лога) */
+	uint64_t id;
+	/* серийник пакета для отображения в логе */
+	uint64_t serial;
+	/* ожидаемые ресурсы */
+	enum handle_reqs_t reqs;
+	/*
+	 * конечно это какое-то безумие паковать сообщение обратно
+	 * в массив, что бы снова его распаковать, но всё же...
+	 */
+	void *msg;
+};
+
+/* захват и отпуск счётчика ресурсов
+ * возвращает false в случае, если счётчик дальнейшая обработка пакета
+ * нежелательна
+ */
+bool client_reqs_acquire(struct client *c, enum handle_reqs_t reqs);
+void client_reqs_release(struct client *c, enum handle_reqs_t reqs);
+/* освобождение всех глобальных ресурсов, захваченные клиентом */
+void client_reqs_release_all(struct client *c);
+
+/* поклажа сообщения в очередь обработки на потом
+ * должно вызываться после неудачного client_reqs_acquire()
+ * в id указывается идентификатор сообщения (msg->id)
+ */
+enum header_result client_reqs_queue(struct client *c, enum handle_reqs_t reqs,
+		unsigned type, void *msg, uint64_t id);
+
+/* обработка сообщений в очереди (по одному за вызов)
+ * в качестве reqs передаётся битовая маска свободных ресурсов
+ *
+ * false возвращается в случае, если не удалось вызвать хандлер сообщения
+ * или хандлер вернул false
+ *
+ * во всех остальных случаях, включая пустую очередь, возвращается true
+ *
+ * если reqs == H_REQS_Z, то процедурка сама определяет какие ресурсы
+ * доступны
+ */
+bool client_reqs_unqueue(struct client *c, enum handle_reqs_t reqs);
+
 
 /* упрощалки кода */
 #define TYPICAL_HANDLE_F(struct_t, name, idl)\
