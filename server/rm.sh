@@ -4,4 +4,4 @@
 
 rm -rf fcac_data/*
 psql <sql/struct.sql
-
+echo "INSERT INTO \"user\" (username, secret) VALUES ('test1', 'bond');" | psql
