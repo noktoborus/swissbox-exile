@@ -200,6 +200,9 @@ CREATE TABLE IF NOT EXISTS directory_log
 	directory_id bigint DEFAULT NULL,
 
 	directory UUID NOT NULL,
+	-- полный путь. Должен содержать лидирующий и финализирующий '/'
+	-- например: /path1/, /path1/sub2/
+	-- (нормализируется в directory_create())
 	path varchar(4096) DEFAULT NULL,
 	
 	-- финализирующая запись (при удалении)

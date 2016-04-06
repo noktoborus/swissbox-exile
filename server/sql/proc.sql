@@ -674,9 +674,12 @@ BEGIN
 	INTO _ur
 	FROM life_data(_rootdir);
 
-	-- причёсывание пути, если вдруг прислали ошмёток (как?)
-	IF substring(_dirname from 1 for 1) != '/' THEN
+	-- нормализация пути, если вдруг прислали ошмёток (как?)
+	IF substring(_dirname from '^.') != '/' THEN
 		_dirname = concat('/', _dirname);
+	END IF;
+	IF substring(_dirname from '.$') != '/' THEN
+		_dirname = concat(_dirname, '/');
 	END IF;
 
 	IF _dirname IS NULL THEN

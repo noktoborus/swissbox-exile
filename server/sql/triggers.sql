@@ -287,25 +287,6 @@ BEGIN
 				);
 		END LOOP;
 
-		/*
-		-- сбор всех директорий на удаление
-		SELECT array_agg(id) INTO _dirs
-		FROM directory
-		WHERE
-			rootdir_id = new.rootdir_id AND
-			directory.path LIKE new.path || '%' AND
-			directory.id != new.directory_id;
-
-		-- принудительное "удаление" файлов
-		UPDATE file
-		SET
-			directory_id = _trash_id,
-			deleted = TRUE
-		WHERE
-			rootdir_id = new.rootdir_id AND
-			file.directory_id = ANY(_dirs::bigint[]) OR
-			file.directory_id = new.directory_id;
-		*/
 		new.path := NULL;
 		new.fin := TRUE;
 	ELSE
