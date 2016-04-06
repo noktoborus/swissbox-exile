@@ -388,9 +388,9 @@ CREATE TABLE IF NOT EXISTS file_chunk_prepare
 -- Базовые значения
 
 INSERT INTO options ("key", value_c, value_u)
-	VALUES ('trash_dir', '.Trash', '00000000-0000-0000-0000-000000000000');
+	VALUES ('trash_dir', '/.Trash/', '00000000-0000-0000-0000-000000000000');
 INSERT INTO options ("key", value_c, value_u)
-	VALUES ('incomplete_dir', '.Incomplete', 'FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFFFFFF');
+	VALUES ('incomplete_dir', '/.Incomplete/', 'FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFFFFFF');
 INSERT INTO options ("key", value_c, value_u)
 	VALUES ('1_rootdir', 'First',
 		'00000001-2003-5406-7008-900000000000');
