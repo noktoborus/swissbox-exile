@@ -696,7 +696,10 @@ BEGIN
 	-- проверка последней операции над директорией
 	WITH _row AS (
 		SELECT path, checkpoint FROM (
-			SELECT path, checkpoint FROM directory_log
+			SELECT
+				path,
+				COALESCE(checkpoint, parent_checkpoint) AS checkpoint
+			FROM directory_log
 			WHERE rootdir_id = _ur.rootdir_id AND
 				directory = _directory
 			ORDER BY checkpoint DESC

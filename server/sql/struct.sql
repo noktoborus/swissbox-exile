@@ -188,7 +188,15 @@ CREATE TABLE IF NOT EXISTS directory_log
 	time timestamp with time zone NOT NULL DEFAULT now(),
 	rootdir_id bigint NOT NULL REFERENCES rootdir(id),
 
+	-- указатель на событие (event.checkpoint)
+	-- не заполняется если есть parent_checkpoint
+	-- не имеет REFERENCES из-за того, что назначается в триггере
 	checkpoint bigint DEFAULT NULL,
+	-- указатель на родительское событие
+	-- если NULL, то это основное событие,
+	-- если нет, то удаление/переименование директорий
+	-- произошло в соответствии с логикой работы с "древом"
+	parent_checkpoint bigint DEFAULT NULL REFERENCES "event"(id),
 	directory_id bigint DEFAULT NULL,
 
 	directory UUID NOT NULL,

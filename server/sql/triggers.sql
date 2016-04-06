@@ -189,15 +189,21 @@ CREATE OR REPLACE FUNCTION directory_log_action()
 	RETURNS TRIGGER AS $$
 DECLARE
 	_row record;
-	_dirs bigint[];
 	_trash_id bigint;
 	i integer;
+	_rootdir_info record;
 BEGIN
 	-- если финализация, то дальнейшая обработка не нужна
-	-- FIXME: нихрина не понял зачем
+	-- FIXME: костыль
 	IF new.fin = TRUE THEN
 		return new;
 	END IF;
+
+	-- получение информации по rootdir
+	SELECT user_id, rootdir
+	INTO _rootdir_info
+	FROM rootdir
+	WHERE rootdir.id = new.rootdir_id;
 
 	-- удаление происходит в несколько стадий:
 	-- 1. пометка всех файлов как "deleted" и перенос их в .Trash
@@ -230,6 +236,58 @@ BEGIN
 		new.path = _row.path;
 		new.directory_id = _row.directory_id;
 
+		-- получение чекпоинта
+		WITH _row AS (
+			INSERT INTO event (user_id, rootdir, "type", target_id)
+				SELECT
+					_rootdir_info.user_id,
+					_rootdir_info.rootdir,
+					'directory' AS "type",
+					new.id AS target_id
+			RETURNING *
+		) SELECT checkpoint FROM _row INTO new.checkpoint;
+
+		-- обновление файлов в самой директории
+		UPDATE file
+		SET directory_id = _trash_id,
+			deleted = TRUE
+		WHERE
+			rootdir_id = new.rootdir_id AND
+			file.directory_id = new.directory_id;
+
+		-- обход списка поддиректорий, пометка как удалённых
+		-- и создание спрятанного евента для checkpoint
+		FOR _row IN
+			SELECT id, directory FROM directory
+			WHERE rootdir_id = new.rootdir_id AND
+			directory.path LIKE new.path || '%' AND
+			directory.id != new.directory_id
+		LOOP
+			-- перемещение всех файлов в треш
+			UPDATE file
+			SET directory_id = _trash_id,
+				deleted = TRUE
+			WHERE
+				rootdir_id = new.rootdir_id AND
+				file.directory_id = _row.id;
+			-- удаление директории происходит в directory_log_action_after()
+			-- здесь требуется только внести запись
+			INSERT
+			INTO directory_log
+				(rootdir_id, parent_checkpoint, directory_id, directory, fin)
+			VALUES
+				(
+					new.rootdir_id,
+					new.checkpoint,
+					_row.id,
+					_row.directory,
+					-- не позволяем дополнительно обрабатывать
+					-- удаляемую директорию
+					TRUE
+				);
+		END LOOP;
+
+		/*
 		-- сбор всех директорий на удаление
 		SELECT array_agg(id) INTO _dirs
 		FROM directory
@@ -247,19 +305,13 @@ BEGIN
 			rootdir_id = new.rootdir_id AND
 			file.directory_id = ANY(_dirs::bigint[]) OR
 			file.directory_id = new.directory_id;
-	
-		SELECT COUNT(*) AS c INTO _row
-		FROM file WHERE file.directory_id = ANY(_dirs::bigint[]);
-
-		-- удаление директорий
-		DELETE FROM directory WHERE id = ANY(_dirs::bigint[]);
-
+		*/
 		new.path := NULL;
 		new.fin := TRUE;
 	ELSE
 
 		SELECT NULL INTO _row;
-
+		-- TODO: переименование поддиректорий
 		-- проверка наличия директории
 		CASE
 		WHEN new.directory_id IS NOT NULL THEN
@@ -276,18 +328,18 @@ BEGIN
 		ELSE
 			new.directory_id = nextval('directory_seq');
 		END IF;
-	END IF;
 
-	-- получение checkpoint в логе
-	WITH _row AS (
-		INSERT INTO event (user_id, rootdir, "type", target_id)
-			SELECT user_id AS user_id,
-				rootdir AS rootdir,
-				'directory' AS "type",
-				new.id AS target_id
-			FROM rootdir WHERE id = new.rootdir_id
+		-- создание отметки о переименовании директории
+		WITH _row AS (
+			INSERT INTO event (user_id, rootdir, "type", target_id)
+				SELECT
+					_rootdir_info.user_id,
+					_rootdir_info.rootdir,
+					'directory' AS "type",
+					new.id AS target_id
 			RETURNING *
-	) SELECT checkpoint FROM _row INTO new.checkpoint;
+		) SELECT checkpoint FROM _row INTO new.checkpoint;
+	END IF;
 
 	return new;
 END $$ LANGUAGE plpgsql;
