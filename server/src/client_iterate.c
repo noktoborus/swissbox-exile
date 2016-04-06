@@ -1548,6 +1548,12 @@ client_iterate(struct sev_ctx *cev, void *p)
 	if (c->cout || c->rout || c->blen || sev_perhaps(cev, SEV_ACTION_READ)) {
 		sev_continue(cev);
 	} else {
+		/* TODO: потенциально опасное место
+		 * если ресурсы закончатся (limit_*_queries), то часто будет пытаться
+		 * дёрнуть запрос
+		 * хорошо что после неудачного запроса оно уйдёт на следующую итерацию
+		 * которая будет через sev.timer секунд
+		 */
 		if (c->cum && c->status.log_active) {
 			struct listNode *_ln;
 			struct listPtr _lp = {0};
