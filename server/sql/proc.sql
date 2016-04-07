@@ -720,11 +720,18 @@ BEGIN
 	END IF;
 
 	-- впихивание директории и возврат checkpoint
-	WITH _xrow AS (
-		INSERT INTO directory_log (rootdir_id, directory, path)
-		VALUES (_ur.rootdir_id, _directory, _dirname)
-		RETURNING *
-	) SELECT checkpoint INTO r_checkpoint FROM _xrow;
+	BEGIN
+		WITH _xrow AS (
+			INSERT INTO directory_log (rootdir_id, directory, path)
+			VALUES (_ur.rootdir_id, _directory, _dirname)
+			RETURNING *
+		) SELECT checkpoint INTO r_checkpoint FROM _xrow;
+	EXCEPTION
+		WHEN unique_violation THEN
+			r_error := '1: Directory already exists';
+			return next;
+			return;
+	END;
 
 	--IF r_checkpoint IS NULL THEN
 	--	маловероятно что не смог пройти insert
