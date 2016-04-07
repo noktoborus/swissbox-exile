@@ -189,13 +189,17 @@ CREATE OR REPLACE FUNCTION directory_log_action()
 	RETURNS TRIGGER AS $$
 DECLARE
 	_row record;
+	_old_path text;
 	_trash_id bigint;
 	i integer;
 	_rootdir_info record;
 BEGIN
-	-- если финализация, то дальнейшая обработка не нужна
-	-- FIXME: костыль
+	-- предпологается что в new.path уже нормализованный путь
+	-- (см. directory_log.path)
+
 	IF new.fin = TRUE THEN
+		-- если финализация, то дальнейшая обработка не нужна
+		-- FIXME: костыль
 		return new;
 	END IF;
 
@@ -218,6 +222,7 @@ BEGIN
 			directory.directory = options.value_u;
 
 		-- т.к. path IS NULL, то нужно выбрать последнее имя директории из бд
+		-- path нужен для удаления всех поддиректорий
 		SELECT
 			directory.path AS path,
 			directory.id AS directory_id
@@ -262,6 +267,7 @@ BEGIN
 			WHERE rootdir_id = new.rootdir_id AND
 			directory.path LIKE new.path || '%' AND
 			directory.id != new.directory_id
+			ORDER BY id ASC
 		LOOP
 			-- перемещение всех файлов в треш
 			UPDATE file
@@ -290,10 +296,24 @@ BEGIN
 		new.path := NULL;
 		new.fin := TRUE;
 	ELSE
-
+		-- переименование или создание директории
 		SELECT NULL INTO _row;
-		-- TODO: переименование поддиректорий
+
+		-- отметка о изменении директории
+		WITH _row AS (
+			INSERT INTO event (user_id, rootdir, "type", target_id)
+				SELECT
+					_rootdir_info.user_id,
+					_rootdir_info.rootdir,
+					'directory' AS "type",
+					new.id AS target_id
+			RETURNING *
+		) SELECT checkpoint FROM _row INTO new.checkpoint;
+
 		-- проверка наличия директории
+		-- такой жуткий кейс связан с тем, что триггеры могут быть
+		-- вызваны руками с неполным набором информации
+		-- (только directory_id или UUID)
 		CASE
 		WHEN new.directory_id IS NOT NULL THEN
 			SELECT * INTO _row FROM directory
@@ -304,22 +324,53 @@ BEGIN
 		END CASE;
 
 		IF _row IS NOT NULL THEN
+			-- переименование
+			-- назначаем обе переменные
+			-- ибо лень вычислять каких данных у нас не хватает
 			new.directory_id = _row.id;
 			new.directory = _row.directory;
+			_old_path = _row.path;
+			-- переименование всех поддиректорий
+			FOR _row IN
+				SELECT
+					id,
+					directory,
+					new.path
+						|| substring(path from char_length(_old_path) + 1)
+						AS path
+				FROM directory
+				WHERE rootdir_id = new.rootdir_id AND
+				directory.path LIKE new.path || '%' AND
+				directory.id != new.directory_id
+				ORDER BY id ASC
+			LOOP
+				INSERT
+				INTO directory_log
+					(
+						rootdir_id,
+						parent_checkpoint,
+						directory_id,
+						directory,
+						fin,
+						path
+					)
+				VALUES
+					(
+						new.rootdir_id,
+						new.checkpoint,
+						_row.id,
+						_row.directory,
+						TRUE,
+						_row.path
+					);
+			END LOOP;
 		ELSE
+			-- если директория не найдена, то это создание
 			new.directory_id = nextval('directory_seq');
 		END IF;
 
-		-- создание отметки о переименовании директории
-		WITH _row AS (
-			INSERT INTO event (user_id, rootdir, "type", target_id)
-				SELECT
-					_rootdir_info.user_id,
-					_rootdir_info.rootdir,
-					'directory' AS "type",
-					new.id AS target_id
-			RETURNING *
-		) SELECT checkpoint FROM _row INTO new.checkpoint;
+
+
 	END IF;
 
 	return new;
@@ -349,29 +400,24 @@ BEGIN
 					WHERE directory_log.directory_id = new.directory_id) AND
 			target_id != new.id;
 		
-		return new;
+	ELSE
+		-- обновление таблицы "directory"
+		-- UPDATE OR INSERT
+		WITH _row AS (
+			UPDATE directory SET
+				log_id = new.id,
+				path = new.path
+			WHERE rootdir_id = new.rootdir_id
+				AND ((new.directory_id IS NOT NULL AND id = new.directory_id)
+					OR (new.directory_id IS NULL AND TRUE))
+				AND ((new.directory IS NOT NULL AND directory = new.directory)
+					OR (new.directory IS NULL AND TRUE))
+			RETURNING *
+		)
+		INSERT INTO directory (id, rootdir_id, log_id, directory, path)
+			SELECT new.directory_id, new.rootdir_id, new.id, new.directory, new.path
+			WHERE NOT EXISTS (SELECT * FROM _row);
 	END IF;
-
-	-- дальнейшая обработка не нужна
-	IF new.fin = TRUE THEN
-		return new;
-	END IF;
-
-
-	WITH _row AS (
-		UPDATE directory SET
-			log_id = new.id,
-			path = new.path
-		WHERE rootdir_id = new.rootdir_id
-			AND ((new.directory_id IS NOT NULL AND id = new.directory_id)
-				OR (new.directory_id IS NULL AND TRUE))
-			AND ((new.directory IS NOT NULL AND directory = new.directory)
-				OR (new.directory IS NULL AND TRUE))
-		RETURNING *
-	)
-	INSERT INTO directory (id, rootdir_id, log_id, directory, path)
-		SELECT new.directory_id, new.rootdir_id, new.id, new.directory, new.path
-		WHERE NOT EXISTS (SELECT * FROM _row);
 
 	return new;
 END $$ LANGUAGE plpgsql;
