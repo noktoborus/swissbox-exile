@@ -837,6 +837,8 @@ _handle_write_ask(struct client *c, unsigned type, Fep__WriteAsk *msg)
 	struct spq_hint _hint;
 	char chunk_hash[PATH_MAX];
 
+	char *sat_msg = NULL;
+
 	uint64_t chunk_id = 0;
 	struct wait_file_index *wfi = NULL;
 	Fep__OkWrite wrok = FEP__OK_WRITE__INIT;
@@ -921,6 +923,7 @@ _handle_write_ask(struct client *c, unsigned type, Fep__WriteAsk *msg)
 		memset(&hint, 0u, sizeof(hint));
 		/*
 		 * если _prepare() вернул адрес и драйвер, то отослать satisfied
+		 * для контроля вызываем insert_chunk() и узнаём о готовности ревизии
 		 */
 
 		if (!spq_insert_chunk(sk,
@@ -929,10 +932,19 @@ _handle_write_ask(struct client *c, unsigned type, Fep__WriteAsk *msg)
 					&_com, &hint)) {
 			REQS_SK_REL(c, H_REQS_SQL | H_REQS_FD, sk);
 			spq_getChunkInfo_free(&_ci);
-			if (*hint.message)
-				return send_error(c, msg->id, hint.message, -1);
-			else
-				return send_error(c, msg->id, "Internal error 1240", -1);
+			if (hint.level == SPQ_ERR) {
+				if (*hint.message)
+					return send_error(c, msg->id, hint.message, -1);
+				else
+					return send_error(c, msg->id, "Internal error 1240", -1);
+			} else {
+				/*
+				 * т.к. строки разрушаются после spq_.*_free(),
+				 * то сообщение нужно скопировать для последующего использования
+				 */
+				if (*hint.message)
+					sat_msg = strdup(hint.message);
+			}
 		}
 		spq_getChunkInfo_free(&_ci);
 		/* если сборка завершена, то выставляем соотвествующий флаг */
@@ -948,7 +960,13 @@ _handle_write_ask(struct client *c, unsigned type, Fep__WriteAsk *msg)
 			/* освобождаем оба ресурса, т.к. End не прийдёт */
 			REQS_SK_REL(c, H_REQS_SQL | H_REQS_FD, sk);
 		}
-		return send_satisfied(c, msg->id);
+		{
+			/* освобождение переменных и получение результата отправки */
+			register bool __r = send_satisfied(c, msg->id, sat_msg);
+			if (sat_msg)
+				free(sat_msg);
+			return __r;
+		}
 	}
 	chunk_id = _ci.group;
 	spq_getChunkInfo_free(&_ci);

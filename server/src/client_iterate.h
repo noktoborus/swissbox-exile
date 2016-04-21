@@ -327,7 +327,7 @@ bool send_ok(struct client *c, uint64_t id, uint64_t checkpoint, char *message);
 /* всё нормально, только ждите */
 bool send_pending(struct client *c, uint64_t id);
 /* запрос уже выполнен */
-bool send_satisfied(struct client *c, uint64_t id);
+bool send_satisfied(struct client *c, uint64_t id, char *message);
 
 /* шлёт пинг, ждёт ответа, сообщает в лог о нём... */
 bool send_ping(struct client *c);

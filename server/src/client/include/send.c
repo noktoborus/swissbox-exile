@@ -109,11 +109,14 @@ send_pending(struct client *c, uint64_t id)
 }
 
 bool
-send_satisfied(struct client *c, uint64_t id)
+send_satisfied(struct client *c, uint64_t id, char *message)
 {
 	Fep__Satisfied msg = FEP__SATISFIED__INIT;
 
 	msg.id = id;
+	if (message)
+		msg.message = message;
+
 	return send_message(c->cev, FEP__TYPE__tSatisfied, &msg);
 }
 

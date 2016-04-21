@@ -459,14 +459,20 @@ BEGIN
 		SELECT nextval('file_chunk_group_seq') INTO _location_group;
 	END IF;
 
-	-- 5. вставка нового чанка
-	INSERT INTO file_chunk
-		(revision_id, file_id, chunk, size, "offset", hash, address,
-			rootdir_id, location_group)
-		VALUES (_revision_id, _file_id, _chunk_guid,
-			_chunk_size, _chunk_offset, _chunk_hash, _address,
-			_ur.r,
-			_location_group);
+	BEGIN
+		-- 5. вставка нового чанка
+		INSERT INTO file_chunk
+			(revision_id, file_id, chunk, size, "offset", hash, address,
+				rootdir_id, location_group)
+			VALUES (_revision_id, _file_id, _chunk_guid,
+				_chunk_size, _chunk_offset, _chunk_hash, _address,
+				_ur.r,
+				_location_group);
+	EXCEPTION
+		-- высылаем предупреждение, но работу можно продолжить
+		WHEN unique_violation THEN
+			r_error := '3:Chunk already exists';
+	END;
 
 	-- проверка на готовность
 	r_complete := _revision_is_complete(_revision_id);
