@@ -1008,9 +1008,11 @@ _handle_write_ask(struct client *c, unsigned type, Fep__WriteAsk *msg)
 	}
 
 	if (errmsg) {
-		fcac_close(&wx->p);
-		if (ws)
+		if (ws) {
+			/* wx является указателем на область внутри ws */
+			fcac_close(&wx->p);
 			free(ws);
+		}
 		xsyslog(LOG_WARNING,
 				"client[%"SEV_LOG"] open(%"PRIu64") failed: %s",
 				c->cev->serial, chunk_id, errmsg);
@@ -1034,6 +1036,9 @@ _handle_write_ask(struct client *c, unsigned type, Fep__WriteAsk *msg)
 #endif
 	/* добавление в очередь на ожидание */
 	if (!wait_id(c, &c->sid, msg->session_id, ws)) {
+#if !POLARSSL_LESS_138
+		sha256_free(&wx->sha256);
+#endif
 		fcac_close(&wx->p);
 		free(ws);
 		REQS_SK_REL(c, H_REQS_SQL | H_REQS_FD, sk);

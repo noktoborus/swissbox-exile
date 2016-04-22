@@ -12,6 +12,7 @@
 #include <errno.h>
 #include <string.h>
 #include <unistd.h>
+#include <assert.h>
 
 static inline bool
 _update_path(struct fcac *r)
@@ -131,18 +132,26 @@ _fcac_node_remove(struct fcac *r, struct fcac_node *n)
 	xsyslog(LOG_DEBUG, "fcac remove[id#%"PRIu64"]", n->id);
 #endif
 	if (_lock(r, n)) {
-		/* делаем все ссылки (fcac_ptr*) инвалидными */
-		for (p = n->ref; p; p = n->ref) {
-			n->ref = p->next;
-			p->n = NULL;
-			/* не заморачиваемся с ссылками,
-			 * просто ломаем список
-			 */
-			p->next = NULL;
-			p->prev = NULL;
-			if (p->fd != -1) {
-				close(p->fd);
-				p->fd = -1;
+		/* FIXME: небольшой костыль
+		 * иногда возникает ситуация,
+		 * в которой n->ref_count == 0, а n->ref != NULL
+		 * (с невалидным указателем в n->ref)
+		 * Похоже, что предтечи её возникают в fcac_close()
+		 */
+		if (n->ref_count) {
+			/* делаем все ссылки (fcac_ptr*) инвалидными */
+			for (p = n->ref; p; p = n->ref) {
+				n->ref = p->next;
+				p->n = NULL;
+				/* не заморачиваемся с ссылками,
+				 * просто ломаем список
+				 */
+				p->next = NULL;
+				p->prev = NULL;
+				if (p->fd != -1) {
+					close(p->fd);
+					p->fd = -1;
+				}
 			}
 		}
 		/* что бы вынуть узел из списка, нужно заблокировать корень */
@@ -598,8 +607,14 @@ fcac_close(struct fcac_ptr *p)
 		/* выход из списка */
 		p->n->ref_count--;
 		if (p->n->ref == p) {
+			/* TODO: нужно как-то проверить корректность указателей
+			 * похоже, что где-то выше по коду происходит повреждение указателей
+			 */
 			p->n->ref = (p->next ? p->next : p->prev);
 		}
+		/* FIXME: ждём когда обнаружится проблема снова */
+		assert(p->n->ref_count != 0 || (p->n->ref_count == 0 && p->n->ref == NULL));
+
 		if (p->next)
 			p->next->prev = p->prev;
 		if (p->prev)
