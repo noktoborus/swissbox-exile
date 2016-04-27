@@ -403,3 +403,4 @@ INSERT INTO options ("key", value_u)
 
 \i sql/proc.sql
 \i sql/triggers.sql
+\i sql/test.sql

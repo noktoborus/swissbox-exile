@@ -10,7 +10,6 @@
 
 */
 
-
 -- костыль для гроханья всех хранимых процедур
 DROP TYPE IF EXISTS _drop_ CASCADE;
 CREATE TYPE _drop_ AS ENUM ('drop');
@@ -214,6 +213,15 @@ BEGIN
 		return;
 	END IF;
 
+	-- проверка на перезапись
+	IF _ur.permit = FALSE THEN
+		r_error := concat('1:revision "', _revision_guid, '" ',
+			'already commited in rootdir "', _rootdir_guid, '" ',
+			'file "', _file_guid, '"');
+		return next;
+		return;
+	END IF;
+
 	-- проверка существования файла (и создание его)
 	IF _ur.file_id IS NULL THEN
 		WITH _x AS (
@@ -223,7 +231,7 @@ BEGIN
 		) SELECT id INTO _ur.file_id FROM _x;
 	END IF;
 
-	-- и ревизии
+	-- проверка существования ревизии
 	IF _ur.revision_id IS NULL THEN
 		-- и добавляем ревизию, если таковых нет
 		WITH _x AS (
@@ -233,7 +241,7 @@ BEGIN
 		) SELECT id INTO _ur.revision_id FROM _x;
 	END IF;
 
-	-- 0.5 проверка наличия ревизии
+	-- проверка наличия родительской ревизии
 	SELECT id, revision
 	INTO _parent
 	FROM file_revision
@@ -241,33 +249,11 @@ BEGIN
 		file_id = _ur.file_id AND
 		id = (SELECT MAX(id) FROM file_revision WHERE file_id = _ur.file_id AND fin = TRUE);
 
-	IF _parent IS NOT NULL AND
-		(_parent_revision_guid IS NULL OR
-			_parent.revision != _parent_revision_guid) THEN
-		r_error := concat('1:last revision: ', _parent.revision,
-			' offered: "', _parent_revision_guid, '"');
-		return next;
-		return;
-	END IF;
-
-	IF _parent IS NULL AND _parent_revision_guid IS NOT NULL THEN
-		r_error := concat('1:parent revision ', _parent_revision_guid, ' not found');
-		return next;
-		return;
-	END IF;
-
-	-- 1. проверка на перезапись
-	IF _ur.permit = FALSE THEN
-		r_error := concat('1:revision "', _revision_guid, '" ',
-			'already commited in rootdir "', _rootdir_guid, '" ',
-			'file "', _file_guid, '"');
-		return next;
-		return;
-	END IF;
-
 	-- prepare выполняется только для _chunks > 0
 	IF _prepare = TRUE AND _chunks > 0 THEN
-		RAISE NOTICE 'prepare ';
+		/* целостность истории проверять нет смысла
+			для предподготовки
+		 */
 		INSERT INTO file_temp SELECT
 			_ur.revision_id,
 			_dir_guid,
@@ -304,7 +290,7 @@ BEGIN
 		r_complete := _revision_is_complete(_ur.revision_id);
 	END IF;
 
-	-- 2. проверка на собранность файла
+	-- проверка на собранность файла
 	IF NOT r_complete THEN
 		r_error := concat('1:file not completed ',
 			'(rootdir "', _rootdir_guid, '", ',
@@ -312,9 +298,27 @@ BEGIN
 			'revision "', _revision_guid, '")');
 		return next;
 		return;
+	ELSE
+		/* проверка целостности истории
+			наиболее оптимально собирать после подтверждения сборки ревизии
+		 */
+		IF _parent IS NOT NULL AND
+			(_parent_revision_guid IS NULL OR
+				_parent.revision != _parent_revision_guid) THEN
+			r_error := concat('1:last revision: ', _parent.revision,
+				' offered: "', _parent_revision_guid, '"');
+			return next;
+			return;
+		END IF;
+
+		IF _parent IS NULL AND _parent_revision_guid IS NOT NULL THEN
+			r_error := concat('1:parent revision ', _parent_revision_guid, ' not found');
+			return next;
+			return;
+		END IF;
 	END IF;
 
-	-- 3. обновление файла
+	-- обновление файла
 	WITH __x AS (
 		UPDATE file
 		SET
@@ -338,7 +342,7 @@ BEGIN
 		(__x.filename IS NOT NULL AND _filename IS NULL) OR
 		(__x.directory_id IS NOT NULL AND _ur.directory_id IS NULL);
 
-	-- 4. обновление ревизии
+	-- обновление ревизии
 	IF _parent_revision_guid IS NOT NULL THEN
 		SELECT NULL INTO _row;
 		SELECT * INTO _row FROM file_revision
@@ -1522,97 +1526,5 @@ BEGIN
 	r_length := _r.x_length;
 	r_store := _r.x_store;
 	return next;
-END $$ LANGUAGE plpgsql;
-
--- Test
-
-CREATE OR REPLACE FUNCTION t(stage integer DEFAULT 0,
-	_drop_ _drop_ DEFAULT 'drop')
-	RETURNS TABLE (r1 text, r2 bigint) AS $$
-DECLARE
-	_user_id bigint;
-	_rootdir record;
-	_dir record;
-	_file record;
-	_res record;
-BEGIN
-	IF 1 > stage THEN
-		-- добавление нового пользователя
-		INSERT INTO "user" (username, secret) VALUES ('bob', 'bob');
-	END IF;
-
-	SELECT INTO _user_id id FROM "user" WHERE username = 'bob';
-	-- получение рутовой директории и создания подпапки
-	SELECT INTO _rootdir rootdir AS guid, id
-	FROM rootdir WHERE user_id = _user_id LIMIT 1;
-
-	-- регистрируемся
-	PERFORM begin_life('bob', 120);
-
-	IF 2 > stage THEN
-		-- создаём новую директорию
-		PERFORM directory_create (_rootdir.guid, gen_random_uuid(), '/bla-bla');
-	END IF;
-
-	-- получении информации о директории
-	-- (нужно искать по guid, но в тесте не имеет значения)
-	SELECT INTO _dir directory AS guid, id
-	FROM directory WHERE path = '/bla-bla';
-
-
-	IF 3 > stage THEN
-		-- сохраняем мету для файла
-		SELECT INTO _file
-			gen_random_uuid() AS guid,
-			gen_random_uuid() AS revision_guid;
-
-		RAISE NOTICE 'insert revision %, file %', _file.revision_guid, _file.guid;
-		-- впихиваем файл почанково (два чанка)
-		PERFORM insert_chunk(_rootdir.guid,
-			_file.guid, _file.revision_guid, gen_random_uuid(),
-			'hexhash', 1024, 0, 'host/none');
-		PERFORM insert_chunk(_rootdir.guid,
-			_file.guid, _file.revision_guid, gen_random_uuid(),
-			'hexhash', 1024, 1024, 'host/none');
-
-		-- закрываем ревизию
-		SELECT INTO _res * FROM insert_revision(_rootdir.guid,
-			_file.guid, _file.revision_guid,
-			NULL, 'purpur.raw', '', _dir.guid, 2);
-
-		r1 := _res.r_error;
-		r2 := _res.r_checkpoint;
-		return next;
-
-		-- новая ревизия c parent_revision
-		SELECT INTO _file
-			_file.guid AS guid,
-			_file.revision_guid AS parent_guid,
-			gen_random_uuid() AS revision_guid;
-
-		RAISE NOTICE 'insert revision %, file %', _file.revision_guid, _file.guid;
-		PERFORM insert_chunk(_rootdir.guid,
-			_file.guid, _file.revision_guid, gen_random_uuid(),
-			'hexhash', 1024, 0, 'host/none');
-		PERFORM insert_chunk(_rootdir.guid,
-			_file.guid, _file.revision_guid, gen_random_uuid(),
-			'hexhash', 1024, 1024, 'host/none');
-
-		SELECT INTO _res * FROM insert_revision(_rootdir.guid,
-			_file.guid, _file.revision_guid,
-			_file.parent_guid, 'purpur.raw', '', _dir.guid, 2);
-
-		r1 := _res.r_error;
-		r2 := _res.r_checkpoint;
-		return next;
-	END IF;
-
-	-- смена устройства
-	PERFORM begin_life('bob', 121);
-
-
-	r1 := NULL;
-	r2 := NULL;
-	return;
 END $$ LANGUAGE plpgsql;
 
