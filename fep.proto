@@ -392,7 +392,7 @@ message End {
 	required uint32 session_id = 2;
 
 	/* опциональное поле-контролёр: сколько пакетов было отослано в сессии */
-	optional uint32 packets = 4;
+	required uint32 packets = 4;
 }
 
 /* Направление: S->C

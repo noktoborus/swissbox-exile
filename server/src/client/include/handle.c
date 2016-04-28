@@ -489,10 +489,21 @@ _handle_end(struct client *c, unsigned type, Fep__End *end)
 		REQS_SK_REL(c, H_REQS_SQL, sk);
 		return send_error(c, end->id, "Unexpected End message", -1);
 	}
+
+	if (ws->packets != end->packets) {
+		char _err[1024];
+		sid_free(ws);
+		REQS_SK_REL(c, H_REQS_SQL, sk);
+		snprintf(_err, sizeof(_err),
+				"packets received: %"PRIu32", expected: %"PRIu32,
+				ws->packets, end->packets);
+		return send_error(c, end->id, _err, -1);
+	}
+
 	if (!(wx = ws->data) || !(wf = wx->wf)) {
 		snprintf(errmsg, sizeof(errmsg), "Internal error 1928 wx=%c, wf=%c",
 				wx ? 'y' : 'n', wx ? 'y' : 'n');
-		sid_free(ws->data);
+		sid_free(ws);
 		REQS_SK_REL(c, H_REQS_SQL, sk);
 		return send_error(c, end->id, "Internal error 1928", -1);
 	}
@@ -543,6 +554,7 @@ _handle_end(struct client *c, unsigned type, Fep__End *end)
 	}
 
 	sid_free(ws);
+
 	if (!*errmsg) {
 		/* нет смысла пытаться отправить "Ok" клиенту, если
 		 * соеденение отвалилось при отправке OkUpdate
@@ -1387,6 +1399,7 @@ _handle_xfer(struct client *c, unsigned type, Fep__Xfer *xfer)
 		return send_error(c, xfer->id, "Unexpected xfer message", -1);
 	}
 	wx = ws->data;
+	ws->packets++;
 
 	/* FIXME: сойдёт и так, но всё же нужно слать Satisfied по WriteAsk */
 	ready = fcac_is_ready(&wx->p);

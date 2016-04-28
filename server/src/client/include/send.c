@@ -11,7 +11,6 @@ send_end(struct client *c, uint32_t session_id, uint32_t packets)
 
 	msg.id = generate_id(c);
 	msg.session_id = session_id;
-	msg.has_packets = true;
 	msg.packets = packets;
 
 	return send_message(c->cev, FEP__TYPE__tEnd, &msg);

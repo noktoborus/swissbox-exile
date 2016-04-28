@@ -350,6 +350,9 @@ typedef struct wait_store
 	enum handle_reqs_t reqs;
 	struct spq_key *sk;
 	struct client *c;
+
+	/* счётчик пакетов в сессии */
+	uint32_t packets;
 } wait_store_t;
 
 struct wait_xfer {
