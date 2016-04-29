@@ -1289,6 +1289,8 @@ BEGIN
 	/* запрос из-за этого заметно тормозит, зато не тормозит клиент
 	 и не забивается канал
 	 */
+	-- Вариант без оптимизации:
+	-- return QUERY SELECT * FROM history_list(_rootdir, _checkpoint);
 	return QUERY
 		SELECT
 			e.r_type,
