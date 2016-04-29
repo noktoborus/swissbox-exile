@@ -3,6 +3,60 @@
 /* тестики */
 
 -- Test
+CREATE OR REPLACE FUNCTION bug_DDB419(_drop_ _drop_ DEFAULT 'drop')
+	RETURNS void AS $$
+DECLARE
+	r record;
+	rootdir uuid DEFAULT '00000001-2003-5406-7008-900000000000'::UUID;
+	dir1 uuid DEFAULT '6212c1a4-9551-47a6-9bbe-4e07cc60633a'::UUID;
+	dir2 uuid DEFAULT '1b8c0d06-0817-4964-a99c-364004ba51b4'::UUID;
+	dir3 uuid DEFAULT '7ca70a0f-0345-407c-b2b6-fdf64b2ad62a'::UUID;
+BEGIN
+	INSERT INTO "user" (username, secret) VALUES ('ddb419', 'ddb419');
+	PERFORM begin_life('ddb419', 419);
+
+	/* создание /dir4 */
+	SELECT * INTO r FROM directory_create(rootdir, dir1, 'dir4');
+	RAISE NOTICE 'directory_create(dir1): %', r;
+
+	/* создание /dir5 */
+	SELECT * INTO r FROM directory_create(rootdir, dir2, 'dir5');
+	RAISE NOTICE 'directory_create(dir2): %', r;
+
+	/* создание /dir2_rename */
+	SELECT * INTO r FROM directory_create(rootdir, dir3, 'dir2_rename');
+	RAISE NOTICE 'directory_create(dir3): %', r;
+
+	/* перемещение /dir5 в /dir4 */
+	SELECT * INTO r FROM directory_create(rootdir, dir2, 'dir4/dir5');
+	RAISE NOTICE 'directory_create(dir2): %', r;
+
+	/* перемещение /dir4/dir5 в /dir2_rename/dir4 */
+	SELECT * INTO r FROM directory_create(rootdir, dir2, 'dir2_rename/dir4/dir5');
+	RAISE NOTICE 'directory_create(dir2): %', r;
+
+	/* перемещение /dir4 в /dir2_rename */
+	SELECT * INTO r FROM directory_create(rootdir, dir1, 'dir2_rename/dir4');
+	RAISE NOTICE 'directory_create(dir1): %', r;
+
+	/* проверка на корректность, проверка покрывает не все результаты,
+	  но хрен с ними
+	*/
+	SELECT
+		string_agg(r_name, ', ') AS r1,
+		COUNT(*) AS c1
+	INTO r
+	FROM log_list(rootdir, 0)
+	WHERE r_directory IN (dir1, dir2, dir3) AND
+		r_name NOT IN ('/dir2_rename/', '/dir2_rename/dir4/', '/dir2_rename/dir4/dir5/');
+	IF r.c1 != 0 THEN
+		RAISE EXCEPTION 'check failed, result: %', r.r1;
+	ELSE
+		RAISE NOTICE 'OK';
+	END IF;
+
+END $$ LANGUAGE plpgsql;
+
 CREATE OR REPLACE FUNCTION bug_DDB375(_drop_ _drop_ DEFAULT 'drop')
 	RETURNS void AS $$
 DECLARE

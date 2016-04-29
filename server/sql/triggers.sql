@@ -196,7 +196,6 @@ DECLARE
 BEGIN
 	-- предпологается что в new.path уже нормализованный путь
 	-- (см. directory_log.path)
-
 	IF new.fin = TRUE THEN
 		-- если финализация, то дальнейшая обработка не нужна
 		-- FIXME: костыль
@@ -238,7 +237,7 @@ BEGIN
 			return new;
 		END IF;
 
-		new.path = _row.path;
+		_old_path = _row.path;
 		new.directory_id = _row.directory_id;
 
 		-- получение чекпоинта
@@ -263,9 +262,9 @@ BEGIN
 		-- обход списка поддиректорий, пометка как удалённых
 		-- и создание спрятанного евента для checkpoint
 		FOR _row IN
-			SELECT id, directory FROM directory
+			SELECT id, directory, path AS oldpath FROM directory
 			WHERE rootdir_id = new.rootdir_id AND
-			directory.path LIKE new.path || '%' AND
+			directory.path LIKE _old_path || '%' AND
 			directory.id != new.directory_id
 			ORDER BY id ASC
 		LOOP
@@ -293,7 +292,6 @@ BEGIN
 				);
 		END LOOP;
 
-		new.path := NULL;
 		new.fin := TRUE;
 	ELSE
 		-- переименование или создание директории
@@ -335,13 +333,14 @@ BEGIN
 				SELECT
 					id,
 					directory,
+					path AS oldpath,
 					new.path
 						|| substring(path from char_length(_old_path) + 1)
 						AS path
 				FROM directory
 				WHERE rootdir_id = new.rootdir_id AND
-				directory.path LIKE new.path || '%' AND
-				directory.id != new.directory_id
+					directory.path LIKE _old_path || '%' AND
+					directory.id != new.directory_id
 				ORDER BY id ASC
 			LOOP
 				INSERT
