@@ -1131,8 +1131,8 @@ BEGIN
 	return;
 END $$ LANGUAGE plpgsql;
 
--- листинг лога
-CREATE OR REPLACE FUNCTION log_list(_rootdir UUID, _checkpoint bigint,
+-- листинг истории
+CREATE OR REPLACE FUNCTION history_list(_rootdir UUID, _checkpoint bigint,
 	_drop_ _drop_ DEFAULT 'drop')
 	RETURNS TABLE
 	(
@@ -1152,18 +1152,12 @@ DECLARE
 	_row record;
 	_xrow record;
 BEGIN
-	-- 1. текущее состояние, если указана рутдира и checkpoint = 0
-	IF _checkpoint = 0 AND _rootdir IS NOT NULL THEN
-		return QUERY SELECT * FROM state_list(_rootdir);
-		return;
-	END IF;
-
 	SELECT INTO _ur
 		r_user_id AS user_id,
 		r_device_id AS device_id
 	FROM life_data();
 
-	-- 2. листинг лога
+	/* перебор значений в таблице "event" */
 	FOR _row IN
 		SELECT * FROM event
 		WHERE user_id = _ur.user_id AND
@@ -1267,6 +1261,59 @@ BEGIN
 		END CASE;
 		return next;
 	END LOOP;
+END $$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION log_list(_rootdir UUID, _checkpoint bigint,
+	_drop_ _drop_ DEFAULT 'drop')
+	RETURNS TABLE
+	(
+		r_type event_type,
+		r_checkpoint bigint,
+		r_rootdir UUID,
+		r_file UUID,
+		r_revision UUID,
+		r_directory UUID,
+		r_parent_revision UUID,
+		r_name text,
+		r_pubkey text,
+		r_count integer
+	) AS $$
+DECLARE
+BEGIN
+	-- 1. текущее состояние, если указана рутдира и checkpoint = 0
+	IF _checkpoint = 0 AND _rootdir IS NOT NULL THEN
+		return QUERY SELECT * FROM state_list(_rootdir);
+		return;
+	END IF;
+
+	/* запрос из-за этого заметно тормозит, зато не тормозит клиент
+	 и не забивается канал
+	 */
+	return QUERY
+		SELECT
+			e.r_type,
+			MAX(e.r_checkpoint),
+			e.r_rootdir,
+			e.r_file,
+			e.r_revision,
+			e.r_directory,
+			e.r_parent_revision,
+			e.r_name,
+			e.r_pubkey,
+			e.r_count
+		FROM history_list(_rootdir, _checkpoint) AS e
+		GROUP BY
+			e.r_type,
+			e.r_rootdir,
+			e.r_revision,
+			e.r_directory,
+			e.r_file,
+			e.r_parent_revision,
+			e.r_name,
+			e.r_pubkey,
+			e.r_count
+		ORDER BY MAX(e.r_checkpoint);
+
 END $$ LANGUAGE plpgsql;
 
 -- проверка имени пользователя и возврат всякой секурной информации
