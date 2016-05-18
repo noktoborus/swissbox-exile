@@ -665,7 +665,12 @@ def proto(s, user, secret, devid, cmd = None):
         a = ""
         write_std('input queue len: %s\n' %(len(_input_queue)))
         if cmd:
+            print("%% INPUT %s" %str(cmd))
             c = cmd.pop()
+            if ' ' in c:
+                c = c.split(' ', 1)
+                a = c[1]
+                c = c[0]
         elif g != "" and not g is None:
             c = g
             g = ""
