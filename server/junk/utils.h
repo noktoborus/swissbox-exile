@@ -13,6 +13,8 @@
 # include <limits.h>
 #endif
 
+#include "hex.h"
+
 #ifndef PATH_MAX
 # ifdef MAX_PATH
 #  define PATH_MAX MAX_PATH
@@ -34,8 +36,6 @@
 #define PUBKEY_MAX 1024
 
 uint32_t hash_pjw(const char *str, size_t size);
-size_t hex2bin(const char *hex, size_t hex_len, uint8_t *binary, size_t bin_len);
-size_t bin2hex(uint8_t *binary, size_t bin_len, char *string, size_t str_len);
 
 /*
  * отправляет в нижний регистр строку

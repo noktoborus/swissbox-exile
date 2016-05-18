@@ -7,7 +7,7 @@ BIN=bin/server
 SRC=src/
 SIMPLEPQ=simplepq/simplepq.c
 SQUEUE=squeue/squeue.c
-JUNK=junk/guid.c junk/utils.c junk/almsg.c junk/curlev/curlev.c
+JUNK=junk/guid.c junk/utils.c junk/hex.c junk/almsg.c junk/curlev/curlev.c
 AS3=${SRC}/as3/as3.c
 FCAC=${SRC}/fcac/fcac.c
 
